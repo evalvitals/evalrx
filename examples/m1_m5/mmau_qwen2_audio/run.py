@@ -31,10 +31,10 @@ hand-supplied hypothesis and lets the loop discover its own:
                                    statistical significance)
     5. loop.run_fix               FixAgent's tiered candidates — including the
                                    paper-registered ``tcd_temporal_blur`` L3a
-                                   candidate (fix_agent.py's admission gate:
+                                   candidate (fix/proposal.py's admission gate:
                                    has_audio + task=="multiple_choice" +
                                    paper_method_fidelity — see
-                                   ``evalrx/eval_agent/stages/fix_agent.py``,
+                                   ``evalrx/eval_agent/stages/fix/agent.py``,
                                    search ``_l3_candidates``) — validated on a
                                    held-out CONFIRM split the loop's own M1–M4
                                    discovery never saw (``--confirm-split``).
@@ -379,7 +379,7 @@ def _run_smoke_test(args: argparse.Namespace) -> None:
     if "tcd_temporal_blur" not in names:
         raise SystemExit(
             "Smoke test FAILED: tcd_temporal_blur was never proposed -- the L3a "
-            "admission gate (fix_agent.py _l3_candidates) did not fire. Check "
+            "admission gate (fix/proposal.py _l3_candidates) did not fire. Check "
             "case.metadata['task']=='multiple_choice', --fix-max-tier>=L3a, and "
             "the model's generate_tcd/generate_tcd_baseline/paper_method_fidelity."
         )
@@ -443,6 +443,7 @@ def _run_tcd_confirmation(args: argparse.Namespace) -> int:
         FixTier,
         RunContext,
     )
+    from evalrx.eval_agent.stages.fix.verdict import verdict
 
     ctx = RunContext(
         args.run_dir,
@@ -546,7 +547,7 @@ def _run_tcd_confirmation(args: argparse.Namespace) -> int:
         validation.reject = bool(stat.reject)
         validation.e_value = stat.e_value
         validation.fixed = validation.reject and (validation.effect or 0.0) > 0
-        validation.verdict = FixAgent._verdict(validation)
+        validation.verdict = verdict(validation)
         validation.summary = f"{stat.summary()} [{validation.verdict}, coverage=100%]"
         candidate.source = "preregistered_paper_default_sequential"
         (ctx.artifacts_dir / "incremental_result.json").write_text(
@@ -720,7 +721,7 @@ def main() -> int:
           f"({baseline['correct']}/{baseline['n']})")
 
     cases = make_cases(rows, baseline)
-    # The tcd_temporal_blur admission gate (fix_agent.py _l3_candidates) is an
+    # The tcd_temporal_blur admission gate (fix/proposal.py _l3_candidates) is an
     # EXACT set match on case.metadata["task"] -- if this ever drifts (a case
     # loses the key, or gains a second task tag), TCD silently stops being
     # proposed with no error anywhere downstream. Fail loud, here, first.

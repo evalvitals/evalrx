@@ -2,30 +2,22 @@
 
 Two loops are available:
 
-  AutoDiagnoseLoop   M1 → M2 → M3 → M5 (legacy, four-stage sweep)
-  VLDiagnoseLoop     M1 → M2 → M3 → M4 inner loop, M5 called post-loop (Plan A)
-                     Stops when M4 finds a statistically supported,
-                     protocol-consistent hypothesis.
+  VLDiagnoseLoop       M1 → M2 → M3 → M4 inner loop, M5 called post-loop (Plan A)
+                       Stops when M4 finds a statistically supported,
+                       protocol-consistent hypothesis.
+  AgenticDiagnoseLoop  the same stages, driven by a judge-decided action loop.
 
 Stage modules live in ``stages/``; shared infrastructure stays at the top level.
 The CLI-agent runtime (sandboxing, code generation, providers, judge models,
 skills) lives in ``evalrx.agent_runtime`` — shared with ``evalrx.analysis``
-so neither package depends on the other. ``cli_agent.py`` / ``cli_skills.py``
-remain here as compatibility facades over that runtime.
+so neither package depends on the other.
 
 Top-level (shared / orchestration):
-  loop.py              AutoDiagnoseLoop, VLDiagnoseLoop, SelfEvolveLoop
+  loop.py              VLDiagnoseLoop
+  loop_fix.py          run_fix orchestration: fix targets, tier ladder, EXPLORE→CONFIRM
   run_logger_v2.py     RunLoggerV2 — run.json + per-stage M<n>/log.json event log
   hypothesis.py        Hypothesis, HypothesisStatus, serialization helpers
-  cli_agent.py         compatibility facade over agent_runtime CLI providers/judges
-  cli_skills.py        compatibility facade over agent_runtime.skills.installer
   store.py             Store / InMemoryStore / JsonlStore — persistent memory
-  orchestrator.py      thin facade over the loop (pre-registered A/B)
-  ab_runner.py         A/B execution across prompting strategies
-  report.py            DiagnosticReport — final diagnostic conclusions
-  evolution.py         EvolutionStore — JSONL lesson store, 30-day half-life decay
-  preregister.py       pre-registration helpers (DataSplit, PreregisteredHypothesis)
-  git_manager.py       git-native experiment versioning (eval/{run_id} branches)
 
 evalrx.agent_runtime (shared CLI-agent runtime, imports neither analysis nor eval_agent):
   cli_types.py         CliAgentConfig / CliAgentResult
@@ -65,21 +57,29 @@ stages/ (M1–M4 implementation):
   surgery.py           M5 — SurgeryAgent: correlate / param-sweep / ExperimentWriter
                               → InterventionResult (SUPPORTED / REFUTED / INCONCLUSIVE)
   experiment_writer.py M5 — multi-phase LLM/CLI agent writes + executes fix scripts
-  fix_tiers.py         Fix — FixTier intervention-space ladder (L0 runtime /
-                              L1 prompt / L2 scaffold / L3a read / L3b write /
-                              L4 params)
+  fix/                 Fix — post-loop tiered repair (FixAgent and collaborators):
+    agent.py             FixAgent: orchestrates propose -> validate ->
+                              FixOutcome (+ tier recommendation)
+    types.py             FixCandidate / FixValidation / FixOutcome / FixContext
+    tiers.py             FixTier ladder (L0 runtime / L1 prompt / L2 scaffold /
+                              L3a read / L3b write / L4 params)
                               + hypothesis -> minimum-tier routing
-  fix_tools.py         Fix — L2 tool catalog (zoom/contrast/equalize/upscale)
+    proposal.py          FixProposer: candidates per tier, built-in repairs
+    codegen.py           PipelineCoder: write / run / repair coded pipelines
+    validation.py        CandidateValidator: baseline + paired validation
+    verdict.py           verdicts, e-BH, no-fix recommendations
+    recorder.py          FixRecorder: run-log writes
+    descriptions.py      plain-language candidate descriptions
+    tools.py             L2 tool catalog (zoom/contrast/equalize/upscale)
                               + PipelineSpec executor around the unchanged model
-  fix_agent.py         Fix — FixAgent: tiered candidates -> paired McNemar
-                              validation -> FixOutcome (+ tier recommendation)
-  fix_pipeline.py      Fix — L2 coded pipelines: sandboxed agent code with
+    pipeline.py          L2 coded pipelines: sandboxed agent code with
                               bridged model access (model_generate/model_attend)
-  fix_internals.py     Fix — L3a attention-guided crop, L3b intervention
+    internals.py         L3a attention-guided crop, L3b intervention
                               primitives (visual embedding boost); L4
                               FinetuneSpec + run_lora_repair (v1: LoRA on
                               target="llm" only, trained on a caller-supplied
                               finetune_pool; other recipe shapes recorded only)
+    repair_catalog.py    discovery of pre-audited model repair capabilities
   hypothesis_tester.py M4 — HypothesisTester: statistical test + protocol consistency;
                               stopping_criteria_met() drives the VLDiagnoseLoop exit
 """
@@ -122,15 +122,12 @@ from evalrx.analysis.stats_tools import (
     fdr_correct,
     run_stats_tool,
 )
-from evalrx.eval_agent.ab_runner import ABResult, ABRunner
 from evalrx.eval_agent.agentic import (
     AgenticDiagnoseLoop,
     ToolOutcome,
     ToolRegistry,
     ToolSpec,
 )
-from evalrx.eval_agent.evolution import EvolutionStore, LessonEntry, extract_lessons
-from evalrx.eval_agent.git_manager import ExperimentGitManager
 from evalrx.eval_agent.hypothesis import (
     Hypothesis,
     HypothesisGenerator,
@@ -139,7 +136,6 @@ from evalrx.eval_agent.hypothesis import (
     hypothesis_from_dict,
     hypothesis_to_dict,
 )
-from evalrx.eval_agent.legacy import AutoDiagnoseLoop, SelfEvolveLoop
 from evalrx.eval_agent.log_schema import (
     RUN_LOG_SCHEMA_VERSION,
     SCHEMA_PATH,
@@ -151,14 +147,6 @@ from evalrx.eval_agent.log_schema import (
 from evalrx.eval_agent.loop import VLDiagnoseLoop
 from evalrx.eval_agent.loop_reports import AutoDiagnoseReport, VLDiagnoseReport
 from evalrx.eval_agent.nl_runner import scaffold_from_description
-from evalrx.eval_agent.orchestrator import EvalOrchestrator
-from evalrx.eval_agent.preregister import (
-    DataSplit,
-    PreregisteredHypothesis,
-    PreregistrationLog,
-    Split,
-)
-from evalrx.eval_agent.report import DiagnosticReport
 from evalrx.eval_agent.run_context import RunContext
 from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
 from evalrx.eval_agent.stages.case_discovery import (
@@ -173,19 +161,15 @@ from evalrx.eval_agent.stages.experiment_writer import (
     SolutionNode,
     build_model_context,
 )
-from evalrx.eval_agent.stages.fix_agent import (
-    FixAgent,
-    FixCandidate,
-    FixOutcome,
-    FixValidation,
-)
-from evalrx.eval_agent.stages.fix_internals import (
+from evalrx.eval_agent.stages.fix.agent import FixAgent
+from evalrx.eval_agent.stages.fix.internals import (
     INTERNALS_PRIMITIVES,
     FinetuneSpec,
     InternalsPrimitive,
 )
-from evalrx.eval_agent.stages.fix_tiers import FixTier, parse_tier, route_min_tier
-from evalrx.eval_agent.stages.fix_tools import PipelineSpec
+from evalrx.eval_agent.stages.fix.tiers import FixTier, parse_tier, route_min_tier
+from evalrx.eval_agent.stages.fix.tools import PipelineSpec
+from evalrx.eval_agent.stages.fix.types import FixCandidate, FixOutcome, FixValidation
 from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTester, HypothesisTestResult
 from evalrx.eval_agent.stages.probe import ModelKind, StrategyProbe
 from evalrx.eval_agent.stages.probe_agent import ProbeAgent
@@ -242,9 +226,7 @@ __all__ = [
     "SurgeryAgent",
     "InterventionResult",
     # Loop
-    "AutoDiagnoseLoop",
     "AutoDiagnoseReport",
-    "SelfEvolveLoop",
     "VLDiagnoseLoop",
     "VLDiagnoseReport",
     # Agentic loop (judge-decided M1-M4, alternative to VLDiagnoseLoop's fixed cycle)
@@ -284,7 +266,6 @@ __all__ = [
     "HypothesisTester",
     "HypothesisTestResult",
     # Shared
-    "EvalOrchestrator",
     "Hypothesis",
     "HypothesisGenerator",
     "ManualHypothesisGenerator",
@@ -294,13 +275,6 @@ __all__ = [
     "Store",
     "InMemoryStore",
     "JsonlStore",
-    "ABRunner",
-    "ABResult",
-    "DataSplit",
-    "Split",
-    "PreregisteredHypothesis",
-    "PreregistrationLog",
-    "DiagnosticReport",
     "RunContext",
     "RunLoggerV2",
     # Published event schema
@@ -328,12 +302,6 @@ __all__ = [
     "create_sandbox",
     # NL scaffold
     "scaffold_from_description",
-    # Git versioning
-    "ExperimentGitManager",
-    # Evolution store
-    "EvolutionStore",
-    "LessonEntry",
-    "extract_lessons",
     # CLI agents
     "CliAgentConfig",
     "CliAgentResult",

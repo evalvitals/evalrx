@@ -17,9 +17,6 @@ See also:
   - :class:`~evalrx.eval_agent.agentic.AgenticDiagnoseLoop` — the same
     M1-M4 stages driven by a judge-decided action loop instead of a fixed
     cycle.
-  - :mod:`~evalrx.eval_agent.legacy` — ``SelfEvolveLoop`` and
-    ``AutoDiagnoseLoop`` (the pre-2026-06-05 M1→M2→M3→M5 architecture), kept
-    for existing callers.
 
 Usage::
 
@@ -41,9 +38,20 @@ from __future__ import annotations
 import logging
 import random
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from evalrx.eval_agent.loop_fix import (
+    _climb_ladder,
+    _confirm_from_explore,
+    _fix_context_from_report,
+    _fix_hypotheses,
+    _log_fix,
+    _merge_rungs,
+    _propose_and_validate,
+    _unverified_hypotheses,
+)
 from evalrx.eval_agent.loop_reports import VLDiagnoseReport
 from evalrx.eval_agent.run_metadata import (
     _attach_run_logger,
@@ -70,8 +78,37 @@ _STOPPED_BY_NO_HYPS   = "no_hypotheses"
 _STOPPED_BY_DIAG_ERROR = "diagnosis_error"
 _STOPPED_BY_NO_PROBE  = "no_probe_results"
 # run_analysis() ran M1->M2->M3 and proposed hypotheses without confirming them
-# (M4 deferred to run_confirm()). Not a failure — the analysis dashboard is ready.
+# (M4 deferred to run_confirm()). Not a failure — the analysis report is ready.
 _STOPPED_BY_ANALYSIS  = "analysis_complete"
+
+
+@dataclass
+class _LoopState:
+    """What :meth:`VLDiagnoseLoop.run` accumulates across cycles."""
+
+    hypotheses: list = field(default_factory=list)
+    test_results: list = field(default_factory=list)
+    #: Each finished cycle's summary, M3's context for the next one.
+    prior_cycles: list = field(default_factory=list)
+    stats_report: Any = None
+    #: The last M1's analyzers — what the held-out M4 pass re-runs.
+    analyzer_names: list = field(default_factory=list)
+
+
+def _cycle_summary(cycle: int, stats_report: Any, hypotheses: list) -> dict[str, Any]:
+    """One finished cycle as the next M3 call sees it."""
+    return {
+        "cycle": cycle,
+        "severity": stats_report.severity,
+        "hypotheses": [
+            {
+                "statement": h.statement,
+                "failure_mode": h.predicted_failure_mode,
+                "status": h.status.value if h.status else "pending",
+            }
+            for h in hypotheses
+        ],
+    }
 
 
 def _exact_size(picked: "list", pool: "list", n: int, seed: int) -> "list":
@@ -114,172 +151,6 @@ def _diagnose_with_optional_context(
     return diag_agent.diagnose(stats_report, **kwargs)
 
 
-def _propose_and_validate(agent: "Any", model: "Any", data: "Any", hypotheses: "Any",
-                          **kwargs: Any) -> "Any":
-    """Call ``agent.propose_and_validate`` passing ``prior_attempts`` /
-    ``context`` only when the agent accepts them (custom/stub fix agents keep
-    working unchanged — same pattern as ``_diagnose_with_optional_context``)."""
-    import inspect as _inspect
-
-    try:
-        params = _inspect.signature(agent.propose_and_validate).parameters
-    except (TypeError, ValueError):
-        params = {}
-    accepts_any = any(p.kind == p.VAR_KEYWORD for p in params.values())
-    passed = {k: v for k, v in kwargs.items()
-              if v is not None and (accepts_any or k in params)}
-    return agent.propose_and_validate(model, data, hypotheses, **passed)
-
-
-def _unverified_hypotheses(report: "Any") -> "list[Any]":
-    """Best-first UNVERIFIED hypotheses: M4-tested and not refuted, highest
-    confidence first; then untested proposals from the last cycle."""
-    seen: set[str] = set()
-    out: list[Any] = []
-    tested = list(getattr(report, "all_test_results", None) or [])
-
-    def _critic_ok(tr: "Any") -> int:
-        meta = getattr(getattr(tr, "hypothesis", None), "metadata", None) or {}
-        return 0 if meta.get("critic") == "reject" else 1
-
-    ranked = sorted(
-        tested,
-        key=lambda tr: (float(getattr(tr, "confidence", 0.0) or 0.0), _critic_ok(tr)),
-        reverse=True,
-    )
-    for tr in ranked:
-        h = getattr(tr, "hypothesis", None)
-        if h is None or _hyp_key(h) in seen:
-            continue
-        seen.add(_hyp_key(h))  # tested (in any way) -> never re-added as "untested"
-        status = getattr(tr, "status", None)
-        status_s = str(getattr(status, "value", status) or "").lower()
-        if status_s == "refuted":
-            continue
-        out.append(h)
-    for h in reversed(list(getattr(report, "final_hypotheses", None) or [])):
-        if _hyp_key(h) not in seen:
-            seen.add(_hyp_key(h))
-            out.append(h)
-    return out
-
-
-def _m5_supported_key(report: "Any") -> "str | None":
-    """Key of the hypothesis M5's experiment SUPPORTED, if any."""
-    iv = getattr(report, "fix_proposal", None)
-    status = getattr(iv, "status", None)
-    status_s = str(getattr(status, "value", status) or "").lower()
-    hyp = getattr(iv, "hypothesis", None)
-    if iv is None or hyp is None or status_s != "supported":
-        return None
-    return _hyp_key(hyp)
-
-
-def _hyp_key(hypothesis: "Any") -> str:
-    """Identity of a hypothesis for matching across M4/M5 results."""
-    hid = str(getattr(hypothesis, "id", "") or "")
-    return hid or str(getattr(hypothesis, "statement", hypothesis))
-
-
-def _m5_refuted(report: "Any") -> "tuple[set[str], list[str]]":
-    """Hypotheses M5's intervention experiment REFUTED, with a one-line why.
-
-    Reads ``report.fix_proposal`` (an ``InterventionResult`` from ``run_m5``).
-    Returns ``(keys, notes)``; both empty when M5 did not run or did not refute.
-    """
-    iv = getattr(report, "fix_proposal", None)
-    if iv is None:
-        return set(), []
-    status = getattr(iv, "status", None)
-    status_s = str(getattr(status, "value", status) or "").lower()
-    if status_s != "refuted":
-        return set(), []
-    hyp = getattr(iv, "hypothesis", None)
-    if hyp is None:
-        return set(), []
-    statement = str(getattr(hyp, "statement", hyp))
-    evidence = getattr(iv, "evidence", None) or {}
-    scalars = []
-    if isinstance(evidence, dict):
-        for k, v in evidence.items():
-            if isinstance(v, (int, float)) and not isinstance(v, bool):
-                scalars.append(f"{k}={v:g}" if isinstance(v, float) else f"{k}={v}")
-            if len(scalars) >= 8:
-                break
-    why = f" [experiment: {', '.join(scalars)}]" if scalars else ""
-    return {_hyp_key(hyp)}, [f"{statement}{why}"]
-
-
-def _fix_context_from_report(
-    report: "Any",
-    *,
-    example_cases: "Any | None",
-    explore_context: "Any | None",
-    protocol: "Any | None",
-    refuted: "list[str]",
-    refuted_ids: "set[str] | None" = None,
-) -> "Any":
-    """Build the :class:`~evalrx.eval_agent.stages.fix_agent.FixContext`
-    the proposer sees: M4 verdicts + M2 conclusion/tests + exploratory notes,
-    the M5-refuted hypotheses, and (when a confirm split is in play) the
-    EXPLORE cases in full."""
-    from evalrx.eval_agent.stages.fix_agent import FixContext
-
-    lines: list[str] = []
-    refuted_ids = set(refuted_ids or ())
-    verified = [
-        tr for tr in list(getattr(report, "verified_hypotheses", None) or [])
-        if _hyp_key(getattr(tr, "hypothesis", None)) not in refuted_ids
-    ]
-    if verified:
-        lines.append("  M4 verified hypotheses (statistical tests on the diagnosis split):")
-        for tr in verified[:6]:
-            stmt = str(getattr(getattr(tr, "hypothesis", None), "statement", ""))[:220]
-            verdict = str(getattr(tr, "verdict", "") or "")[:300]
-            conf = getattr(tr, "confidence", None)
-            grade = getattr(tr, "evidence_grade", "")
-            conf_s = f" conf={conf:.2f}" if isinstance(conf, (int, float)) else ""
-            lines.append(f"    - {stmt}{conf_s} grade={grade}")
-            if verdict:
-                lines.append(f"        evidence: {verdict}")
-    stats = getattr(report, "final_stats_report", None) or getattr(report, "final_analysis", None)
-    if stats is not None:
-        conclusion = str(getattr(stats, "conclusion", "") or getattr(stats, "narrative", "") or "")
-        if conclusion:
-            lines.append("  M2 conclusion:")
-            lines.append("    " + conclusion.strip()[:1200])
-        chain = list(getattr(stats, "evidence_chain", None) or [])
-        if chain:
-            lines.append("  M2 evidence chain:")
-            lines += [f"    - {str(step)[:300]}" for step in chain[:8]]
-        results = list(getattr(stats, "stats_results", None) or [])
-        sig = [r for r in results if getattr(r, "ok", False) and getattr(r, "reject", False)]
-        shown = sig[:8] or [r for r in results if getattr(r, "ok", False)][:5]
-        if shown:
-            lines.append("  M2 statistical tests" + (" (rejecting H0):" if sig else ":"))
-            lines += [f"    - {str(getattr(r, 'summary', ''))[:300]}" for r in shown]
-    if explore_context is not None and not getattr(explore_context, "is_empty", True):
-        obs = list(getattr(explore_context, "observations", None) or [])
-        cav = list(getattr(explore_context, "caveats", None) or [])
-        if obs:
-            lines.append("  Exploratory notes (free-form EDA, UNCONFIRMED — hints only):")
-            lines += [f"    - {str(o)[:300]}" for o in obs[:10]]
-        if cav:
-            lines.append("  Explorer caveats:")
-            lines += [f"    - {str(c)[:200]}" for c in cav[:5]]
-    task_bits = []
-    for attr in ("description", "task_domain", "failure_patterns"):
-        value = str(getattr(protocol, attr, "") or "").strip()
-        if value:
-            task_bits.append(value)
-    return FixContext(
-        example_cases=example_cases,
-        evidence="\n".join(lines),
-        refuted=list(refuted),
-        task_note=" — ".join(task_bits),
-    )
-
-
 class VLDiagnoseLoop:
     """M1→M2→M3→M4 failure-analysis loop for VL tasks (Plan A architecture).
 
@@ -302,7 +173,7 @@ class VLDiagnoseLoop:
 
     **Decoupled two-phase use** (analysis → deferred confirm + fix)::
 
-        # Phase 1 — analyse + propose, build the dashboard. No M4, no fix.
+        # Phase 1 — analyse + propose, ready to report. No M4, no fix.
         report = loop.run_analysis(data)        # M1 → M2 → M3, stop
         save(report.final_hypotheses, report.final_stats_report)
 
@@ -312,7 +183,7 @@ class VLDiagnoseLoop:
 
     :meth:`run` is the all-in-one path (M1→M2→M3→M4 + stopping). Use
     :meth:`run_analysis` + :meth:`run_confirm` when you want the analysis
-    dashboard *before* deciding whether to confirm hypotheses and repair.
+    report *before* deciding whether to confirm hypotheses and repair.
 
     Args:
         model:              The model under evaluation.
@@ -376,7 +247,7 @@ class VLDiagnoseLoop:
                             sees (M1 analyzer signals + labels). Its output is
                             DESCRIPTIVE ONLY: observations/charts/caveats go to
                             M3 as an ``ExploreContext`` (which hypotheses to
-                            propose) and to disk for the dashboard — never into
+                            propose) and to disk for the report — never into
                             M2's confirmatory family, M4, or the fix gate. The
                             catalog M2 is unchanged. Best-effort: an explorer
                             failure logs a warning and the cycle continues.
@@ -386,7 +257,7 @@ class VLDiagnoseLoop:
                             Default: ``<ctx.root>/explore`` for a RunContext-
                             backed logger, ``<run>/explore`` beside a standalone
                             ``logs*/`` dir, else ``<run_dir>/explore`` — always
-                            inside the run, where the dashboard looks; with no
+                            inside the run, where the report looks; with no
                             run_logger, nothing is persisted.
         explore_question:   The question handed to the explorer. Defaults to
                             :func:`~evalrx.eval_agent.prompts.explore_step.default_explore_question`
@@ -429,7 +300,7 @@ class VLDiagnoseLoop:
         diagnosis_retries: int = 1,
     ) -> None:
         from evalrx.analysis.stats_agent import StatsAnalysisAgent
-        from evalrx.eval_agent.stages.fix_agent import FixAgent
+        from evalrx.eval_agent.stages.fix.agent import FixAgent
         from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTester
         from evalrx.eval_agent.stages.probe_agent import ProbeAgent
         from evalrx.eval_agent.stages.surgery import SurgeryAgent
@@ -501,7 +372,7 @@ class VLDiagnoseLoop:
         self._explore_context = _coerce_explore_context(explore_report)
         # In-cycle explore step (off by default): a free-form EDA pass over the
         # M1 per-case table, run between M1 and M2. Same standing as a Step-1
-        # explore_report — descriptive notes for M3 + files for the dashboard.
+        # explore_report — descriptive notes for M3 + files for the report.
         # AgenticDiagnoseLoop overrides `self.explorer` after this constructor
         # and drives it through its own judge-decided `explore_data` tool
         # instead of the fixed in-cycle call (see run()/run_analysis()).
@@ -710,8 +581,7 @@ class VLDiagnoseLoop:
     # ──────────────────────────────────────────────────────────────────
 
     def _get_diagnosis_agent(self) -> "Any":
-        """Resolve M3 lazily so the default Gemini fallback matches
-        AutoDiagnoseLoop — a DiagnosisAgent() built eagerly would raise if
+        """Resolve M3 lazily: a DiagnosisAgent() built eagerly would raise if
         GEMINI_API_KEY is absent even when the caller passed diagnosis_agent=None."""
         if self.diagnosis_agent is not None:
             return self.diagnosis_agent
@@ -804,7 +674,8 @@ class VLDiagnoseLoop:
 
         Explicit ``explore_dir`` wins. Otherwise it is derived from the run
         logger so the files land INSIDE the run, beside the log, where the
-        dashboard's ``_find_explore_report`` looks (``<root>/*/exploratory_report.json``):
+        report reader looks (``reporting.run_data``: ``<logs>/explore``, else a
+        sibling ``explore/``):
 
         - a :class:`~evalrx.eval_agent.run_context.RunContext`-backed logger
           → ``ctx.explore_dir``, an ephemeral tree under ``ctx.runtime_root``
@@ -814,7 +685,7 @@ class VLDiagnoseLoop:
         - a standalone ``RunLoggerV2("<run>/logs")`` / ``logs_confirm`` … →
           ``<run>/explore`` (a sibling of the ``logs*/`` dir, the llm_benchmark
           layout — under the log dir it would be two levels down for a
-          ``logs_confirm/`` carrier log and the dashboard would miss it);
+          ``logs_confirm/`` carrier log and the report would miss it);
         - any other standalone run dir → ``<run_dir>/explore``.
 
         ``None`` (nothing persisted, context in memory only) without a logger."""
@@ -847,7 +718,7 @@ class VLDiagnoseLoop:
         - M3, as an :class:`~evalrx.eval_agent.stages.diagnosis.ExploreContext`
           (observations / rendered charts / caveats — descriptive, UNCONFIRMED,
           used only to decide WHICH hypotheses to propose);
-        - the dashboard, via ``exploratory_report.json`` + ``tables/`` +
+        - the report, via ``exploratory_report.json`` + ``tables/`` +
           ``figures/`` under :meth:`_explore_out_dir` (one directory, rewritten
           each cycle — it always holds what the *latest* M3 was shown; the
           per-cycle ``explore`` run-log events keep every cycle's counts and
@@ -898,7 +769,7 @@ class VLDiagnoseLoop:
 
                 # Renders chart specs from the copied tables/ CSVs, so the
                 # persisted report carries each chart's absolute figure_path —
-                # the PNGs M3 is shown and the dashboard displays.
+                # the PNGs M3 is shown and the report displays.
                 write_report_artifacts(report, out_dir)
             ctx = ExploreContext.from_report(
                 report.to_dict() if hasattr(report, "to_dict") else None
@@ -1031,7 +902,7 @@ class VLDiagnoseLoop:
 
         The analysis phase runs M2 with the e-BH validity verdict DEFERRED
         (``descriptive_only=True``). The confirm phase recomputes e-BH FDR
-        correction over the report's stats results so M4 and the dashboard see
+        correction over the report's stats results so M4 and the report see
         the family-level reject decision. No-op when already confirmatory."""
         if stats_report is None:
             return
@@ -1183,14 +1054,7 @@ class VLDiagnoseLoop:
             :class:`VLDiagnoseReport` with the final state.
             Call :meth:`run_m5` on this to get a fix proposal (Plan A).
         """
-        all_hypotheses: list[Any] = []
-        all_test_results: list[Any] = []
-        final_stats_report = None
-        stopped_by = _STOPPED_BY_MAX
-        prior_cycles: list[dict[str, Any]] = []
-        last_analyzer_names: list[str] = []
         self._tokens_used = 0
-
         # Per-stage wall-clock totals (seconds) for the loop_end cost profile.
         timings: dict[str, float] = {}
 
@@ -1203,172 +1067,167 @@ class VLDiagnoseLoop:
         # gate in run_fix.
         explore, confirm, test = self._split_partitions(data)
         if confirm is not None:
-            if test is not None:
-                logger.info(
-                    "train/val/test split: train=%d, val=%d, test=%d "
-                    "(frac=%.2f/%.2f)",
-                    len(list(explore)), len(list(confirm)), len(list(test)),
-                    self.confirm_split, self.test_split,
-                )
-            elif self.val_data is not None:
-                logger.info(
-                    "explore/confirm split: explore=%d, confirm=%d (frac=%.2f) "
-                    "+ external validation set: %d cases",
-                    len(list(explore)), len(list(confirm)), self.confirm_split,
-                    len(list(self.val_data)),
-                )
-            else:
-                logger.info(
-                    "confirm split: explore=%d cases, confirm=%d held out (frac=%.2f)",
-                    len(list(explore)), len(list(confirm)), self.confirm_split,
-                )
+            self._log_partitions(explore, confirm, test)
             data = explore
 
-        # With a confirm split (and m4_holdout on), M4 runs ONCE after the
-        # loop, on held-out data — the cycles only mine (M1→M3). The holdout
-        # target is the external validation set when one was supplied (the
-        # confirm partition then stays reserved for the frozen fix winner),
-        # else the confirm partition itself. Without any held-out data M4
-        # stays in-cycle as before.
-        holdout_target = self.val_data if self.val_data is not None else confirm
-        holdout_mode = holdout_target is not None and self.m4_holdout
+        # With held-out data (and m4_holdout on), M4 runs ONCE after the loop,
+        # on that data — the cycles only mine (M1→M3). Without any, M4 stays
+        # in-cycle.
+        holdout_target = self._holdout_target(confirm)
+        self._start_run_log(data, "VLDiagnoseLoop", confirm=confirm, test=test, val=self.val_data)
 
-        # Forward the RunLogger into the agents so the probe / stats tool
-        # generators record their tool-synthesis attempts ("tool_codegen" events).
-        _attach_run_logger(self.run_logger, self.probe_agent, self.stats_agent)
-        if self.run_logger is not None:
-            self.run_logger.log_run_start(
-                _run_config(self, data, loop_name="VLDiagnoseLoop")
-            )
-            # Each partition is logged under its own name: the records are the
-            # only place a reader can learn which cases M1-M3 mined and which
-            # were withheld for M4 / M5, so the tag has to be on the record.
-            self.run_logger.log_cases(
-                data, split="explore" if confirm is not None else None,
-            )
-            if confirm is not None:
-                # `data` is the explore split by now, so logging only it left the
-                # held-out cases unrecorded — and those are the ones M4's verdict
-                # and M5's repair are measured on. A report then cannot show a
-                # single case behind its strongest evidence: the repair's own
-                # per-case outputs joined to nothing.
-                self.run_logger.log_cases(confirm, split="confirm")
-            if test is not None:
-                self.run_logger.log_cases(test, split="test")
-            if self.val_data is not None:
-                self.run_logger.log_cases(self.val_data, split="val")
-
+        state = _LoopState()
+        stopped_by = _STOPPED_BY_MAX
         for cycle in range(self.max_cycles):
-            if self.token_budget > 0 and self._tokens_used >= self.token_budget:
-                logger.warning(
-                    "Token budget %d exhausted after %d cycles", self.token_budget, cycle
-                )
-                stopped_by = _STOPPED_BY_BUDGET
+            stop = self._run_cycle(cycle, data, state, timings, holdout=holdout_target is not None)
+            if stop is not None:
+                stopped_by = stop
                 break
-
-            if self.run_logger is not None:
-                self.run_logger.current_cycle = cycle
-
-            # ── M1: protocol-guided probing (+ signal bridge) ─────────
-            probe_results, artifact_pngs = self._do_m1(
-                cycle, data, all_hypotheses, timings
-            )
-            if not probe_results:
-                logger.info("M1 produced no probe results — stopping.")
-                stopped_by = _STOPPED_BY_NO_PROBE
-                break
-            last_analyzer_names = list(probe_results)
-
-            # ── explore (optional): free-form EDA on M1's table → M3 notes ──
-            self._do_explore(cycle, probe_results, data, timings)
-
-            # ── M2: protocol-aware stats analysis ────────────────────
-            stats_report = self._do_m2(
-                cycle, probe_results, data, artifact_pngs, timings
-            )
-            final_stats_report = stats_report
-
-            if self.analysis_only:
-                stopped_by = _STOPPED_BY_NO_HYPS
-                break
-
-            # ── M3: hypothesis generation ("AI scientist") ────────────
-            diag = self._do_m3(cycle, stats_report, prior_cycles, timings, cases=data)
-            if diag is None:
-                stopped_by = _STOPPED_BY_DIAG_ERROR
-                break
-            if not diag.hypotheses:
-                if diag is not None:
-                    logger.info("M3 produced no hypotheses at cycle %d.", cycle)
-                stopped_by = _STOPPED_BY_NO_HYPS
-                break
-
-            for h in diag.hypotheses:
-                self.store.add_hypothesis(h)
-            all_hypotheses.extend(diag.hypotheses)
-
-            # ── M4: hypothesis testing (stats + protocol consistency) ─
-            # In holdout mode M4 is deferred to the single held-out pass
-            # after the loop: testing here would re-use the explore data
-            # the hypotheses were mined from, and its verdict must not
-            # steer the loop (no early stop / no extra cycles keyed on
-            # SUPPORTED-or-not).
-            if not holdout_mode:
-                test_results = self._do_m4(
-                    cycle, diag.hypotheses, stats_report, data, timings
-                )
-                all_test_results.extend(test_results)
-
-                # ── Stopping criteria ────────────────────────────────────
-                if self.hypothesis_tester.stopping_criteria_met(test_results, self.protocol):
-                    logger.info(
-                        "Stopping criteria met at cycle %d: verified, protocol-consistent "
-                        "hypothesis found.",
-                        cycle,
-                    )
-                    stopped_by = _STOPPED_BY_CRITERIA
-                    break
-
-            # Build prior-cycles context for next M3 call
-            prior_cycles.append({
-                "cycle": cycle,
-                "severity": stats_report.severity,
-                "hypotheses": [
-                    {
-                        "statement": h.statement,
-                        "failure_mode": h.predicted_failure_mode,
-                        "status": h.status.value if h.status else "pending",
-                    }
-                    for h in diag.hypotheses
-                ],
-            })
 
         # The M4 pass: with a confirm split in play the hypotheses are tested
         # ONCE, on the held-out split — the same discipline run_fix already
         # applies to candidates. Without one, the in-cycle results stand.
         m4_holdout_status: "str | None" = None
-        if holdout_mode and all_hypotheses:
-            all_test_results, m4_holdout_status = self._m4_holdout_pass(
-                all_hypotheses, holdout_target, last_analyzer_names, timings,
+        if holdout_target is not None and state.hypotheses:
+            state.test_results, m4_holdout_status = self._m4_holdout_pass(
+                state.hypotheses, holdout_target, state.analyzer_names, timings,
             )
-        verified = self.hypothesis_tester.best_hypotheses(all_test_results)
+        verified = self.hypothesis_tester.best_hypotheses(state.test_results)
 
         report = VLDiagnoseReport(
             cycles=cycle + 1 if self.max_cycles > 0 else 0,  # type: ignore[possibly-undefined]
             resolved=bool(verified),
             stopped_by=stopped_by,
             verified_hypotheses=verified,
-            final_hypotheses=all_hypotheses,
-            all_test_results=all_test_results,
-            final_stats_report=final_stats_report,
+            final_hypotheses=state.hypotheses,
+            all_test_results=state.test_results,
+            final_stats_report=state.stats_report,
             store=self.store,
             m4_holdout=m4_holdout_status,
             _run_id=self._run_id,
         )
-        if self.run_logger:
-            self.run_logger.log_loop_end(
-                report, tokens_used=self._tokens_used, timings=timings
+        return self._end_run(report, timings)
+
+    def _run_cycle(
+        self, cycle: int, data: "CaseBatch", state: _LoopState,
+        timings: dict[str, float], *, holdout: bool,
+    ) -> "str | None":
+        """One M1→M2→M3(→M4) cycle. Returns why the loop stops, or None to go on.
+
+        With *holdout*, M4 is deferred to the single held-out pass after the
+        loop: testing here would re-use the explore data the hypotheses were
+        mined from, and its verdict must not steer the loop (no early stop /
+        no extra cycles keyed on SUPPORTED-or-not).
+        """
+        if self.token_budget > 0 and self._tokens_used >= self.token_budget:
+            logger.warning("Token budget %d exhausted after %d cycles", self.token_budget, cycle)
+            return _STOPPED_BY_BUDGET
+        if self.run_logger is not None:
+            self.run_logger.current_cycle = cycle
+
+        # ── M1: protocol-guided probing (+ signal bridge) ─────────
+        probe_results, artifact_pngs = self._do_m1(cycle, data, state.hypotheses, timings)
+        if not probe_results:
+            logger.info("M1 produced no probe results — stopping.")
+            return _STOPPED_BY_NO_PROBE
+        state.analyzer_names = list(probe_results)
+
+        # ── explore (optional): free-form EDA on M1's table → M3 notes ──
+        self._do_explore(cycle, probe_results, data, timings)
+
+        # ── M2: protocol-aware stats analysis ────────────────────
+        stats_report = self._do_m2(cycle, probe_results, data, artifact_pngs, timings)
+        state.stats_report = stats_report
+        if self.analysis_only:
+            return _STOPPED_BY_NO_HYPS
+
+        # ── M3: hypothesis generation ("AI scientist") ────────────
+        diag = self._do_m3(cycle, stats_report, state.prior_cycles, timings, cases=data)
+        if diag is None:
+            return _STOPPED_BY_DIAG_ERROR
+        if not diag.hypotheses:
+            logger.info("M3 produced no hypotheses at cycle %d.", cycle)
+            return _STOPPED_BY_NO_HYPS
+        for h in diag.hypotheses:
+            self.store.add_hypothesis(h)
+        state.hypotheses.extend(diag.hypotheses)
+
+        # ── M4: hypothesis testing (stats + protocol consistency) ─
+        if not holdout:
+            test_results = self._do_m4(cycle, diag.hypotheses, stats_report, data, timings)
+            state.test_results.extend(test_results)
+            if self.hypothesis_tester.stopping_criteria_met(test_results, self.protocol):
+                logger.info(
+                    "Stopping criteria met at cycle %d: verified, protocol-consistent "
+                    "hypothesis found.",
+                    cycle,
+                )
+                return _STOPPED_BY_CRITERIA
+
+        state.prior_cycles.append(_cycle_summary(cycle, stats_report, diag.hypotheses))
+        return None
+
+    def _log_partitions(self, explore: "CaseBatch", confirm: "CaseBatch", test: "CaseBatch | None") -> None:
+        if test is not None:
+            logger.info(
+                "train/val/test split: train=%d, val=%d, test=%d "
+                "(frac=%.2f/%.2f)",
+                len(list(explore)), len(list(confirm)), len(list(test)),
+                self.confirm_split, self.test_split,
             )
+        elif self.val_data is not None:
+            logger.info(
+                "explore/confirm split: explore=%d, confirm=%d (frac=%.2f) "
+                "+ external validation set: %d cases",
+                len(list(explore)), len(list(confirm)), self.confirm_split,
+                len(list(self.val_data)),
+            )
+        else:
+            logger.info(
+                "confirm split: explore=%d cases, confirm=%d held out (frac=%.2f)",
+                len(list(explore)), len(list(confirm)), self.confirm_split,
+            )
+
+    def _holdout_target(self, confirm: "CaseBatch | None") -> "CaseBatch | None":
+        """The data M4's single held-out pass tests on, or None to test in-cycle.
+
+        The external validation set when one was supplied (the confirm
+        partition then stays reserved for the frozen fix winner), else the
+        confirm partition itself; None with neither, or with m4_holdout off.
+        """
+        target = self.val_data if self.val_data is not None else confirm
+        return target if target is not None and self.m4_holdout else None
+
+    def _start_run_log(
+        self, data: "CaseBatch", loop_name: str, *, cycle: "int | None" = None,
+        confirm: "CaseBatch | None" = None, test: "CaseBatch | None" = None,
+        val: "CaseBatch | None" = None, extra: "dict[str, Any] | None" = None,
+    ) -> None:
+        """Wire the run logger into the agents, then log run_start and the cases.
+
+        Each partition is logged under its own name: the records are the only
+        place a reader can learn which cases M1-M3 mined and which were
+        withheld for M4 / M5 — the held-out ones are what M4's verdict and
+        M5's repair are measured on, so a report needs them too.
+        """
+        # The probe / stats tool generators record their tool-synthesis
+        # attempts ("tool_codegen" events) through it.
+        _attach_run_logger(self.run_logger, self.probe_agent, self.stats_agent)
+        if self.run_logger is None:
+            return
+        if cycle is not None:
+            self.run_logger.current_cycle = cycle
+        config = _run_config(self, data, loop_name=loop_name)
+        config.update(extra or {})
+        self.run_logger.log_run_start(config)
+        self.run_logger.log_cases(data, split="explore" if confirm is not None else None)
+        for batch, split in ((confirm, "confirm"), (test, "test"), (val, "val")):
+            if batch is not None:
+                self.run_logger.log_cases(batch, split=split)
+
+    def _end_run(self, report: VLDiagnoseReport, timings: dict[str, float]) -> VLDiagnoseReport:
+        if self.run_logger:
+            self.run_logger.log_loop_end(report, tokens_used=self._tokens_used, timings=timings)
         return report
 
     def run_analysis(self, data: "CaseBatch") -> VLDiagnoseReport:
@@ -1377,7 +1236,7 @@ class VLDiagnoseLoop:
         Runs a single **M1 → M2 → M3** pass: select+execute analyzers (M1),
         rigorous protocol-aware stats + charts (M2, e-BH adjudication kept),
         and propose root-cause hypotheses (M3) — then stop. This is the path
-        that feeds the dashboard *before* deciding whether to confirm and
+        that feeds the report *before* deciding whether to confirm and
         repair.
 
         The returned :class:`VLDiagnoseReport` carries:
@@ -1406,17 +1265,7 @@ class VLDiagnoseLoop:
             )
             data = explore
 
-        _attach_run_logger(self.run_logger, self.probe_agent, self.stats_agent)
-        if self.run_logger is not None:
-            self.run_logger.current_cycle = 0
-            self.run_logger.log_run_start(
-                _run_config(self, data, loop_name="VLDiagnoseLoop.analysis")
-            )
-            self.run_logger.log_cases(
-                data, split="explore" if confirm is not None else None,
-            )
-            if confirm is not None:
-                self.run_logger.log_cases(confirm, split="confirm")
+        self._start_run_log(data, "VLDiagnoseLoop.analysis", cycle=0, confirm=confirm)
 
         all_hypotheses: list[Any] = []
         final_stats_report = None
@@ -1427,17 +1276,17 @@ class VLDiagnoseLoop:
             logger.info("M1 produced no probe results — stopping.")
             stopped_by = _STOPPED_BY_NO_PROBE
         else:
-            # Optional explore step (descriptive EDA → M3 notes + dashboard files).
+            # Optional explore step (descriptive EDA → M3 notes + report files).
             self._do_explore(0, probe_results, data, timings)
             # Descriptive M2: effect sizes + charts, but DEFER the e-BH validity
-            # verdict to run_confirm so the analysis dashboard shows no
+            # verdict to run_confirm so the analysis report shows no
             # "supported/not-supported" claim (Q2: no validity before confirm).
             final_stats_report = self._do_m2(
                 0, probe_results, data, artifact_pngs, timings, confirmatory=False
             )
             diag = self._do_m3(0, final_stats_report, [], timings, cases=data)
             if diag is None or not diag.hypotheses:
-                # Stats + dashboard are still valid; just no hypotheses to confirm.
+                # Stats + report are still valid; just no hypotheses to confirm.
                 if diag is not None:
                     logger.info("M3 produced no hypotheses.")
                 stopped_by = _STOPPED_BY_DIAG_ERROR if diag is None else _STOPPED_BY_NO_HYPS
@@ -1456,11 +1305,7 @@ class VLDiagnoseLoop:
             store=self.store,
             _run_id=self._run_id,
         )
-        if self.run_logger:
-            self.run_logger.log_loop_end(
-                report, tokens_used=self._tokens_used, timings=timings
-            )
-        return report
+        return self._end_run(report, timings)
 
     def run_confirm(
         self,
@@ -1474,12 +1319,12 @@ class VLDiagnoseLoop:
         Runs **M4** (:class:`~evalrx.eval_agent.stages.hypothesis_tester.HypothesisTester`)
         on ``hypotheses`` — typically reloaded from :meth:`run_analysis`'s output
         via :func:`~evalrx.eval_agent.hypothesis.hypothesis_from_dict` — so
-        the *same* hypotheses the dashboard showed are the ones confirmed.
+        the *same* hypotheses the report showed are the ones confirmed.
 
         ``stats_report`` is the M2 report M4 reads its rigorous evidence from
         (effect + CI + e-value, FDR-corrected). Pass the
         ``final_stats_report`` persisted by :meth:`run_analysis` to confirm
-        against the *exact* statistics the dashboard displayed; when omitted,
+        against the *exact* statistics the report displayed; when omitted,
         M1→M2 are re-run silently (not logged — they belong to the analysis
         phase) to regenerate it.
 
@@ -1499,73 +1344,28 @@ class VLDiagnoseLoop:
         if confirm is not None:
             data = explore
 
-        _attach_run_logger(self.run_logger, self.probe_agent, self.stats_agent)
-        if self.run_logger is not None:
-            self.run_logger.current_cycle = 0
-            self.run_logger.log_run_start(
-                _run_config(self, data, loop_name="VLDiagnoseLoop.confirm")
-            )
-            self.run_logger.log_cases(
-                data, split="explore" if confirm is not None else None,
-            )
-            if confirm is not None:
-                self.run_logger.log_cases(confirm, split="confirm")
+        self._start_run_log(data, "VLDiagnoseLoop.confirm", cycle=0, confirm=confirm)
 
-        # Regenerate the stats the tester needs only when not supplied. The M1/M2
-        # events are NOT logged here — they were recorded in the analysis phase,
-        # and re-logging them would double up the dashboard's analysis story.
         if stats_report is None:
-            probe_results, artifact_pngs = self._do_m1(
-                0, data, hypotheses, timings, log=False
-            )
-            if not probe_results:
-                logger.warning(
-                    "run_confirm: probe produced no results and no stats_report "
-                    "was supplied — cannot confirm."
-                )
+            stats_report = self._confirm_stats(data, hypotheses, timings)
+            if stats_report is None:
                 report = VLDiagnoseReport(
                     cycles=1, stopped_by=_STOPPED_BY_NO_PROBE,
                     final_hypotheses=hypotheses, store=self.store, _run_id=self._run_id,
                 )
-                if self.run_logger:
-                    self.run_logger.log_loop_end(
-                        report, tokens_used=self._tokens_used, timings=timings
-                    )
-                return report
-            stats_report = self._do_m2(
-                0, probe_results, data, artifact_pngs, timings, log=False
-            )
+                return self._end_run(report, timings)
 
         # The confirm phase OWNS the validity verdict: if the reused report came
         # from the descriptive analysis phase (e-BH deferred), compute e-BH now,
-        # flip descriptive_only off, and log the confirmatory M2 so the dashboard
+        # flip descriptive_only off, and log the confirmatory M2 so the report
         # surfaces the signal validity it withheld before confirmation.
         self._finalize_confirmatory_stats(stats_report)
         if self.run_logger and stats_report is not None:
             self.run_logger.log_analysis(0, stats_report)
 
-        test_results: list[Any] = []
-        m4_holdout_status: "str | None" = None
-        if hypotheses:
-            for h in hypotheses:
-                self.store.add_hypothesis(h)
-            holdout_target = self.val_data if self.val_data is not None else confirm
-            if holdout_target is not None and self.m4_holdout:
-                # The one M4 pass, on held-out data (never the explore stats
-                # the hypotheses were mined from): the external validation set
-                # when one was supplied, else the confirm split. The analyzer
-                # set to re-run there is recovered from the supplied/
-                # regenerated stats report's signal keys; with none
-                # recoverable the probe agent selects on the holdout itself.
-                analyzer_names = _analyzer_names_from_stats(stats_report)
-                test_results, m4_holdout_status = self._m4_holdout_pass(
-                    hypotheses, holdout_target, analyzer_names, timings,
-                )
-            else:
-                test_results = self._do_m4(0, hypotheses, stats_report, data, timings)
-        else:
-            logger.info("run_confirm: no hypotheses to confirm.")
-
+        test_results, m4_holdout_status = self._m4_verdicts(
+            hypotheses, stats_report, data, confirm, timings,
+        )
         verified = self.hypothesis_tester.best_hypotheses(test_results)
         stopped_by = _STOPPED_BY_CRITERIA if verified else _STOPPED_BY_MAX
 
@@ -1581,11 +1381,46 @@ class VLDiagnoseLoop:
             m4_holdout=m4_holdout_status,
             _run_id=self._run_id,
         )
-        if self.run_logger:
-            self.run_logger.log_loop_end(
-                report, tokens_used=self._tokens_used, timings=timings
+        return self._end_run(report, timings)
+
+    def _confirm_stats(
+        self, data: "CaseBatch", hypotheses: "list[Any]", timings: dict[str, float],
+    ) -> "Any | None":
+        """Regenerate the M2 report run_confirm's tester reads; None if M1 found nothing.
+
+        The M1/M2 events are NOT logged here — they were recorded in the
+        analysis phase, and re-logging them would double up the report's
+        analysis story.
+        """
+        probe_results, artifact_pngs = self._do_m1(0, data, hypotheses, timings, log=False)
+        if not probe_results:
+            logger.warning(
+                "run_confirm: probe produced no results and no stats_report "
+                "was supplied — cannot confirm."
             )
-        return report
+            return None
+        return self._do_m2(0, probe_results, data, artifact_pngs, timings, log=False)
+
+    def _m4_verdicts(
+        self, hypotheses: "list[Any]", stats_report: "Any", data: "CaseBatch",
+        confirm: "CaseBatch | None", timings: dict[str, float],
+    ) -> "tuple[list[Any], str | None]":
+        """run_confirm's M4: the held-out pass when there is held-out data, else in-sample."""
+        if not hypotheses:
+            logger.info("run_confirm: no hypotheses to confirm.")
+            return [], None
+        for h in hypotheses:
+            self.store.add_hypothesis(h)
+        holdout_target = self._holdout_target(confirm)
+        if holdout_target is None:
+            return self._do_m4(0, hypotheses, stats_report, data, timings), None
+        # The one M4 pass, on held-out data (never the explore stats the
+        # hypotheses were mined from). The analyzer set to re-run there is
+        # recovered from the supplied/regenerated stats report's signal keys;
+        # with none recoverable the probe agent selects on the holdout itself.
+        return self._m4_holdout_pass(
+            hypotheses, holdout_target, _analyzer_names_from_stats(stats_report), timings,
+        )
 
     def run_m5(
         self,
@@ -1689,7 +1524,7 @@ class VLDiagnoseLoop:
 
         By default the allowed tier is fixed (default L2) and there is no
         automatic escalation — the returned
-        :class:`~evalrx.eval_agent.stages.fix_agent.FixOutcome` carries a
+        :class:`~evalrx.eval_agent.stages.fix.agent.FixOutcome` carries a
         recommendation when nothing validates.
 
         When ``auto_escalate=True`` the agent steps through the intervention
@@ -1719,7 +1554,7 @@ class VLDiagnoseLoop:
                             hypothesis, so this is safe; the default (False)
                             records a skipped stage instead.
         """
-        from evalrx.eval_agent.stages.fix_tiers import FixTier, parse_tier
+        from evalrx.eval_agent.stages.fix.tiers import FixTier, parse_tier
 
         # Validate the fix on a held-out partition (leak #3): the hypotheses
         # were generated on EXPLORE, so the deployed repair must be confirmed on
@@ -1740,421 +1575,107 @@ class VLDiagnoseLoop:
             dev_data, final_data, dev_label = self.val_data, confirm, "VAL"
         elif test is not None:
             dev_data, final_data, dev_label = confirm, test, "VAL"
-        else:
+        elif confirm is not None:
             dev_data, final_data, dev_label = explore, confirm, "EXPLORE"
-        if confirm is not None:
-            data = final_data
+        else:
+            dev_data, final_data, dev_label = data, None, "ALL"
 
         agent = fix_agent or self.fix_agent
-        # M5's intervention experiment (run_m5) can REFUTE the very hypothesis
-        # M4 verified. A refuted hypothesis must not reach the proposer as
-        # "verified": on qwen3.5-2b/bbh_tracking7 the fix judge/coder were told
-        # the M5-refuted grading-mismatch hypothesis was verified and half the
-        # coded pipeline's design served it. Refuted ones are dropped from the
-        # list and passed to the proposer as "do not build on these".
-        refuted_ids, refuted_notes = _m5_refuted(report)
-        hypotheses = [
-            tr.hypothesis for tr in report.verified_hypotheses
-            if _hyp_key(tr.hypothesis) not in refuted_ids
-        ]
-        hypotheses_note = ""
-        if allow_unverified:
-            # Opt-in exploratory repair keeps strong inconclusive leads even
-            # when M4 happened to verify a different, narrower hypothesis. A
-            # secondary supported symptom must not crowd the plausible causal
-            # mechanisms out of the intervention search. They remain clearly
-            # marked as leads; only the final candidate validation is a fix.
-            leads = [
-                h for h in _unverified_hypotheses(report)
-                if _hyp_key(h) not in refuted_ids
-                and _hyp_key(h) not in {_hyp_key(v) for v in hypotheses}
-            ][:3]
-            had_verified = bool(hypotheses)
-            hypotheses.extend(leads)
-            supported = _m5_supported_key(report)
-            if leads:
-                hypotheses_note = (
-                    ("MIXED EVIDENCE: verified hypotheses come first; the remaining "
-                     if had_verified else
-                     "UNVERIFIED: M4 found no statistically significant evidence for these ")
-                    + "hypotheses; they are best-scoring leads, not established "
-                    "mechanisms"
-                    + ("; the M5 intervention experiment SUPPORTED the first lead"
-                       if supported and _hyp_key(leads[0]) == supported else "")
-                    + ". Treat inconclusive leads only as hints about WHERE to intervene; "
-                    "the final candidate validation decides."
-                )
+        hypotheses, hypotheses_note, refuted_ids, refuted_notes = _fix_hypotheses(
+            report, allow_unverified
+        )
         if not hypotheses:
-            # A repair proposal is an intervention, not another exploratory
-            # probe.  Do not turn an unreviewed/unsupported M3 lead into a
-            # misleading empty M5 outcome.  The caller gets a stable outcome
-            # object for compatibility, while the audit records a skipped stage.
-            from evalrx.eval_agent.stages.fix_agent import FixOutcome
-
-            outcome = FixOutcome(
-                max_tier=getattr(agent, "max_tier", FixTier.L2_SCAFFOLD),
-                stage_status="skipped",
-                skip_reason=("diagnosis_error" if report.stopped_by == "diagnosis_error"
-                             else "no_accepted_hypothesis"),
-                recommendation={
-                    "reason": ("Repair was not attempted because diagnosis failed; inspect M3 errors."
-                               if report.stopped_by == "diagnosis_error" else
-                               "Repair was not attempted because no hypothesis passed the evidence gate."),
-                    "next_step": ("Inspect the recorded M3 error, fix its cause, and retry diagnosis."
-                                  if report.stopped_by == "diagnosis_error" else
-                                  "Run the targeted diagnostic probe proposed by M3."),
-                },
-            )
-            if self.run_logger is not None:
-                self.run_logger.log_stage_skipped(
-                    "M5", outcome.skip_reason,
-                    detail=outcome.recommendation["reason"],
-                )
-            self._set_fix_outcome(report, outcome)
-            return outcome
+            return self._skip_fix(report, agent)
 
         context = _fix_context_from_report(
             report,
-            example_cases=explore if confirm is not None else None,
+            example_cases=explore if final_data is not None else None,
             explore_context=self._explore_context,
             protocol=self.protocol,
             refuted=refuted_notes,
             refuted_ids=refuted_ids,
         )
         context.hypotheses_note = hypotheses_note
-
-        # With a held-out split, the entire tier ladder is searched on the
-        # development partition (EXPLORE, or VAL in train/val/test mode).
-        # Feedback may adapt the next tier there; the final partition remains
-        # untouched until one candidate is frozen and evaluated exactly once.
-        # This keeps automatic L0 -> L1 -> L2 -> L3a -> L3b escalation without
-        # tuning on the holdout.  Each ceiling is tried separately: cheaper
-        # candidates are not pooled with a newly opened, more invasive tier.
-        if auto_escalate and confirm is not None:
-            ladder = [
-                FixTier.L0_RUNTIME_CONFIG,
-                FixTier.L1_PROMPT,
-                FixTier.L2_SCAFFOLD,
-                FixTier.L3A_INTERNALS_READ,
-                FixTier.L3B_INTERNALS_WRITE,
-            ]
-            ceiling = (
-                parse_tier(max_tier) if max_tier is not None
-                else FixTier.L3B_INTERNALS_WRITE
-            )
-            agent_logger = getattr(agent, "run_logger", None)
-            original_min_tier = getattr(agent, "min_tier", None)
-            agent.run_logger = None
-            attempted: "list" = []
-            prior: "list" = []
-            repair_rounds = 0
-            try:
-                for tier in ladder:
-                    if tier > ceiling:
-                        break
-                    agent.max_tier = tier
-                    agent.min_tier = tier
-                    logger.info(
-                        "run_fix: %s trying tier %s (%d prior attempt(s))",
-                        dev_label,
-                        tier.label,
-                        len(prior),
-                    )
-                    selection = _propose_and_validate(
-                        agent,
-                        self.model,
-                        dev_data,
-                        hypotheses,
-                        prior_attempts=prior if prior else None,
-                        context=context,
-                    )
-                    if not hasattr(selection, "attempted"):
-                        self._set_fix_outcome(report, selection)
-                        return selection
-                    attempted.extend(selection.attempted)
-                    repair_rounds += int(getattr(selection, "repair_rounds", 0) or 0)
-                    if selection.fixed:
-                        logger.info("run_fix: %s fixed at tier %s", dev_label, tier.label)
-                        break
-                    prior.extend(v for v in selection.attempted if not v.fixed)
-                    logger.info("run_fix: %s tier %s exhausted — escalating", dev_label, tier.label)
-            finally:
-                agent.run_logger = agent_logger
-                agent.max_tier = ceiling
-                agent.min_tier = original_min_tier
-
-            outcome = _confirm_from_explore(
-                agent,
-                self.model,
-                final_data,
-                attempted,
-                max_tier=ceiling,
-                repair_rounds=repair_rounds,
-            )
-            try:
-                if agent_logger is not None:
-                    agent_logger.log_fix(outcome)
-            except Exception as exc:
-                logger.debug("run_fix: held-out escalation log_fix failed: %s", exc)
-            self._set_fix_outcome(report, outcome)
-            return outcome
+        requested = parse_tier(max_tier) if max_tier is not None else None
+        agent_logger = getattr(agent, "run_logger", None)
 
         if auto_escalate:
-            _LADDER = [
-                FixTier.L0_RUNTIME_CONFIG,
-                FixTier.L1_PROMPT,
-                FixTier.L2_SCAFFOLD,
-                FixTier.L3A_INTERNALS_READ,
-                FixTier.L3B_INTERNALS_WRITE,
-            ]
-            ceiling = (
-                parse_tier(max_tier) if max_tier is not None
-                else FixTier.L3B_INTERNALS_WRITE
-            )
-            # Suppress per-round log_fix so we can emit one combined outcome.
-            agent_logger = getattr(agent, "run_logger", None)
-            original_min_tier = getattr(agent, "min_tier", None)
-            agent.run_logger = None
-
-            all_attempted: "list" = []
-            all_prior: "list" = []
-            last_outcome = None
-
-            try:
-                for tier in _LADDER:
-                    if tier > ceiling:
-                        break
-                    agent.max_tier = tier
-                    agent.min_tier = tier
-                    logger.info("run_fix: trying tier %s (%d prior attempt(s))",
-                                tier.label, len(all_prior))
-                    outcome = _propose_and_validate(
-                        agent, self.model, data, hypotheses,
-                        prior_attempts=all_prior if all_prior else None,
-                        context=context,
-                    )
-                    all_attempted.extend(outcome.attempted)
-                    all_prior.extend(v for v in outcome.attempted if not v.fixed)
-                    last_outcome = outcome
-                    if outcome.fixed:
-                        logger.info("run_fix: fixed at tier %s", tier.label)
-                        break
-                    logger.info("run_fix: tier %s exhausted — escalating", tier.label)
-            finally:
-                agent.run_logger = agent_logger
-                agent.min_tier = original_min_tier
-
-            # Merge all rounds into one combined outcome and emit once. The
-            # merged set spans every escalated tier, so it is a LARGER best-of-N
-            # family than any single tier — re-apply e-BH FDR control over the
-            # whole union (mirrors FixAgent.propose_and_validate) instead of an
-            # uncorrected max, or auto-escalation would re-open the multiplicity
-            # leak it was meant to respect.
-            if last_outcome is not None:
-                last_outcome.attempted = all_attempted
-                last_outcome.max_tier = ceiling
-                tested = [v for v in all_attempted if v.e_value is not None]
-                survivors = agent._ebh_survivors(tested)
-                last_outcome.ebh_survivors = sorted(
-                    v.candidate.name for v in tested if id(v) in survivors)
-                winners = [v for v in all_attempted
-                           if v.fixed and id(v) in survivors]
-                if winners:
-                    last_outcome.best = max(
-                        winners, key=lambda v: (v.effect or 0.0, -v.n_broken)
-                    )
-                    last_outcome.fixed = True
-                else:
-                    last_outcome.best = None
-                    last_outcome.fixed = False
-                try:
-                    if agent_logger is not None:
-                        agent_logger.log_fix(last_outcome)
-                except Exception as exc:
-                    logger.debug("run_fix: combined log_fix failed: %s", exc)
-
-            self._set_fix_outcome(report, last_outcome)
-            return last_outcome
-
-        # Non-escalating path.  With a held-out split this is a genuine
-        # two-stage repair experiment: the agent may iterate and select on the
-        # development partition (EXPLORE, or VAL in train/val/test mode), then
-        # exactly one frozen candidate is tested on the final partition.
-        # Selection statistics are descriptive only; the final paired gate is
-        # computed from the final partition alone.
-        if max_tier is not None:
-            agent.max_tier = parse_tier(max_tier)
-        if confirm is not None:
-            agent_logger = getattr(agent, "run_logger", None)
-            agent.run_logger = None
-            try:
-                selection = _propose_and_validate(
-                    agent, self.model, dev_data, hypotheses, context=context
+            # With a held-out split the entire ladder is searched on the
+            # development partition; feedback may adapt the next tier there,
+            # and the final partition stays untouched until one candidate is
+            # frozen and evaluated exactly once.  Without a split the rungs are
+            # merged into one outcome under e-BH over the whole union.
+            ceiling = requested if requested is not None else FixTier.L3B_INTERNALS_WRITE
+            rungs = _climb_ladder(agent, self.model, dev_data, hypotheses, context,
+                                  ceiling, dev_label)
+            if not hasattr(rungs[-1], "attempted"):  # opaque custom-agent result
+                return self._set_fix_outcome(report, rungs[-1])
+            if final_data is None:
+                outcome = _merge_rungs(rungs, ceiling, agent.alpha)
+            else:
+                outcome = _confirm_from_explore(
+                    agent, self.model, final_data,
+                    [v for rung in rungs for v in rung.attempted],
+                    max_tier=ceiling,
+                    repair_rounds=sum(int(getattr(r, "repair_rounds", 0) or 0) for r in rungs),
                 )
-            finally:
-                agent.run_logger = agent_logger
+            _log_fix(agent_logger, outcome)
+            return self._set_fix_outcome(report, outcome)
 
-            # Custom/legacy agents may return an opaque application-specific
-            # result rather than FixOutcome.  They cannot participate in the
-            # built-in frozen-candidate confirmation protocol, but preserving
-            # their return contract is preferable to turning a diagnostic run
-            # into an AttributeError.
-            if not hasattr(selection, "attempted"):
-                self._set_fix_outcome(report, selection)
-                return selection
+        if final_data is None:
+            outcome = _propose_and_validate(agent, self.model, data, hypotheses,
+                                            context=context, max_tier=requested)
+            return self._set_fix_outcome(report, outcome)
 
-            outcome = _confirm_from_explore(
-                agent,
-                self.model,
-                final_data,
-                selection.attempted,
-                max_tier=agent.max_tier,
-                repair_rounds=selection.repair_rounds,
-            )
-            try:
-                if agent_logger is not None:
-                    agent_logger.log_fix(outcome)
-            except Exception as exc:
-                logger.debug("run_fix: held-out log_fix failed: %s", exc)
-            self._set_fix_outcome(report, outcome)
-            return outcome
-
-        outcome = _propose_and_validate(agent, self.model, data, hypotheses, context=context)
-        self._set_fix_outcome(report, outcome)
-        return outcome
-
-
-def _confirm_from_explore(
-    agent: "Any",
-    model: "Any",
-    confirm: "CaseBatch",
-    attempted: "list[Any]",
-    *,
-    max_tier: "Any",
-    repair_rounds: int,
-) -> "Any":
-    """Freeze the strongest EXPLORE improvement and test it once on CONFIRM."""
-    from evalrx.eval_agent.stages.fix_agent import FixOutcome, plain_description
-
-    def _recommend(reason: str, validations: "list[Any]") -> "dict[str, Any] | None":
-        routed = sorted({v.candidate.tier for v in validations})
-        recommend = getattr(agent, "_recommend", None)
-        if callable(recommend):
-            try:
-                return recommend(
-                    routed,
-                    model=model,
-                    data=confirm,
-                    reason_prefix=reason,
-                )
-            except TypeError:
-                # Backward compatibility for application-specific FixAgents.
-                pass
-        return {"recommend_tier": max_tier.label, "reason": reason}
-
-    executed = [
-        validation
-        for validation in attempted
-        if validation.n_pairs > 0 and validation.effect is not None
-    ]
-    improving = [
-        validation
-        for validation in executed
-        if validation.n_fixed > validation.n_broken
-    ]
-    # A spectacular percentage on two applicable examples is a fragile lead,
-    # not a better selection than a supported improvement on dozens.  Require
-    # up to eight EXPLORE pairs when that support exists anywhere in the
-    # candidate family; small experiments still select from what they have.
-    support_floor = min(8, max((v.n_pairs for v in improving), default=0))
-    supported = [v for v in improving if v.n_pairs >= support_floor]
-    selected = max(
-        supported,
-        key=lambda validation: (
-            validation.e_value or 0.0,
-            validation.n_fixed - validation.n_broken,
-            validation.n_pairs,
-            validation.effect or 0.0,
-            -validation.n_broken,
-            -int(validation.candidate.tier),
-        ),
-        default=None,
-    )
-    # `headline` travels with the audit row because the candidate object does
-    # not: the contract emitter sees only these dicts, and a slug is the one
-    # thing it must not show a reader.
-    audit = [
-        {
-            "name": validation.candidate.name,
-            "headline": plain_description(validation.candidate),
-            "tier": validation.candidate.tier.label,
-            "n_pairs": validation.n_pairs,
-            "n_fixed": validation.n_fixed,
-            "n_broken": validation.n_broken,
-            "effect": validation.effect,
-            "e_value": validation.e_value,
-            "coverage": validation.coverage,
-            "verdict": validation.verdict,
-        }
-        for validation in attempted
-    ]
-    if selected is None:
-        return FixOutcome(
-            max_tier=max_tier,
-            repair_rounds=repair_rounds,
-            selection_attempted=audit,
-            recommendation=_recommend(
-                "no EXPLORE candidate had positive net repairs; CONFIRM was left untouched",
-                attempted,
-            ),
+        # A two-stage repair experiment: the agent may iterate and select on the
+        # development partition, then exactly one frozen candidate is tested on
+        # the final partition.  Selection statistics are descriptive only; the
+        # final paired gate is computed from the final partition alone.
+        selection = _propose_and_validate(agent, self.model, dev_data, hypotheses,
+                                          context=context, max_tier=requested, record=False)
+        # Custom/legacy agents may return an opaque application-specific result
+        # rather than FixOutcome.  They cannot take part in the frozen-candidate
+        # confirmation, but their return contract is kept.
+        if not hasattr(selection, "attempted"):
+            return self._set_fix_outcome(report, selection)
+        outcome = _confirm_from_explore(
+            agent, self.model, final_data, selection.attempted,
+            max_tier=requested if requested is not None else agent.max_tier,
+            repair_rounds=selection.repair_rounds,
         )
+        _log_fix(agent_logger, outcome)
+        return self._set_fix_outcome(report, outcome)
 
-    # ``max_validation_cases`` is an EXPLORE-search budget.  Reusing that cap
-    # here would silently throw away untouched confirmation cases exactly when
-    # more power matters most.  The candidate is already frozen, so validate it
-    # on the complete CONFIRM partition and restore the agent's search budget
-    # afterwards.  Custom/legacy agents without this attribute keep their
-    # existing call contract.
-    selection_cap = getattr(agent, "max_validation_cases", None)
-    if selection_cap is not None:
-        agent.max_validation_cases = 0
-    try:
-        validation = agent.validate_candidate(model, confirm, selected.candidate)
-    finally:
-        if selection_cap is not None:
-            agent.max_validation_cases = selection_cap
-    survivors = agent._ebh_survivors(
-        [validation] if validation.e_value is not None else []
-    )
-    survived = id(validation) in survivors
-    outcome = FixOutcome(
-        max_tier=max_tier,
-        attempted=[validation],
-        best=validation if validation.fixed and survived else None,
-        fixed=bool(validation.fixed and survived),
-        repair_rounds=repair_rounds,
-        ebh_survivors=[validation.candidate.name] if survived else [],
-        selection_attempted=audit,
-        selected_on_explore=selected.candidate.name,
-    )
-    if not outcome.fixed:
-        no_fix = getattr(agent, "_no_fix_recommendation", None)
-        if callable(no_fix):
-            outcome.recommendation = no_fix(
-                [validation], [selected.candidate.tier], confirm, model
+    def _skip_fix(self, report: VLDiagnoseReport, agent: "Any") -> "Any":
+        """Record a skipped M5 stage: no hypothesis passed the evidence gate.
+
+        A repair proposal is an intervention, not another exploratory probe,
+        so an unreviewed/unsupported M3 lead must not become a misleading
+        empty M5 outcome.  The caller still gets a stable outcome object.
+        """
+        from evalrx.eval_agent.stages.fix.tiers import FixTier
+        from evalrx.eval_agent.stages.fix.types import FixOutcome
+
+        diagnosis_failed = report.stopped_by == "diagnosis_error"
+        outcome = FixOutcome(
+            max_tier=getattr(agent, "max_tier", FixTier.L2_SCAFFOLD),
+            stage_status="skipped",
+            skip_reason="diagnosis_error" if diagnosis_failed else "no_accepted_hypothesis",
+            recommendation={
+                "reason": ("Repair was not attempted because diagnosis failed; inspect M3 errors."
+                           if diagnosis_failed else
+                           "Repair was not attempted because no hypothesis passed the evidence gate."),
+                "next_step": ("Inspect the recorded M3 error, fix its cause, and retry diagnosis."
+                              if diagnosis_failed else
+                              "Run the targeted diagnostic probe proposed by M3."),
+            },
+        )
+        if self.run_logger is not None:
+            self.run_logger.log_stage_skipped(
+                "M5", outcome.skip_reason,
+                detail=outcome.recommendation["reason"],
             )
-            if outcome.recommendation is not None:
-                outcome.recommendation["reason"] = (
-                    "the candidate selected on EXPLORE did not validate on untouched CONFIRM; "
-                    + outcome.recommendation["reason"]
-                )
-        else:
-            outcome.recommendation = _recommend(
-                "the candidate selected on EXPLORE did not validate on untouched CONFIRM",
-                [validation],
-            )
-    outcome.refine_signal = agent._refine_signal([validation], confirm)
-    return outcome
+        return self._set_fix_outcome(report, outcome)
 
 
 def _analyzer_names_from_stats(stats_report: "Any") -> "list[str]":

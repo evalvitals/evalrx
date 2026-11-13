@@ -21,23 +21,12 @@ def _function_names(path: Path) -> set[str]:
     return {node.name for node in ast.walk(_tree(path)) if isinstance(node, ast.FunctionDef)}
 
 
-def test_cli_agent_is_compatibility_facade_only():
-    path = EVAL_AGENT / "cli_agent.py"
-    source = path.read_text(encoding="utf-8")
-
-    assert len(source.splitlines()) <= 90
-    assert _class_names(path) == set()
-    assert _function_names(path) == set()
-    assert "Compatibility facade" in source
+def test_eval_agent_keeps_no_facade_over_agent_runtime():
+    assert not (EVAL_AGENT / "cli_agent.py").exists()
+    assert not (EVAL_AGENT / "cli_skills.py").exists()
 
 
 def test_provider_and_model_implementations_live_in_their_packages():
-    facade = (EVAL_AGENT / "cli_agent.py").read_text(encoding="utf-8")
-    assert "class ClaudeCodeAgent" not in facade
-    assert "class CodexAgent" not in facade
-    assert "class AgyModel" not in facade
-    assert "class ClaudeModel" not in facade
-
     assert "ClaudeCodeAgent" in _class_names(AGENT_RUNTIME / "providers" / "claude_code.py")
     assert "CodexAgent" in _class_names(AGENT_RUNTIME / "providers" / "codex.py")
     assert "AgyModel" in _class_names(AGENT_RUNTIME / "judges" / "agy.py")
@@ -47,7 +36,7 @@ def test_provider_and_model_implementations_live_in_their_packages():
 def test_codegen_runner_is_the_stage_cli_invocation_boundary():
     production_paths = [
         *(ROOT / "evalrx" / "analysis").glob("*.py"),
-        *(EVAL_AGENT / "stages").glob("*.py"),
+        *(EVAL_AGENT / "stages").rglob("*.py"),
         *(EVAL_AGENT / "agentic").glob("*.py"),
         EVAL_AGENT / "nl_runner.py",
     ]
@@ -147,7 +136,7 @@ def test_stage_prompt_templates_live_in_prompt_modules():
 
     offenders: list[str] = []
     for path in [
-        *(EVAL_AGENT / "stages").glob("*.py"),
+        *(EVAL_AGENT / "stages").rglob("*.py"),
         *(EVAL_AGENT / "agentic").glob("*.py"),
         *ANALYSIS.glob("*.py"),
     ]:

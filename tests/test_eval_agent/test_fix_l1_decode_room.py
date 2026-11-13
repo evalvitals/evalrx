@@ -16,7 +16,8 @@ from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.core.model import Model
 from evalrx.eval_agent import FixAgent, FixTier
 from evalrx.eval_agent.hypothesis import Hypothesis
-from evalrx.eval_agent.stages.fix_agent import FixCandidate
+from evalrx.eval_agent.stages.fix.agent import FixCandidate
+from evalrx.eval_agent.stages.fix.proposal import enforce_generation_floor
 
 
 class ScriptedJudge(Model):
@@ -88,7 +89,7 @@ def test_l1_proposal_keeps_max_tokens_and_drops_sampler_controls():
         )
     )
     agent = FixAgent(judge=judge, max_tier="L1")
-    candidates = agent._l1_candidates("h", "e")
+    candidates = agent.proposer._l1_candidates("h", "e")
     by_name = {c.name: c for c in candidates}
     # an L2-shaped proposal (n_samples) is still rejected at L1
     assert "pipelineish" not in by_name
@@ -97,7 +98,6 @@ def test_l1_proposal_keeps_max_tokens_and_drops_sampler_controls():
 
 
 def test_generation_floor_now_covers_template_candidates():
-    agent = FixAgent(judge=ScriptedJudge("[]"), max_tier="L1")
     shy = FixCandidate(
         tier=FixTier.L1_PROMPT,
         name="shy",
@@ -113,8 +113,7 @@ def test_generation_floor_now_covers_template_candidates():
         kind="template",
         payload={"prompt_template": "Think first. {prompt}"},
     )
-    agent._max_tokens_floor = 128
-    agent._enforce_generation_floor([shy, pure])
+    enforce_generation_floor([shy, pure], 128)
     assert shy.payload["generation_kwargs"]["max_tokens"] == 128
     assert shy.payload["generation_kwargs_proposed"] == {"max_tokens": 16}
     # a payload without generation_kwargs is left alone (baseline budget applies)

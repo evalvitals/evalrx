@@ -52,14 +52,15 @@ The intended workflow is:
 4. Store results as structured findings and artifacts.
 5. Use those results to refine cases, hypotheses, and experiments.
 
-Or hand the loop to `AutoDiagnoseLoop` and let it drive steps 2–5 automatically:
+Or hand the loop to `VLDiagnoseLoop` and let it drive steps 2–5 automatically
+(see the [Quickstart](quickstart.md#diagnosis-loop) for a full example):
 
 ```python
-from evalrx.eval_agent import AutoDiagnoseLoop, DiagnosisAgent
+from evalrx.eval_agent import VLDiagnoseLoop
 
-loop   = AutoDiagnoseLoop(model=my_model, diagnosis_agent=DiagnosisAgent(judge=judge))
+loop   = VLDiagnoseLoop(model=my_model, protocol=protocol, ...)
 report = loop.run(failure_cases)
-# → report.resolved, report.final_hypotheses, report.final_results
+# → report.resolved, report.final_hypotheses, report.verified_hypotheses
 ```
 
 ## Documentation Map
@@ -86,23 +87,19 @@ implemented and covered by 599 unit tests (no GPU required).  VLM forward captur
 registry. Several analyzers are Stage-2 stubs that intentionally raise
 `NotImplementedError`; see the [Roadmap](roadmap.md) for details.
 
-Two diagnosis loops are available:
-
-**`AutoDiagnoseLoop`** (M1→M5) ships with production-grade operational
-infrastructure: atomic checkpoints with `resume()`, heartbeat liveness,
-git-native run versioning (`ExperimentGitManager`), cross-run lesson accumulation
-(`EvolutionStore` with 30-day half-life decay), a durable `JsonlStore`, multi-phase
-`ExperimentWriter` (blueprint → sequential → hard-validate → exec-fix → tree-search →
-review), CLI agent backends (codex, claude_code, opencode, agy …), and a VLM
-image-attention analysis rule that closes the M1→M5 loop for vision models.
-
-**`VLDiagnoseLoop`** (M1→M2→M3→M4, M5 post-loop) adds protocol-guided diagnosis:
+**`VLDiagnoseLoop`** (M1→M2→M3→M4, M5 post-loop) runs protocol-guided diagnosis:
 the user supplies an `ExperimentProtocol` (a natural-language description of what
 to investigate), which drives analyzer prioritization in M1 and protocol-consistency
 checking in M4.  `StatsAnalysisAgent` (M2) generates an LLM-written evidence chain
 alongside the threshold-based findings.  `HypothesisTester` (M4) applies a
 statistical fail-rate test and verifies protocol consistency; the loop stops as soon
-as a supported, consistent hypothesis is found.
+as a supported, consistent hypothesis is found. **`AgenticDiagnoseLoop`** drives
+the same stages from a judge-decided action loop instead of a fixed cycle.
+
+Shared infrastructure: a durable `JsonlStore`, the multi-phase `ExperimentWriter`
+(blueprint → sequential → hard-validate → exec-fix → tree-search → review) behind
+M5, CLI agent backends (codex, claude_code, opencode, agy …), and a VLM
+image-attention analysis rule for vision models.
 
 The M1–M5 stage implementations live in `evalrx/eval_agent/stages/`; shared
 infrastructure (loop orchestration, logging, hypothesis types, CLI agent) lives at

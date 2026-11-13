@@ -73,7 +73,7 @@ def main() -> None:
 
     # generate_with_meta (real weights) also records finish_reason/
     # generation_config per case -- FixAgent's L0 telemetry gate
-    # (fix_agent.py:_l0_candidates) needs this to propose the cheap, precise
+    # (fix/proposal.py _l0_candidates) needs this to propose the cheap, precise
     # "raise max_tokens" repair instead of that hypothesis only ever reaching
     # slow LLM-authored L1/L2 pipelines. MockAVModel has no such method (no
     # real generation to introspect), so --mock runs fall back to plain

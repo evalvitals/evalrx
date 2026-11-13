@@ -1,8 +1,7 @@
 """Report dataclasses returned by the diagnosis loops.
 
-Split out of ``loop.py`` so the loop/legacy modules can share them without a
-circular import (``legacy.AutoDiagnoseLoop`` and ``loop.VLDiagnoseLoop`` both
-import from here; neither imports the other).
+Split out of ``loop.py`` so the loops (``loop.VLDiagnoseLoop`` and
+``agentic.AgenticDiagnoseLoop``) can share them without a circular import.
 """
 
 from __future__ import annotations
@@ -22,17 +21,17 @@ if TYPE_CHECKING:
 
 @dataclass
 class AutoDiagnoseReport:
-    """Summary returned by every diagnosis loop: :class:`~evalrx.eval_agent.legacy.AutoDiagnoseLoop.run`,
-    :class:`~evalrx.eval_agent.loop.VLDiagnoseLoop.run`, and
-    :class:`~evalrx.eval_agent.agentic.AgenticDiagnoseLoop.run` all return
+    """Summary returned by every diagnosis loop:
+    :class:`~evalrx.eval_agent.loop.VLDiagnoseLoop.run` and
+    :class:`~evalrx.eval_agent.agentic.AgenticDiagnoseLoop.run` both return
     this one class — ``VLDiagnoseReport`` below is a back-compat alias for
     it, not a separate type, so ``isinstance(report, VLDiagnoseReport)``
-    holds for a report from *any* of the three loops.
+    holds for a report from either loop.
 
     Unified 2026-08 from two previously-separate dataclasses
     (``AutoDiagnoseReport`` / ``VLDiagnoseReport``) that carried the same
     information under different field names. Every field below is populated
-    by all three loops except where noted "Auto-only" / "M4-only", which stay
+    by both loops except where noted "M4-only" (or ``final_results``), which stay
     at their default (``None`` / empty) when the producing loop has no
     equivalent concept.
 
@@ -62,7 +61,8 @@ class AutoDiagnoseReport:
                               test results — sorted highest confidence first.
                               Feed into ``run_m5``.
         all_test_results:     M4-only. All M4 test results across every cycle.
-        final_results:        Auto-only. Raw analyzer results from the last M1 probe.
+        final_results:        Left empty by both loops (the removed AutoDiagnoseLoop
+                              filled it with the last M1 probe's raw results).
         final_analysis:       Structured M2 report from the last cycle. Mirrors
                               ``final_stats_report`` when only that was set
                               (``StatsAnalysisReport`` is an ``AnalysisReport``
@@ -93,9 +93,9 @@ class AutoDiagnoseReport:
     #: this run: in-cycle testing is skipped when a confirm split is in play);
     #: ``"failed"`` — the confirm-split re-probe produced nothing, so no
     #: hypothesis could be verified (flagged loudly in the log);
-    #: ``None`` — no confirm split / holdout disabled / legacy loop.
+    #: ``None`` — no confirm split / holdout disabled.
     m4_holdout: "str | None" = None
-    # Internal — set by the loops for evolution/git integration
+    # Internal — the run id the loop ran under
     _run_id: str = field(default="", repr=False)
 
     def __post_init__(self) -> None:

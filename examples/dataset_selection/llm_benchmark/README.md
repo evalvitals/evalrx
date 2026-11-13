@@ -32,7 +32,7 @@ cd evalsmith/evalrx          # 有 pyproject.toml 的那一层
 # (a) 评测环境 —— 跑本目录的脚本
 python3 -m venv .venv            # 需要 python >= 3.10
 .venv/bin/pip install -U pip
-.venv/bin/pip install -e ".[stats,viz,dashboard]"
+.venv/bin/pip install -e ".[stats,viz,ui]"
 .venv/bin/pip install requests
 
 # (b) 服务环境 —— 只用来起 vLLM
@@ -51,7 +51,7 @@ export VLLM_BIN=/your/vllm
 ```
 
 **extras 各自的用途**:`stats`(statsmodels + scikit-learn)是 **M2 统计的硬依赖**,
-缺了整条链走不到 M3;`viz` 是 M2 出图;`dashboard` 只影响 dashboard 命令。
+缺了整条链走不到 M3;`viz` 是 M2 出图;`ui` 只影响 `serve`(报告界面)。
 
 ### 2. claude CLI(judge,不可省)
 
@@ -213,7 +213,7 @@ supergpqa_medicine_hard  0.360   ← 9B 上就已经偏难,小模型大概率地
 
 按上面「从零搭建」装好后,`evalrx` 是 **`pip install -e` 进 venv 的**,
 任何 cwd 都能 import。若你跳过了安装、直接用系统 python 跑,
-本目录的脚本仍能工作(它们自己插 `sys.path`),但 `python -m evalrx.cli dashboard`
+本目录的脚本仍能工作(它们自己插 `sys.path`),但 `python -m evalrx.cli serve`
 必须先 `cd` 到 `evalrx/`。
 
 ---
@@ -250,11 +250,13 @@ M2 用配对统计对比 PASS 与 FAIL,所以一个数据集**只有在两类都
 `预算信号 = max(截断率, 无答案标签率)`。**超过 10% 时准确率量到的是 token 预算而不是模型能力**,
 因为那些题模型根本没走到答案。
 
-机器可读的同一份数据在 [`datasets.py`](datasets.py) 里,它直接从
-`../llm_band_probe/band_locate.py` 取 spec,所以两边不会漂移:
+机器可读的同一份数据在包里:目录在
+[`evalrx/benchmark/tasks/llm/catalog.py`](../../../evalrx/benchmark/tasks/llm/catalog.py),
+spec(取数 / prompt / grader)在 [`specs.py`](../../../evalrx/benchmark/tasks/llm/specs.py),
+`band_locate.py` 和这里的脚本都从包里导入,所以不会漂移。[`datasets.py`](datasets.py) 是它的命令行:
 
 ```bash
-$PY datasets.py               # 目录 + 校验每个条目都能解析到 spec
+$PY datasets.py               # 目录
 $PY datasets.py --acquisition # 每个切片的 dataset/config/split/where
 $PY datasets.py --probe       # 实时请求 datasets-server 核对题数
 ```
@@ -262,7 +264,7 @@ $PY datasets.py --probe       # 实时请求 datasets-server 核对题数
 ### 数据怎么拿到:运行时现取,不需要手工下载
 
 **题目不随仓库分发**,全部在运行时从 HuggingFace datasets-server 取。
-下面这四个字段就是数据集的完整身份 —— `band_locate.py` 拿它们去请求
+下面这四个字段就是数据集的完整身份 —— `evalrx.benchmark.tasks.llm.fetch` 拿它们去请求
 `/rows`(无 `where`)或 `/filter`(有 `where`):
 
 | 数据集 | HF dataset | config | split | where |
@@ -550,9 +552,9 @@ $PY build_cases.py --model qwen3.5-9b --dataset supergpqa_law
 ```bash
 $PY run_pipeline.py --model qwen3.5-9b --dataset supergpqa_law --analysis-only
 
-# dashboard 要在 evalrx/ 下跑(`evalrx` 包才在 import path 上)
+# serve 要在 evalrx/ 下跑(`evalrx` 包才在 import path 上)
 cd <repo>/evalrx
-$PY -m evalrx.cli dashboard examples/dataset_selection/llm_benchmark/outputs/qwen3.5-9b/supergpqa_law
+$PY -m evalrx.cli serve examples/dataset_selection/llm_benchmark/outputs/qwen3.5-9b/supergpqa_law
 ```
 
 产出提出的假设,但**不做 M4 确认、不做修复**。先把分析故事看明白再决定要不要往下走。
@@ -855,7 +857,7 @@ outputs/
 
 | 路径 | 作用 |
 |---|---|
-| [`datasets.py`](datasets.py) | 八个数据集的机器可读目录 |
+| [`datasets.py`](datasets.py) | 目录的命令行(`--acquisition` / `--probe` / `--plan` / `--max-tokens`) |
 | [`build_cases.py`](build_cases.py) | Stage 0:生成 + 判分 + 冻结 batch |
 | [`run_pipeline.py`](run_pipeline.py) | M1→M2→M3→M4→M5 驱动;`EndpointModel` 含 logprobs |
 | [`whitebox.py`](whitebox.py) | Stage W:hf_local 加载 + 显存护栏 + 混合栈层映射 |
@@ -863,7 +865,7 @@ outputs/
 | [`preflight.py`](preflight.py) | 上机前自检,每条 FAIL 附安装命令 |
 | [`run_all.sh`](run_all.sh) | **一条命令跑完全链路**(agent 用这个) |
 | [`config.yaml`](config.yaml) | 全部默认参数 |
-| `../llm_band_probe/` | 带位定位工具(spec / grader / fetch 的真正来源) |
+| `../llm_band_probe/` | 带位定位工具(其余候选数据集的 spec 也在这里) |
 | `../diagnosis_loops/deco_hallu/` | VLM 版参考实现,阶段划分同构 |
 
 ---
@@ -872,7 +874,7 @@ outputs/
 
 写这份文档时,下列内容是**逐条核对过的**,不是照着记忆写的:
 
-- 八个条目全部能解析到 `band_locate.SPECS` 里的实际 spec(`python datasets.py` 会校验)
+- 每个条目都有对应的 spec(`tests/test_benchmark/test_llm_tasks.py` 校验)
 - `run_pipeline.py` 里用到的每一个构造函数关键字参数,都对着实际签名验过
 - `band_locate.generate` 在调用时读 `MODEL_ID` / `BASE_URL` 全局,所以覆盖它们是有效的
 

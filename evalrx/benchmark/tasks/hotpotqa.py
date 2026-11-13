@@ -15,8 +15,8 @@ pool of the same published recipe — the optional held-out validation set.
 The protocol here is NOT GEPA's: their program answers via two-hop ColBERTv2
 retrieval over a hosted Wikipedia-2017 index that is not reproducible locally.
 We hand the model HotpotQA's own 10 candidate paragraphs (2 gold + 8
-distractors, the dataset's distractor setting, formatted exactly like
-``examples/dataset_selection`` ``band_locate._hotpot_context``) so the task
+distractors, the dataset's distractor setting, formatted exactly like the
+band survey's ``_hotpot_context`` in ``examples/dataset_selection/llm_band_probe``) so the task
 stays multi-hop READING over the same items, and grade with ``short_answer_em`` —
 the same SQuAD normalisation as GEPA's ``dspy.evaluate.answer_exact_match``. Published GEPA numbers are
 therefore a distribution anchor for these items, not a per-item comparison.
@@ -76,7 +76,7 @@ def _gepa_indices(pool_len: int, size: int, seed: int) -> list[int]:
 def _context(row: dict) -> str:
     """The 10 candidate paragraphs (2 gold + 8 distractors). ``context`` is a
     dict of PARALLEL lists (``title`` / ``sentences``), so zipping is the only
-    correct read; same formatting + cap as ``band_locate._hotpot_context``."""
+    correct read; same formatting + cap as the band survey's ``_hotpot_context``."""
     ctx = row.get("context")
     if not isinstance(ctx, dict):
         return ""

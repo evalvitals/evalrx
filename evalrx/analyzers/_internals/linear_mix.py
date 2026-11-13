@@ -168,14 +168,16 @@ def _torch_kernel(mod: Any) -> Callable:
 
 
 def mixing_matrix(kernel: Callable, query: Any, key: Any, g: Any, beta: Any, **kwargs: Any) -> Any:
-    """``A`` with ``o = A · v`` per head: ``(batch, heads, T, T)``, float32.
+    """``A`` with ``o = A · v`` per value head: ``(batch, heads, T, T)``, float32.
 
     The delta rule is linear in the values, so feeding the identity as values
-    (value width T) returns ``A`` row by row.
+    (value width T) returns ``A`` row by row. The heads are the value heads
+    (``beta``'s): a kernel that groups several value heads under one key head
+    expands query/key itself (transformers >= 5.23), so ``key`` may have fewer.
     """
     import torch
 
-    batch, seq, heads, _ = key.shape
+    batch, seq, heads = beta.shape[:3]
     eye = torch.eye(seq, device=key.device, dtype=torch.float32)
     values = eye.view(1, seq, 1, seq).expand(batch, seq, heads, seq)
     out, _ = kernel(query.float(), key.float(), values, g=g.float(), beta=beta.float(),

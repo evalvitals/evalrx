@@ -143,7 +143,7 @@ def attention_heatmap(
     """One ATTENTION forward → (H, W) image-patch heatmap, or ``None``.
 
     Host-side capture used both by analyzers and by the fix module's read-only
-    ``model_attend()`` bridge (:mod:`evalrx.eval_agent.stages.fix_pipeline`):
+    ``model_attend()`` bridge (:mod:`evalrx.eval_agent.stages.fix.pipeline`):
     run one attention forward, reduce it with :func:`image_token_attention`, and
     reshape to the backend's ``image_spatial_shape`` (near-square fallback).
     ``layer`` is resolved by :func:`resolve_attention_layer` — a float is a

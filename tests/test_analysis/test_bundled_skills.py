@@ -145,8 +145,8 @@ def test_explorer_agent_defaults_bundled_skills():
     """Any flow that hands the explorer a bare CliAgentConfig (e.g. the fused
     pipeline via an example's build_codegen) gets the bundled skills without
     caller wiring; opt out via use_bundled_skills=False."""
+    from evalrx.agent_runtime import CliAgentConfig
     from evalrx.analysis.explorer import ExploratoryAnalysisAgent
-    from evalrx.eval_agent.cli_agent import CliAgentConfig
 
     agent = ExploratoryAnalysisAgent(cli_config=CliAgentConfig(provider="claude_code"))
     names = {Path(s).name for s in agent._cli_config.skills}

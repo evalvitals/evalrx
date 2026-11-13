@@ -127,7 +127,7 @@ def _mm_infer_on(image_or_video, instruct, model, tokenizer, device, dtype,
     # doing so changes output_ids' shape/type in ways the stopping-criteria +
     # batch_decode call above aren't written for) -- but "did it hit the token
     # cap" is exactly what FixAgent's L0 telemetry gate needs
-    # (fix_agent.py:_l0_candidates -- metadata['finish_reason']=='length' +
+    # (fix/proposal.py _l0_candidates -- metadata['finish_reason']=='length' +
     # metadata['generation_config']['max_tokens']), and that specific fact is
     # cheaply and reliably derivable here: output_ids includes the prompt, so
     # the number of NEWLY generated tokens is output_ids.shape[1] -
@@ -241,7 +241,7 @@ class VideoLLaMA2AVModel(Model):
         """generate() + (finish_reason, generation_config) -- NOT part of the
         Model ABC (generate() must return a bare str for every caller in the
         framework), used only by mine_cases.py's baseline pass so FixAgent's
-        L0 telemetry gate (fix_agent.py:_l0_candidates) has real per-case
+        L0 telemetry gate (fix/proposal.py _l0_candidates) has real per-case
         evidence to propose the cheap, precise "raise max_tokens" repair from,
         instead of that hypothesis only ever reaching slow/unreliable
         LLM-authored L1/L2 coded pipelines."""

@@ -208,8 +208,7 @@ class ProbeAgent:
            additional context for cycle 2+ focused probing.
         2. **Static fallback** — when no judge or no protocol, uses
            :class:`~evalrx.eval_agent.probe.StrategyProbe` with the
-           optional *hint_failure_modes* list for priority-boosting (used by
-           :class:`~evalrx.eval_agent.legacy.AutoDiagnoseLoop`).
+           optional *hint_failure_modes* list for priority-boosting.
 
         Black-box analyzers use a ``ThreadPoolExecutor`` when ``max_workers``
         exceeds 1. White-box analyzers, and all probes with ``max_workers=1``,
@@ -226,7 +225,7 @@ class ProbeAgent:
             prior_hypotheses:    Hypotheses from M3 in prior cycles.  Passed to
                                  the judge as context for focused follow-up.
             hint_failure_modes:  Failure-mode tags for the static fallback path
-                                 (e.g. from :class:`~evalrx.eval_agent.legacy.AutoDiagnoseLoop`).
+                                 (e.g. from a previous cycle's hypotheses).
             analyzers:           Exact analyzer names to run, bypassing selection
                                  entirely (still filtered for applicability).
                                  Used by the loop's held-out M4 confirmation to

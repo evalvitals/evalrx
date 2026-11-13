@@ -82,8 +82,8 @@ def test_langfuse_source_materializes_media_only_inside_cache(tmp_path):
     assert (root / "audio" / "test.wav").read_bytes() == b"audio"
 
 
-def test_materialized_langfuse_run_builds_the_existing_html_report(tmp_path):
-    from evalrx.reporting.html_report import build_html_report
+def test_materialized_langfuse_run_builds_the_report(tmp_path):
+    from evalrx.reporting.dynamic import build_report_data
     from evalrx.reporting.langfuse_source import LangfuseRunSource
     from evalrx.reporting.run_events import read_v2_events
 
@@ -104,11 +104,12 @@ def test_materialized_langfuse_run_builds_the_existing_html_report(tmp_path):
 
     root = LangfuseRunSource(client).materialize("trace", tmp_path / "cache")
     # A real V2 root, not just a stray run.json: read_v2_events (the same
-    # read path build_html_report uses) must recover both events, not
-    # silently nothing — resolve_v2_root requires a real M<n>/log.json too.
+    # read path the report uses) must recover both events, not silently
+    # nothing — resolve_v2_root requires a real M<n>/log.json too.
     events = read_v2_events(root)
     assert {e["event"] for e in events} == {"run_start", "probe"}
 
-    report = build_html_report(root, no_audio=True)
+    data = build_report_data(root)
 
-    assert report.exists()
+    assert data["trace_id"] == "trace"
+    assert data["stage_detail"]["m1"] is not None

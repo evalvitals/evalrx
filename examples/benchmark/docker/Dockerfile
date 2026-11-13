@@ -44,10 +44,7 @@ COPY . /evalrx
 RUN pip install --no-cache-dir "/evalrx[data,viz,gemini]" pandas requests openai scipy soundfile "matplotlib<3.11" \
     "transformers==5.15.0" "accelerate>=0.26.0"
 
-# The benchmark code + the LLM dataset catalog it imports, at the SAME relative
-# paths as in the repo (examples/benchmark/_common -> examples/dataset_selection).
-COPY examples/dataset_selection/llm_band_probe /app/examples/dataset_selection/llm_band_probe
-COPY examples/dataset_selection/llm_benchmark/datasets.py /app/examples/dataset_selection/llm_benchmark/datasets.py
+# The benchmark code, at the same relative path as in the repo.
 COPY examples/benchmark/_common /app/examples/benchmark/_common
 COPY --chmod=0755 examples/benchmark/docker/codex /usr/local/bin/codex
 # CHAIR captioning task (tasks/chair_words.py): nltk tokeniser/tagger/WordNet on
@@ -87,8 +84,6 @@ RUN pip install --no-cache-dir "/evalrx[local,data,viz]" pandas requests openai 
 RUN pip install --no-cache-dir \
     "https://github.com/Dao-AILab/causal-conv1d/releases/download/v1.7.0/causal_conv1d-1.7.0%2Bcu12torch2.10cxx11abiTRUE-cp311-cp311-linux_x86_64.whl" \
     "https://github.com/state-spaces/mamba/releases/download/v2.3.2.post1/mamba_ssm-2.3.2.post1%2Bcu12torch2.10cxx11abiTRUE-cp311-cp311-linux_x86_64.whl"
-COPY examples/dataset_selection/llm_band_probe /app/examples/dataset_selection/llm_band_probe
-COPY examples/dataset_selection/llm_benchmark/datasets.py /app/examples/dataset_selection/llm_benchmark/datasets.py
 COPY examples/benchmark/_common /app/examples/benchmark/_common
 COPY --chmod=0755 examples/benchmark/docker/codex /usr/local/bin/codex
 # CHAIR captioning task (tasks/chair_words.py): nltk tokeniser/tagger/WordNet on
@@ -115,8 +110,6 @@ COPY . /evalrx
 # transformers: no model code here, only the image helpers some analyzers import.
 RUN pip install --no-cache-dir "/evalrx[jax,data,viz,gemini]" "jax[cuda12]==0.11.2" "gemma==4.0.1" gcsfs \
     pandas requests openai scipy soundfile "matplotlib<3.11" "transformers==5.15.0"
-COPY examples/dataset_selection/llm_band_probe /app/examples/dataset_selection/llm_band_probe
-COPY examples/dataset_selection/llm_benchmark/datasets.py /app/examples/dataset_selection/llm_benchmark/datasets.py
 COPY examples/benchmark/_common /app/examples/benchmark/_common
 COPY --chmod=0755 examples/benchmark/docker/codex /usr/local/bin/codex
 RUN pip install --no-cache-dir "nltk>=3.9" \

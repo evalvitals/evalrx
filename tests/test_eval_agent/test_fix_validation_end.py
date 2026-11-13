@@ -31,14 +31,10 @@ from evalrx.core.capability import Capability
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.core.model import Model
 from evalrx.eval_agent.hypothesis import Hypothesis, HypothesisStatus
-from evalrx.eval_agent.stages.fix_agent import (
-    FixAgent,
-    FixCandidate,
-    FixContext,
-    _format_examples,
-)
-from evalrx.eval_agent.stages.fix_tiers import FixTier
-from evalrx.eval_agent.stages.fix_tools import (
+from evalrx.eval_agent.stages.fix.agent import FixAgent, FixCandidate, FixContext
+from evalrx.eval_agent.stages.fix.proposal import _format_examples
+from evalrx.eval_agent.stages.fix.tiers import FixTier
+from evalrx.eval_agent.stages.fix.tools import (
     MAX_TOKENS_CAP,
     PipelineSpec,
     answer_key,
@@ -218,17 +214,17 @@ def test_floor_is_inferred_from_the_model_when_not_given():
         max_tokens = 2048
 
     agent = FixAgent(judge=None, max_tier="L2", allow_codegen=False, floor_candidates=())
-    assert agent._resolve_max_tokens_floor(Budgeted(), _mc_batch()) == 2048
+    assert agent.proposer.resolve_max_tokens_floor(Budgeted(), _mc_batch()) == 2048
     # case metadata as the last resort
     batch = _mc_batch()
     for c in batch:
         c.metadata["generation_config"] = {"max_tokens": 1024}
-    assert agent._resolve_max_tokens_floor(CountingModel(), batch) == 1024
-    assert agent._resolve_max_tokens_floor(CountingModel(), _mc_batch()) is None
+    assert agent.proposer.resolve_max_tokens_floor(CountingModel(), batch) == 1024
+    assert agent.proposer.resolve_max_tokens_floor(CountingModel(), _mc_batch()) is None
 
 
 def test_bridge_enforces_floor_and_passes_generation_kwargs(tmp_path):
-    from evalrx.eval_agent.stages.fix_pipeline import run_coded_pipeline
+    from evalrx.eval_agent.stages.fix.pipeline import run_coded_pipeline
 
     code = '''
 import json
@@ -352,9 +348,9 @@ def test_floor_skipped_for_image_yes_no_batches():
         for i in range(3)
     ])
     agent = FixAgent(judge=None, max_tier="L2", allow_codegen=False)
-    assert agent._floor_names(has_images=True, tasks={"yes_no"}) == ()
-    assert agent._floor_names(has_images=True, tasks={"multiple_choice"}) == ("self_consistency_5",)
-    assert agent._floor_names(has_images=False, tasks={""}) == ("self_consistency_5",)
+    assert agent.proposer._floor_names(has_images=True, tasks={"yes_no"}) == ()
+    assert agent.proposer._floor_names(has_images=True, tasks={"multiple_choice"}) == ("self_consistency_5",)
+    assert agent.proposer._floor_names(has_images=False, tasks={""}) == ("self_consistency_5",)
     del batch
 
 
@@ -440,7 +436,7 @@ def test_run_fix_with_no_verified_hypothesis_does_not_call_minimal_agent():
 
 
 def test_recommendation_surfaces_inconclusive_positive_candidate():
-    from evalrx.eval_agent.stages.fix_agent import FixValidation
+    from evalrx.eval_agent.stages.fix.agent import FixValidation
 
     agent = FixAgent(judge=None, max_tier="L2", allow_codegen=False, floor_candidates=())
     good = FixValidation(candidate=FixCandidate(tier=FixTier.L2_SCAFFOLD, name="good",
@@ -448,7 +444,7 @@ def test_recommendation_surfaces_inconclusive_positive_candidate():
                          n_pairs=80, n_fixed=11, n_broken=2, effect=0.1125, e_value=7.5,
                          reject=False, verdict="partial")
     batch = _mc_batch(11, 69)
-    rec = agent._no_fix_recommendation([good], [FixTier.L1_PROMPT], batch, CountingModel())
+    rec = agent.no_fix_recommendation([good], [FixTier.L1_PROMPT], batch, CountingModel())
     assert rec is not None and rec.get("promising", {}).get("candidate") == "good"
     assert "INCONCLUSIVE, not refuted" in rec["reason"]
     assert "baseline_repeats" in rec["reason"]
@@ -509,13 +505,13 @@ def test_paired_rates_uses_frozen_sample_plus_fresh_and_weighs_unstable():
     # fresh baseline samples: alternate right/wrong -> every case ends unstable
     model = _CoinModel([True, False])
     agent = FixAgent(judge=None, max_tier="L1", baseline_repeats=3, floor_candidates=())
-    baseline, unstable = agent._baseline(model, batch)
+    baseline = agent._baseline(model, batch)
     assert len(model.calls) == 2 * len(batch)  # k-1 fresh per case; frozen counted
     assert all(0.0 < agent._baseline_rates[c.id] < 1.0 for c in batch)
-    assert len(unstable) == len(batch)
+    assert len(baseline.unstable) == len(batch)
     cand = FixCandidate(tier=FixTier.L1_PROMPT, name="careful", kind="template",
                         payload={"prompt_template": "Carefully. {prompt}"})
-    v = agent._validate(cand, model, batch, baseline, unstable)
+    v = agent._validate(cand, model, batch, baseline)
     assert v.noise_model == "paired_rates"
     assert v.n_pairs == len(batch) and v.n_unstable == len(batch)  # weighed, not dropped
     assert v.candidate_rate == 1.0 and 0.0 < v.baseline_rate < 1.0
@@ -555,10 +551,10 @@ def test_candidate_repeats_apply_to_declarative_candidates_only(tmp_path):
     batch = _mc_batch(2, 2)
     agent = FixAgent(judge=None, max_tier="L2", candidate_repeats=3, floor_candidates=())
     model = CountingModel()
-    baseline, unstable = agent._baseline(model, batch)
+    baseline = agent._baseline(model, batch)
     tmpl = FixCandidate(tier=FixTier.L1_PROMPT, name="t", kind="template",
                         payload={"prompt_template": "Carefully. {prompt}"})
-    v = agent._validate(tmpl, model, batch, baseline, unstable)
+    v = agent._validate(tmpl, model, batch, baseline)
     assert v.n_candidate_samples == 3 and len(model.calls) == 3 * len(batch)
     assert v.noise_model == "paired_rates"
     code = FixCandidate(tier=FixTier.L2_SCAFFOLD, name="coded_pipeline", kind="code",
@@ -566,19 +562,16 @@ def test_candidate_repeats_apply_to_declarative_candidates_only(tmp_path):
                             'import json\ncases=json.load(open("fix_cases.json"))["cases"]\n'
                             'out=[{"sample_id":c["id"],"output":model_generate(c["id"])} for c in cases]\n'
                             'print("FIX_PIPELINE_RESULT_JSON="+json.dumps({"per_case":out}))\n')})
-    agent._sandbox = None
-    agent._run_context = None
-    import evalrx.eval_agent.stages.fix_agent as fa
     from evalrx.agent_runtime.sandbox import ExperimentSandbox
 
-    agent._sandbox = ExperimentSandbox(workdir=tmp_path / "sb", cleanup=False)
-    v2 = agent._validate(code, model, batch, baseline, unstable)
+    agent.coder.run_context = None
+    agent.coder.sandbox = ExperimentSandbox(workdir=tmp_path / "sb", cleanup=False)
+    v2 = agent._validate(code, model, batch, baseline)
     assert v2.n_candidate_samples == 1  # coded pipelines never repeat
-    del fa
 
 
 def test_rates_mode_power_ceiling_uses_baseline_rates():
-    from evalrx.eval_agent.stages.fix_agent import FixValidation
+    from evalrx.eval_agent.stages.fix.agent import FixValidation
 
     agent = FixAgent(judge=None, max_tier="L2", baseline_repeats=5, allow_codegen=False,
                      floor_candidates=())
@@ -588,11 +581,11 @@ def test_rates_mode_power_ceiling_uses_baseline_rates():
                                                 kind="template"),
                          n_pairs=42, n_fixed=2, n_broken=0, effect=0.02, e_value=1.5,
                          reject=False, verdict="partial")
-    rec = agent._no_fix_recommendation([weak], [FixTier.L1_PROMPT], batch, CountingModel())
+    rec = agent.no_fix_recommendation([weak], [FixTier.L1_PROMPT], batch, CountingModel())
     assert rec is not None  # ceiling with 42 cases of headroom is high -> not 'underpowered'
     tiny = _mc_batch(1, 1)
     agent._baseline_rates = {c.id: 0.9 for c in tiny}
-    rec2 = agent._no_fix_recommendation([weak], [FixTier.L1_PROMPT], tiny, CountingModel())
+    rec2 = agent.no_fix_recommendation([weak], [FixTier.L1_PROMPT], tiny, CountingModel())
     assert rec2 is not None and rec2.get("action") == "gather_more_failures"
 
 
@@ -626,10 +619,10 @@ def test_spec_template_with_literal_braces_renders_and_never_aborts_the_stage():
             raise KeyError("boom")
         return True
 
-    agent._strategy = lambda candidate: raising_strategy  # type: ignore[assignment]
+    agent.validator.strategy = lambda candidate: raising_strategy  # type: ignore[assignment]
     cand = FixCandidate(tier=FixTier.L1_PROMPT, name="t", kind="template",
                         payload={"prompt_template": "x {prompt}"})
-    scores = agent._candidate_scores(cand, Exploding(), _mc_batch(2, 1))
+    scores = agent.validator.scores(cand, Exploding(), _mc_batch(2, 1))
     assert scores["q1"] is None and scores["q0"] is True and scores["q2"] is True
 
 
@@ -747,7 +740,7 @@ def test_threaded_coded_pipeline_gets_its_own_replies(tmp_path, concurrency):
     and with concurrency>1 the host really services calls in parallel."""
     import time as _t
 
-    from evalrx.eval_agent.stages.fix_pipeline import run_coded_pipeline
+    from evalrx.eval_agent.stages.fix.pipeline import run_coded_pipeline
 
     model = EchoPromptModel(delay=0.15)
     batch = _mc_batch(n_fail=6, n_pass=6)
@@ -770,7 +763,7 @@ def test_threaded_coded_pipeline_gets_its_own_replies(tmp_path, concurrency):
 def test_bridge_reply_carries_rid_and_errors_route_to_the_caller(tmp_path):
     """An unknown case id errors in the calling thread only; the other
     thread's call still succeeds (replies are routed by id, not by order)."""
-    from evalrx.eval_agent.stages.fix_pipeline import run_coded_pipeline
+    from evalrx.eval_agent.stages.fix.pipeline import run_coded_pipeline
 
     code = """
 import json
@@ -800,8 +793,8 @@ print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": [
 
 
 def test_fix_agent_passes_concurrency_to_the_coded_bridge(monkeypatch):
-    from evalrx.eval_agent.stages import fix_agent as fa
-    from evalrx.eval_agent.stages.fix_pipeline import CodedPipelineResult
+    from evalrx.eval_agent.stages.fix import codegen as fix_codegen
+    from evalrx.eval_agent.stages.fix.pipeline import CodedPipelineResult
 
     seen = {}
 
@@ -809,10 +802,10 @@ def test_fix_agent_passes_concurrency_to_the_coded_bridge(monkeypatch):
         seen.update(kw)
         return CodedPipelineResult(outputs={c.id: "Answer: (B)" for c in data}, ok=True)
 
-    monkeypatch.setattr(fa, "run_coded_pipeline", fake_run)
+    monkeypatch.setattr(fix_codegen, "run_coded_pipeline", fake_run)
     agent = FixAgent(judge=ScriptedJudge("[]"), max_tier="L2", concurrency=5)
-    cand = fa.FixCandidate(tier=FixTier.L2_SCAFFOLD, name="coded", payload={"code": "x"})
-    agent._run_coded(cand, CountingModel(), _mc_batch())
+    cand = FixCandidate(tier=FixTier.L2_SCAFFOLD, name="coded", payload={"code": "x"})
+    agent.coder.run(cand, CountingModel(), _mc_batch())
     assert seen["concurrency"] == 5
 
 

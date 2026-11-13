@@ -174,23 +174,17 @@ The design keeps common failure modes contained:
 ## eval_agent — automated diagnosis pipeline
 
 `eval_agent/` implements a multi-stage automated diagnosis cycle on top of the
-core contracts described above. Three loops are available — the same M1-M4
-stages, three different orchestration strategies:
+core contracts described above. Two loops are available — the same M1-M4
+stages, two different orchestration strategies:
 
 ```text
-AutoDiagnoseLoop  (legacy.py — four-stage sweep, kept for existing callers)
-  M1 · ProbeAgent         detect model kind → run ranked analyzers
-  M2 · AnalysisModule     threshold rules + derived metrics → AnalysisReport
-  M3 · DiagnosisAgent     judge.generate(report) → Hypothesis list
-  M5 · SurgeryAgent       correlate / param-sweep / ExperimentWriter → SUPPORTED/REFUTED
-       ↑_________________________________________________________________| (refocus or stop)
-
-VLDiagnoseLoop  (loop.py — current, protocol-guided, stops on verified hypothesis)
+VLDiagnoseLoop  (loop.py — protocol-guided, stops on verified hypothesis)
   ExperimentProtocol  ← user's NL description of what to investigate
        │
-  M1 · ProbeAgent         same as above; protocol.probe_hints() boosts relevant analyzers
+  M1 · ProbeAgent         detect model kind → run ranked analyzers;
+                          protocol.probe_hints() boosts relevant analyzers
   M2 · StatsAnalysisAgent protocol-aware; LLM judge writes conclusion + evidence chain
-  M3 · DiagnosisAgent     same as above
+  M3 · DiagnosisAgent     judge.generate(report) → Hypothesis list
   M4 · HypothesisTester   statistical test + protocol consistency check
        │
   loop exits when M4 finds a SUPPORTED + protocol-consistent hypothesis
@@ -204,13 +198,13 @@ AgenticDiagnoseLoop  (agentic/loop.py — judge-decided, same M1-M4 stages)
   fixed cycle. The host — not the judge — enforces tool call caps,
   preconditions, and the stop-gate (declaring success requires an
   actually-tested, supported, protocol-consistent hypothesis). See
-  [quickstart](quickstart.md#agenticdiagnoseloop--judge-decided-m1-m4-alternative-to-the-fixed-cycle).
+  [quickstart](quickstart.md#agentic-diagnosis-loop).
 ```
 
 The agent touches models only through the `Model` protocol and stores all
 evidence in a `Store`.
 
-`.run()` on all three loops returns the same class, `AutoDiagnoseReport`
+`.run()` on both loops returns the same class, `AutoDiagnoseReport`
 (`loop_reports.py`; `VLDiagnoseReport` is a back-compat alias for the
 identical class). Each loop populates only the fields relevant to what it
 ran — see [Stage Input/Output Reference](stage_io.md#loop-level-output) for
@@ -221,24 +215,16 @@ the full field table.
 ```text
 eval_agent/
 ├── loop.py               VLDiagnoseLoop (current)
-├── legacy.py             AutoDiagnoseLoop, SelfEvolveLoop (kept for existing callers)
+├── loop_fix.py           run_fix orchestration: fix targets, tier ladder, EXPLORE→CONFIRM
 ├── loop_reports.py       AutoDiagnoseReport (VLDiagnoseReport is an alias — all
-│                         three loops return this one unified report class)
-├── checkpoint.py         write_checkpoint / write_heartbeat / read_checkpoint
+│                         both loops return this one unified report class)
 ├── run_metadata.py       shared run-provenance + logging-wiring helpers
 ├── agentic/              AgenticDiagnoseLoop — judge-decided M1-M4 (see below)
 ├── run_context.py        RunContext, Trial — single owner of a run's output directory
 ├── run_logger_v2.py       RunLoggerV2 — run.json + per-stage M<n>/log.json event log
 ├── log_schema.py          published event JSON Schema
 ├── hypothesis.py         Hypothesis, HypothesisStatus — shared across M3/M4/M5
-├── cli_agent.py          compatibility facade over agent_runtime's CLI providers/judges
 ├── store.py              Store / InMemoryStore / JsonlStore
-├── evolution.py          EvolutionStore — cross-run lesson accumulation
-├── orchestrator.py       EvalOrchestrator — thin A/B facade
-├── ab_runner.py          ABRunner — A/B execution
-├── preregister.py        DataSplit, PreregisteredHypothesis
-├── git_manager.py        ExperimentGitManager
-├── report.py             DiagnosticReport
 └── stages/               ← M1, M3, M4, M5 stage implementations (M2 lives in evalrx.analysis)
     ├── probe.py          M1  StrategyProbe
     ├── probe_agent.py    M1  ProbeAgent
@@ -246,8 +232,22 @@ eval_agent/
     ├── diagnosis.py      M3  DiagnosisAgent, DiagnosisResult
     ├── surgery.py        M5  SurgeryAgent, InterventionResult
     ├── experiment_writer.py  M5  ExperimentWriter
-    ├── fix_agent.py       M5 (post-loop)  FixAgent, FixCandidate, FixOutcome
-    ├── fix_tiers.py       FixTier ladder (L1 prompt → L4 parameter space)
+    ├── fix/              M5 (post-loop) tiered repair
+    │   ├── agent.py       FixAgent — orchestrates the modules below
+    │   ├── types.py       FixCandidate, FixValidation, FixOutcome, FixContext
+    │   ├── proposal.py    FixProposer — candidates per tier; BUILTIN_SPECS,
+    │   │                  CONDITIONAL_DEFAULTS (built-in repairs as data)
+    │   ├── codegen.py     PipelineCoder — writes/runs/repairs coded pipelines
+    │   ├── validation.py  CandidateValidator, Baseline — runs candidates by kind,
+    │   │                  paired test against the baseline
+    │   ├── verdict.py     verdicts, e-BH survivors, no-fix recommendations
+    │   ├── recorder.py    FixRecorder — the only writer to the run logger
+    │   ├── descriptions.py  plain-language candidate descriptions
+    │   ├── tiers.py       FixTier ladder (L0 runtime → L4 parameter space)
+    │   ├── tools.py       L2 tool catalog + PipelineSpec executor
+    │   ├── pipeline.py    L2 coded pipelines (sandbox + model bridge)
+    │   ├── internals.py   L3b intervention primitives, L4 LoRA repair
+    │   └── repair_catalog.py  pre-audited repair capability discovery
     ├── hypothesis_tester.py  M4  HypothesisTester, HypothesisTestResult
     ├── case_discovery.py  CaseDiscoveryAgent — runs candidates through a model,
     │                      labels PASS/FAIL/UNKNOWN (judge or heuristic scorer)
@@ -293,7 +293,7 @@ evalrx.analysis/       M2 lives here now (StatsAnalysisAgent, AnalysisModule,
 that synthesizes and evaluates new test cases (VLM QA in v1) rather than
 analyzing an already-collected dataset; `result.failure_cases` is a `CaseBatch`
 that can seed or extend the data M1 then probes. See
-[m2_analysis.md#probe-search--hierarchical-mcts-failure-discovery-vlm](m2_analysis.md#probe-search--hierarchical-mcts-failure-discovery-vlm).
+[m2_analysis.md#probe-search](m2_analysis.md#probe-search).
 
 **M1 analyzer selection** happens in two tiers:
 
@@ -349,18 +349,6 @@ confirmatory stage.
 All stages are injectable:
 
 ```python
-# AutoDiagnoseLoop
-loop = AutoDiagnoseLoop(
-    model=model,
-    probe_agent=ProbeAgent(...),
-    analysis_module=AnalysisModule(...),
-    diagnosis_agent=DiagnosisAgent(judge=judge),
-    surgery_agent=SurgeryAgent(judge=judge),
-    store=JsonlStore(run_dir / "store"),
-    run_logger=RunLoggerV2(run_dir),
-    run_dir=run_dir,
-)
-
 # VLDiagnoseLoop — ctx is a RunContext; see "RunContext" below for what it owns
 ctx = RunContext(run_dir)
 protocol = ExperimentProtocol(
@@ -434,64 +422,6 @@ Key properties:
 Docker, SSH, or other backends.  `create_sandbox(SandboxFactoryConfig, workdir)` selects
 the backend from a `mode` string (`"subprocess"` default, `"docker"` with graceful fallback).
 
-### Run-directory infrastructure
-
-Pass `run_dir` to `AutoDiagnoseLoop` to enable the full operational stack:
-
-```python
-loop = AutoDiagnoseLoop(
-    model=model,
-    diagnosis_agent=DiagnosisAgent(judge=judge),
-    run_dir=Path("runs/my_experiment"),   # enables all infrastructure below
-)
-report = loop.run(cases)
-
-# Resume a previously interrupted run
-report = AutoDiagnoseLoop.resume(Path("runs/my_experiment"), model=model, data=cases)
-```
-
-When `run_dir` is set, `AutoDiagnoseLoop` creates:
-
-```text
-run_dir/
-├── checkpoint.json          ← atomic (temp+rename); last_completed_cycle + run_id
-├── heartbeat.json           ← pid + last_cycle + timestamp (liveness signal)
-├── artifacts/<run_id>/      ← per-run staging area
-└── evolution/
-    └── lessons.jsonl        ← cross-run lesson accumulation (append-only)
-```
-
-**Checkpointing and resume**: after every completed cycle, `checkpoint.json` is written
-atomically.  `AutoDiagnoseLoop.resume(run_dir, model, data)` reads the checkpoint and
-restarts from `last_completed_cycle + 1`, skipping already-completed work.
-
-**Git integration**: when `run_dir` is inside a git repository, `ExperimentGitManager`
-auto-detects it and:
-- Creates branch `eval/{run_id}` at the start of the run.
-- Commits all staged files with hypothesis statuses on a resolved run.
-- Calls `git reset --hard HEAD` on an unresolved run (non-destructive: only uncommitted
-  changes are discarded).
-
-### EvolutionStore — cross-run lesson accumulation
-
-`EvolutionStore` accumulates lessons from every diagnosis run in an append-only JSONL
-file.  Lessons are weighted by a 30-day half-life exponential decay so recent findings
-rank higher.
-
-```python
-store = EvolutionStore(Path("runs/my_experiment/evolution"))
-
-# Lessons are appended automatically when run_dir is set.
-# Read them back for prompt injection:
-overlay = store.build_overlay("surgery", max_lessons=5)
-# → "## Lessons from Prior Diagnosis Runs\n1. [WARN] ..."
-```
-
-`extract_lessons(report)` auto-derives lessons from an `AutoDiagnoseReport`:
-- INCONCLUSIVE hypotheses → `surgery / warning`
-- Loop exhausted without resolution → `diagnosis / warning`
-- HIGH/CRITICAL analysis severity with no resolution → `analysis / info`
-
 ### Persistent store — `JsonlStore`
 
 `JsonlStore` is a durable implementation of the `Store` interface backed by three JSONL files
@@ -500,7 +430,7 @@ and are fully reconstructed via `hypothesis_to_dict` / `hypothesis_from_dict`.
 
 ```python
 store = JsonlStore(Path("runs/store"))
-loop = AutoDiagnoseLoop(model=model, store=store, ...)
+loop = VLDiagnoseLoop(model=model, protocol=protocol, store=store, ...)
 ```
 
 ### Analysis rules — VLM image-attention
@@ -637,7 +567,7 @@ with RunContext("examples/foo/outputs", verbose=True) as ctx:
 ```
 
 `write_diagnose_report(report, cases, discovery=...)` writes the standard
-`report/` deliverables from an `AutoDiagnoseReport` (all three loops return
+`report/` deliverables from an `AutoDiagnoseReport` (both loops return
 this one class — see "Stage contracts" above), replacing the
 `_write_report_artifacts` boilerplate previously copy-pasted into every
 example.
@@ -657,20 +587,26 @@ folders at all — a trial's generated code/output is inlined into its stage's
 JSON, and the sandbox it ran in lives under an ephemeral `ctx.runtime_root`
 tempdir that's deleted at `finalize()`, not `fixes/`/`experiments/`.
 
-**Not the same as `run_dir`** in the "Run-directory infrastructure" section
-above: `AutoDiagnoseLoop(run_dir=...)` owns *resume* mechanics (checkpoint,
-heartbeat, evolution, git) and is orthogonal — a run can use either, both, or
-neither. `RunContext` owns *output* (report/figures/artifacts/fixes/manifest).
-`AutoDiagnoseLoop`'s own `run_dir` infra was deliberately left untouched when
-`RunContext` was introduced.
-
 ### FixAgent — tiered post-loop repair (M5)
 
-`FixAgent` (`stages/fix_agent.py`) is a second M5 path, invoked via
+`FixAgent` (`stages/fix/agent.py`) is a second M5 path, invoked via
 `loop.run_fix(report, data)` after `loop.run()` — distinct from `SurgeryAgent`
 above, which verifies *why* something fails; `FixAgent` proposes and validates
 candidate *fixes*. The allowed intervention space is an **input** (`FixTier`,
-default `L2_SCAFFOLD`); there is no automatic escalation:
+default `L2_SCAFFOLD`); there is no automatic escalation.
+
+`FixAgent` itself only orchestrates: `FixProposer` builds candidates,
+`PipelineCoder` handles agent-written pipelines, `CandidateValidator` measures
+the baseline and runs each candidate kind, `fix.verdict` turns validations
+into verdicts and recommendations, and `FixRecorder` logs. Each piece of
+per-run state has one owner; the agent passes the tier window, the decode
+floor and the `Baseline` explicitly. A conditional built-in repair is one
+entry in `CONDITIONAL_DEFAULTS`; a spec for the floor or a pre-registered
+allowlist is one entry in `BUILTIN_SPECS` (the judge-less fallback list in
+`FixProposer._l2_candidates` is still separate). Give either a reader-facing
+sentence in `BUILTIN_DESCRIPTIONS`. A new candidate kind is one execution
+method on `CandidateValidator` plus its entry in the kind map.
+
 
 ```text
 L1   input space        prompt rewrites, instruction strategies
@@ -722,8 +658,8 @@ evalrx.Capability
 evalrx.FailureCase
 evalrx.Result
 
-# Automated diagnosis — AutoDiagnoseLoop (legacy M1→M5 sweep)
-from evalrx.eval_agent import AutoDiagnoseLoop, DiagnosisAgent, RunLoggerV2, StrategyProbe, SurgeryAgent
+# Diagnosis stages and logging
+from evalrx.eval_agent import DiagnosisAgent, RunLoggerV2, StrategyProbe, SurgeryAgent
 
 # Protocol-guided diagnosis — VLDiagnoseLoop (M1→M2→M3→M4, M5 post-loop)
 from evalrx.eval_agent import (

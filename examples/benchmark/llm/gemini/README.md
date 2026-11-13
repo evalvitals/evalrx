@@ -48,19 +48,19 @@ The served `model_version` is written to `baseline.json`.
 
 | name | slice | scoring | default rows | source |
 |---|---|---|---|---|
-| `cruxeval_output` | cruxeval_output | llm_graded | 256 | examples/dataset_selection/llm_benchmark/datasets.py |
-| `bbh_causal_judgement` | bbh_causal_judgement | llm_graded | 256 | examples/dataset_selection/llm_benchmark/datasets.py |
-| `supergpqa_economics` | supergpqa_economics | llm_graded | 256 | examples/dataset_selection/llm_benchmark/datasets.py |
-| `bbh_word_sorting` | bbh_word_sorting | llm_graded | 256 | examples/dataset_selection/llm_benchmark/datasets.py |
-| `bbh_tracking7` | bbh_tracking7 | llm_graded | 256 | examples/dataset_selection/llm_benchmark/datasets.py |
-| `bamboogle` | bamboogle | llm_graded | 256 | examples/dataset_selection/llm_benchmark/datasets.py |
-| `minervamath` | minervamath | llm_graded | 256 | examples/dataset_selection/llm_benchmark/datasets.py |
-| `supergpqa_law` | supergpqa_law | llm_graded | 256 | examples/dataset_selection/llm_benchmark/datasets.py |
-| `supergpqa_medicine_hard` | supergpqa_medicine_hard | llm_graded | 256 | examples/dataset_selection/llm_benchmark/datasets.py |
+| `cruxeval_output` | cruxeval_output | llm_graded | 256 | evalrx/benchmark/tasks/llm/catalog.py |
+| `bbh_causal_judgement` | bbh_causal_judgement | llm_graded | 256 | evalrx/benchmark/tasks/llm/catalog.py |
+| `supergpqa_economics` | supergpqa_economics | llm_graded | 256 | evalrx/benchmark/tasks/llm/catalog.py |
+| `bbh_word_sorting` | bbh_word_sorting | llm_graded | 256 | evalrx/benchmark/tasks/llm/catalog.py |
+| `bbh_tracking7` | bbh_tracking7 | llm_graded | 256 | evalrx/benchmark/tasks/llm/catalog.py |
+| `bamboogle` | bamboogle | llm_graded | 256 | evalrx/benchmark/tasks/llm/catalog.py |
+| `minervamath` | minervamath | llm_graded | 256 | evalrx/benchmark/tasks/llm/catalog.py |
+| `supergpqa_law` | supergpqa_law | llm_graded | 256 | evalrx/benchmark/tasks/llm/catalog.py |
+| `supergpqa_medicine_hard` | supergpqa_medicine_hard | llm_graded | 256 | evalrx/benchmark/tasks/llm/catalog.py |
 | `hotpotqa_gepa` | GEPA test split (fullwiki/train, seed 1) + the 10-paragraph distractor context | short_answer_em (SQuAD EM) | 300 | hotpotqa/hotpot_qa, arXiv:2507.19457 |
 | `gsm8k` | seeded 500-of-1,319 sample of the test split | exact_or_numeric (0 tolerance) | 500 | openai/gsm8k |
 
-Data is frozen once per modality under [`../_data/`](../_data) (`<dataset>/manifest.json`
+Data is frozen once per modality under the local directory `../_data/` (`<dataset>/manifest.json`
 + media), shared by all families of this modality; outputs go to
 `outputs/<model>/<dataset>[.<tag>]/`.
 

@@ -19,7 +19,7 @@ layout, and trade-offs; the four rules that shaped it:
 Every ``log_*`` method keeps the same name, signature, and call-site
 behavior for return values (e.g. ``log_probe``'s ``list[Path]``) the flat
 JSONL logger it replaced had, so ``VLDiagnoseLoop(run_logger=...)`` /
-``ProbeAgent(run_logger=...)`` / ``AutoDiagnoseLoop(run_logger=...)`` never
+``ProbeAgent(run_logger=...)`` never
 needed to change in ``loop.py``, ``probe_agent.py``, or any ``stages/*.py``
 across the switch.
 
@@ -37,6 +37,7 @@ reused unchanged — it is orthogonal to file layout.
 
 from __future__ import annotations
 
+import getpass
 import json
 import os
 import re
@@ -105,6 +106,20 @@ def _resolve_stage(tag: "str | None") -> "str | None":
     if m:
         return f"M{m.group(1)}"
     return _STAGE_ALIASES.get(tag.strip().lower())
+
+
+def _outbox_dir() -> Path:
+    """Per-user temp directory for the Langfuse delivery queue.
+
+    A single shared ``/tmp/evalrx-v2-outbox`` breaks on multi-user hosts: the
+    first user to create it owns it, and everyone else gets "unable to open
+    database file".
+    """
+    try:
+        user = getpass.getuser()
+    except Exception:  # noqa: BLE001 - no login name (e.g. bare containers)
+        user = str(os.getuid()) if hasattr(os, "getuid") else "default"
+    return Path(tempfile.gettempdir()) / f"evalrx-v2-outbox-{user}"
 
 
 def _atomic_write_json(path: Path, obj: Any) -> None:
@@ -494,8 +509,7 @@ class RunLoggerV2:
         # The SQLite delivery queue is runtime state, not part of the tidy run
         # artifact.  Keep it outside the run tree; langfuse_trace.json remains
         # the durable, portable JSON trace bundled with the run.
-        outbox_dir = Path(tempfile.gettempdir()) / "evalrx-v2-outbox"
-        self._outbox_path = outbox_dir / f"{self.trace_id}.sqlite3"
+        self._outbox_path = _outbox_dir() / f"{self.trace_id}.sqlite3"
         self.tracer = DiagnosticTracer(
             run_dir=self.run_dir, mode=observability_mode, auto_sync=True,
             outbox_path=self._outbox_path,

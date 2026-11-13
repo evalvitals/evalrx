@@ -256,6 +256,9 @@ examples/diagnosis_loops/deco_hallu/outputs/m1_state.pkl
 # Dynamic report UI: source and lockfile are versioned; these are local/build outputs.
 evalrx/reporting/web/node_modules/
 evalrx/reporting/web_dist/
+evalrx/reporting/web/*.tsbuildinfo
+evalrx/reporting/web/test-results/
+evalrx/reporting/web/playwright-report/
 
 # Stray pre-rename package snapshot left by the 2026-09-03 evalvitals/ -> evalrx/
 # rename (196M of it is reporting/web node_modules); local only, safe to delete.
@@ -278,3 +281,13 @@ docker-compose.override.yml
 # Dynamic-report serve cache (report_data.json / report_spec.json), dropped
 # next to wherever the report UI was served from; regenerated on every serve.
 examples/benchmark/**/report/
+
+# Local experiment artifacts stay at their original paths. See
+# docs/local_artifacts.md for the source/output boundary and inventory command.
+/.local-artifacts/
+/examples/m1_m4/**/data/
+/examples/m1_m5/mmau_qwen2_audio/demo_page/index.html
+# These two GPU notebooks contain incomplete local executions. Publish them
+# explicitly after validation; keep the TPU tutorial versioned.
+/examples/colab/gpu/code_reasoning_repair.ipynb
+/examples/colab/gpu/word_sorting_repair.ipynb

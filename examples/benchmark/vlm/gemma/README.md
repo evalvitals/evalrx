@@ -25,7 +25,7 @@ arguments, never a rebuild.
 | `pope_popular` | POPE/coco_popular | yes_no | 1000 | AoiDragon/POPE coco_pope_popular @08d957b9 + COCO val2014 |
 | `pope_adversarial` | POPE/coco_adversarial | yes_no | 1000 | AoiDragon/POPE coco_pope_adversarial @08d957b9 + COCO val2014 |
 
-Data is frozen once per modality under [`../_data/`](../_data) (`<dataset>/manifest.json`
+Data is frozen once per modality under the local directory `../_data/` (`<dataset>/manifest.json`
 + media), shared by all families of this modality; outputs go to
 `outputs/<model>/<dataset>[.<tag>]/`.
 

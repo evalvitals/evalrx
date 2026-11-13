@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 
-from evalrx.analysis.dashboard import load_run
 from evalrx.core.capability import Capability
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.core.result import Result
@@ -123,14 +122,12 @@ def test_vl_agent_launches_m1_to_m4_and_dashboard_loader_reads_run(tmp_path):
     assert m5_result is not None
     assert len(judge.calls) == 2
 
-    loaded = load_run(ctx.root)
-    assert loaded["kind"] == "loop"
-    story = loaded["story"]
-    assert story is not None
-    assert len(story["analyses"]) == 1
-    assert len(story["diagnoses"]) == 1
-    assert len(story["surgeries"]) >= 1
-    assert story["diagnoses"][0]["hypotheses"][0]["failure_mode"] == "attention"
+    from evalrx.reporting.run_data import extract_run_data
+
+    data = extract_run_data(ctx.root)
+    assert data["m2"]["stats"] or data["m2"]["conclusion"]
+    assert data["m3"]["hypotheses"][0]["failure_mode"] == "attention"
+    assert data["m4"]["ran"]
 
     ctx.finalize()
     run = json.loads((ctx.root / "run.json").read_text())

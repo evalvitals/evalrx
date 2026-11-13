@@ -805,8 +805,7 @@ class DiagnosisAgent:
                           ``{analyzer_name: Result}`` dict.
             model_name:   Ignored when *analysis* is an ``AnalysisReport``
                           (the name is taken from the report).
-            prior_cycles: Summary of previous M1→M5 cycles produced by
-                          :class:`~evalrx.eval_agent.legacy.AutoDiagnoseLoop`.
+            prior_cycles: Summary of previous M1→M5 cycles, from the caller.
                           Each entry is ``{"cycle": int, "severity": str,
                           "hypotheses": [{"statement", "failure_mode", "status"}]}``.
                           Injected into the prompt so the judge avoids re-proposing

@@ -23,7 +23,7 @@ from evalrx.eval_agent.agentic.board import BudgetState, EvidenceBoard
 from evalrx.eval_agent.agentic.tools import ToolRegistry, _RunState, build_default_registry
 from evalrx.eval_agent.loop import VLDiagnoseLoop
 from evalrx.eval_agent.loop_reports import VLDiagnoseReport
-from evalrx.eval_agent.run_metadata import _attach_run_logger, _data_provenance, _run_config
+from evalrx.eval_agent.run_metadata import _data_provenance
 
 if TYPE_CHECKING:
     from evalrx.core.case import CaseBatch
@@ -104,18 +104,13 @@ class AgenticDiagnoseLoop(VLDiagnoseLoop):
         if confirm is not None:
             data = explore
 
-        _attach_run_logger(self.run_logger, self.probe_agent, self.stats_agent)
-        if self.run_logger is not None:
-            # _run_config records the M3 *stage* judge (loop.diagnosis_agent.judge),
-            # not the decision judge driving this loop's own tool-calling — add it
-            # explicitly so the dashboard header can show who is actually deciding.
-            cfg = _run_config(self, data, loop_name="AgenticDiagnoseLoop")
-            cfg["decision_judge"] = repr(self.judge)
-            cfg["max_actions"] = self.max_actions
-            self.run_logger.log_run_start(cfg)
-            self.run_logger.log_cases(data, split="explore" if confirm is not None else None)
-            if confirm is not None:
-                self.run_logger.log_cases(confirm, split="confirm")
+        # run_start's judge is the M3 *stage* judge (loop.diagnosis_agent.judge),
+        # not the decision judge driving this loop's own tool-calling — add it
+        # explicitly so the report header can show who is actually deciding.
+        self._start_run_log(
+            data, "AgenticDiagnoseLoop", confirm=confirm,
+            extra={"decision_judge": repr(self.judge), "max_actions": self.max_actions},
+        )
 
         board = EvidenceBoard(
             protocol_summary=_protocol_summary(self.protocol),
@@ -189,6 +184,4 @@ class AgenticDiagnoseLoop(VLDiagnoseLoop):
             store=self.store,
             _run_id=self._run_id,
         )
-        if self.run_logger:
-            self.run_logger.log_loop_end(report, tokens_used=self._tokens_used, timings=timings)
-        return report
+        return self._end_run(report, timings)

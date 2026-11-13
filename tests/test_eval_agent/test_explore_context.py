@@ -138,7 +138,7 @@ def test_extract_referenced_only_matches_mentioned_titles():
 
 def test_only_m3_diagnose_accepts_explore_context():
     from evalrx.analysis.stats_agent import StatsAnalysisAgent
-    from evalrx.eval_agent.stages.fix_agent import FixAgent
+    from evalrx.eval_agent.stages.fix.agent import FixAgent
     from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTester
 
     assert "explore_context" in inspect.signature(DiagnosisAgent.diagnose).parameters

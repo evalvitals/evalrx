@@ -23,7 +23,7 @@ from evalrx.core.capability import Capability
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.core.model import Model, Trace
 from evalrx.eval_agent.hypothesis import Hypothesis
-from evalrx.eval_agent.stages.fix_agent import FixAgent
+from evalrx.eval_agent.stages.fix.agent import FixAgent
 
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data" / "intervention_pilot"

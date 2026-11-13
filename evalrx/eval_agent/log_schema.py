@@ -49,7 +49,7 @@ from typing import Any
 # v3: two new event types for AgenticDiagnoseLoop — `agent_decision` (one judge
 #     decision turn: chosen tool + rationale, keyed by `step` not `cycle`) and
 #     `agent_tool` (the dispatch layer's accept/reject outcome for that tool
-#     call). VLDiagnoseLoop/AutoDiagnoseLoop's events are unchanged.
+#     call). VLDiagnoseLoop's events are unchanged.
 # v5: the EvalVitals → EvalRX rename renamed the `evalvitals_version` field to
 #     `evalrx_version` on every event and moved the published schema's `$id`
 #     to https://evalrx.dev/schemas/run_log.schema.json. Old logs still parse

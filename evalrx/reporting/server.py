@@ -36,44 +36,58 @@ MAX_ARCHIVE_BYTES = 1024 * 1024 * 1024
 _JUNK_DIRS = {"__MACOSX", ".git", "node_modules", ".venv"}
 
 
-class ReportSession:
-    """The run currently on screen, and where dropped archives are unpacked.
+class LoadedRun:
+    """One run's compiled report, and the media it may serve."""
 
-    ``serve`` starts either on a run directory or on nothing at all, and an
-    uploaded archive replaces whatever is loaded. Holding that in one object
-    lets every endpoint read the current run instead of closing over the one
-    that happened to exist at startup.
-    """
-
-    def __init__(self, run_dir: str | Path | None = None) -> None:
-        self.root: Path | None = None
-        self.data: dict[str, Any] = {}
-        self.envelope: dict[str, Any] = {}
-        self.media_by_id: dict[str, Any] = {}
-        self.label: str = ""
-        self._workspace: Path | None = None
-        if run_dir is not None:
-            self.load(run_dir)
-
-    @property
-    def loaded(self) -> bool:
-        return self.root is not None
-
-    def load(self, run_dir: str | Path) -> None:
-        root = _resolve_report_root(Path(run_dir).resolve())
-        data, envelope = _compile_report(root)
+    def __init__(self, root: Path) -> None:
         self.root = root
-        self.data = data
-        self.envelope = envelope
-        self.media_by_id = {str(item.get("id")): item for item in data.get("media", [])}
+        self.data, self.envelope = _compile_report(root)
+        self.media_by_id = {str(item.get("id")): item for item in self.data.get("media", [])}
         self.label = _run_label(root)
 
     @property
     def payload(self) -> dict[str, Any]:
         return {"data": self.data, "layout": self.envelope}
 
-    def ingest_archive(self, payload: bytes, *, filename: str = "run.zip") -> Path:
-        """Unpack a dropped run archive and make it the report on screen."""
+
+def run_id_for(root: Path) -> str:
+    """A run's id: a hash of its resolved path, so it is stable across listings."""
+    return hashlib.sha1(str(root).encode("utf-8")).hexdigest()[:16]
+
+
+class RunRegistry:
+    """The runs this server may answer for, by id.
+
+    There is no "current" run: every request names the run it is about, so two
+    tabs can look at two runs. A run gets an id here only from this server
+    itself -- the run it was started on, a runs-panel listing, or an uploaded
+    archive -- so the browser can never make it open an arbitrary path.
+    Reports are compiled on first use and kept.
+    """
+
+    def __init__(self) -> None:
+        self._paths: dict[str, Path] = {}
+        self._loaded: dict[str, LoadedRun] = {}
+        self._workspace: Path | None = None
+
+    def register(self, root: Path) -> str:
+        key = run_id_for(root)
+        self._paths[key] = root
+        return key
+
+    def open(self, key: str) -> LoadedRun:
+        """Compile the run afresh (it may have been written to since) and keep it."""
+        path = self._paths.get(key)
+        if path is None or not path.is_dir():
+            raise KeyError(key)
+        self._loaded[key] = LoadedRun(path)
+        return self._loaded[key]
+
+    def get(self, key: str) -> LoadedRun:
+        return self._loaded[key] if key in self._loaded else self.open(key)
+
+    def ingest_archive(self, payload: bytes, *, filename: str = "run.zip") -> str:
+        """Unpack a dropped run archive and register the run inside it."""
         from evalrx.analysis.workbench import UploadLimits, extract_archive
 
         if self._workspace is None:
@@ -91,8 +105,7 @@ class ReportSession:
                 "this archive has no run in it: expected a directory holding "
                 "run.json + M1..M5, or report/report_data.json"
             )
-        self.load(found)
-        return found
+        return self.register(found.resolve())
 
 
 def _run_label(root: Path) -> str:
@@ -262,8 +275,10 @@ def create_app(
 ) -> Any:
     """Create the loopback report API and serve the packaged React application.
 
-    ``run_dir`` may be omitted: the app then starts empty and waits for a run
-    archive to be dropped on the page.
+    Every report endpoint is scoped to a run (``/api/runs/{run_id}/...``); see
+    :class:`RunRegistry` for where ids come from. ``run_dir`` is the run the
+    page opens on (``/api/session`` names it); it may be omitted, and the page
+    then waits for a run archive to be dropped on it.
 
     ``runs_root`` is where the runs panel looks for sibling experiments to
     list; it defaults to ``run_dir``'s parent (so opening one run in an
@@ -279,41 +294,46 @@ def create_app(
             "The dynamic UI needs `pip install evalrx[ui]`."
         ) from exc
 
-    session = ReportSession(run_dir)
+    runs = RunRegistry()
+    initial = None
+    if run_dir is not None:
+        initial = runs.register(_resolve_report_root(Path(run_dir).resolve()))
+        runs.open(initial)
     app = FastAPI(title="EvalRX Report", docs_url="/api/docs", redoc_url=None)
-
-    # State for the runs panel: which directory it scans, and the ids handed
-    # to the browser for the last listing (an id is a hash of a resolved
-    # path, so `open` needs this to map it back — the scan itself is not
-    # repeated on open).
-    scan_state: dict[str, Path] = {
-        "root": Path(runs_root).resolve() if runs_root is not None
+    scan_root = (
+        Path(runs_root).resolve() if runs_root is not None
         else (Path(run_dir).resolve().parent if run_dir is not None else Path.cwd())
-    }
-    run_index: dict[str, Path] = {}
+    )
 
-    def current() -> ReportSession:
-        if not session.loaded:
-            raise HTTPException(status_code=404, detail="No run is loaded; drop a run .zip to open one.")
-        return session
+    def loaded(key: str) -> LoadedRun:
+        try:
+            return runs.get(key)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Unknown run id; list or upload the run first") from None
+
+    def opened(key: str) -> dict[str, Any]:
+        try:
+            run = runs.open(key)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Unknown run id; refresh the runs list and try again") from None
+        except Exception as exc:  # a run mid-write or otherwise unreadable
+            raise HTTPException(status_code=422, detail=f"could not open this run: {exc}") from exc
+        return {"id": key, "label": run.label, "root": str(run.root), **run.payload}
 
     @app.get("/api/session")
     def get_session() -> dict[str, Any]:
+        """The run this server was started on, if any, and what it accepts."""
+        run = runs.get(initial) if initial is not None else None
         return {
-            "loaded": session.loaded,
-            "label": session.label,
-            "trace_id": session.data.get("trace_id") if session.loaded else None,
+            # `root` lets the runs panel highlight this run against its own
+            # listing, which keys entries by the same resolved path.
+            "run": {"id": initial, "label": run.label, "root": str(run.root)} if run else None,
             "accepts_upload": True,
-            # Lets the runs panel highlight the run already on screen (e.g.
-            # one passed on the command line) against its own listing, which
-            # keys entries by this same resolved path.
-            "root": str(session.root) if session.loaded else None,
         }
 
     @app.get("/api/runs")
     def list_runs() -> dict[str, Any]:
         """List experiments found on disk under the scan root, most recent first."""
-        scan_root = scan_state["root"]
         if not scan_root.is_dir():
             raise HTTPException(status_code=404, detail=f"{scan_root} is not a directory")
         found = discover_runs(scan_root)
@@ -321,63 +341,50 @@ def create_app(
         # truncating to what the panel actually shows — discover_runs' own
         # cutoff stops the walk in traversal order, which is not recency.
         found.sort(key=lambda path: _run_mtime(path) or 0, reverse=True)
-        items = []
-        for path in found[:RUNS_DISPLAY_LIMIT]:
-            run_id = hashlib.sha1(str(path).encode("utf-8")).hexdigest()[:16]
-            run_index[run_id] = path
-            items.append(_run_summary(path, run_id, scan_root))
+        items = [_run_summary(path, runs.register(path), scan_root) for path in found[:RUNS_DISPLAY_LIMIT]]
         return {"root": str(scan_root), "items": items, "truncated": len(found) > RUNS_DISPLAY_LIMIT}
 
     @app.post("/api/runs/{run_id}/open")
     def open_run(run_id: str) -> dict[str, Any]:
-        """Load a run found by /api/runs and make it the report on screen.
-
-        Opens by id rather than by a client-supplied path, so the browser can
-        only load a run this server itself already found on a prior listing.
-        """
-        path = run_index.get(run_id)
-        if path is None or not path.is_dir():
-            raise HTTPException(status_code=404, detail="Unknown run id; refresh the runs list and try again")
-        try:
-            session.load(path)
-        except Exception as exc:  # a run mid-write or otherwise unreadable
-            raise HTTPException(status_code=422, detail=f"could not open this run: {exc}") from exc
-        return {"label": session.label, **session.payload}
+        """Compile a run this server knows (from /api/runs or an upload) and return it."""
+        return opened(run_id)
 
     @app.post("/api/upload")
     async def upload_run(file: UploadFile = File(...)) -> dict[str, Any]:
-        """Accept a zipped run directory and swap it in as the current report."""
+        """Accept a zipped run directory, register it, and return its report."""
         payload = await file.read()
         try:
-            session.ingest_archive(payload, filename=file.filename or "run.zip")
+            key = runs.ingest_archive(payload, filename=file.filename or "run.zip")
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:  # a malformed run reads as a bad upload, not a crash
             raise HTTPException(status_code=422, detail=f"could not read this run: {exc}") from exc
-        return {"label": session.label, **session.payload}
+        return opened(key)
 
-    @app.get("/api/report")
-    def get_report() -> dict[str, Any]:
-        return current().payload
+    @app.get("/api/runs/{run_id}/report")
+    def get_report(run_id: str) -> dict[str, Any]:
+        run = loaded(run_id)
+        return {"id": run_id, "label": run.label, "root": str(run.root), **run.payload}
 
-    @app.get("/api/stages/{stage_id}")
-    def get_stage(stage_id: str) -> dict[str, Any]:
-        data = current().data
+    @app.get("/api/runs/{run_id}/stages/{stage_id}")
+    def get_stage(run_id: str, stage_id: str) -> dict[str, Any]:
+        data = loaded(run_id).data
         stage = next((item for item in data.get("stages", []) if item.get("id") == stage_id.lower()), None)
         if stage is None:
             raise HTTPException(status_code=404, detail="Unknown stage")
         related = [event for event in data.get("debug", {}).get("events", []) if str(event.get("stage", "")).lower() in {stage_id.lower(), stage.get("code", "").lower()}]
         return {"stage": stage, "events": related}
 
-    @app.get("/api/cases")
+    @app.get("/api/runs/{run_id}/cases")
     def get_cases(
+        run_id: str,
         status: str | None = None,
         task: str | None = None,
         search: str | None = None,
         offset: int = Query(0, ge=0),
         limit: int = Query(50, ge=1, le=200),
     ) -> dict[str, Any]:
-        rows = list(current().data.get("cases", []))
+        rows = list(loaded(run_id).data.get("cases", []))
         if status:
             rows = [case for case in rows if str(case.get("status", "")).lower() == status.lower()]
         if task:
@@ -387,42 +394,44 @@ def create_app(
             rows = [case for case in rows if needle in " ".join(str(case.get(key, "")) for key in ("id", "prompt", "expected", "observed", "task")).lower()]
         return {"total": len(rows), "offset": offset, "limit": limit, "items": rows[offset:offset + limit]}
 
-    @app.get("/api/cases/{case_id}")
-    def get_case(case_id: str) -> dict[str, Any]:
-        case = next((item for item in current().data.get("cases", []) if str(item.get("id")) == case_id), None)
+    @app.get("/api/runs/{run_id}/cases/{case_id}")
+    def get_case(run_id: str, case_id: str) -> dict[str, Any]:
+        case = next((item for item in loaded(run_id).data.get("cases", []) if str(item.get("id")) == case_id), None)
         if case is None:
             raise HTTPException(status_code=404, detail="Unknown case")
         return case
 
-    @app.get("/api/debug")
+    @app.get("/api/runs/{run_id}/debug")
     def get_debug(
+        run_id: str,
         event: str | None = None,
         offset: int = Query(0, ge=0),
         limit: int = Query(100, ge=1, le=500),
     ) -> dict[str, Any]:
-        rows = list(current().data.get("debug", {}).get("events", []))
+        rows = list(loaded(run_id).data.get("debug", {}).get("events", []))
         if event:
             rows = [row for row in rows if row.get("event") == event]
         return {"total": len(rows), "offset": offset, "limit": limit, "items": rows[offset:offset + limit]}
 
-    @app.get("/api/media/{media_id}")
-    def get_media(media_id: str) -> Any:
-        item = current().media_by_id.get(media_id)
+    @app.get("/api/runs/{run_id}/media/{media_id}")
+    def get_media(run_id: str, media_id: str) -> Any:
+        run = loaded(run_id)
+        item = run.media_by_id.get(media_id)
         if item is None:
             raise HTTPException(status_code=404, detail="Unknown media")
         # A media id is selected from the report's fixed evidence index, not a
         # caller-provided path.  It may safely resolve into the example's
         # adjacent data directory (where VLM images / ALLM audio conventionally
         # live), while the generic artifact endpoint remains run-confined.
-        path = _resolve_indexed_media(session.root, str(item.get("path") or ""))
+        path = _resolve_indexed_media(run.root, str(item.get("path") or ""))
         if path is None:
             raise HTTPException(status_code=404, detail="Media is not available in the local cache")
         return FileResponse(path, media_type=mimetypes.guess_type(path.name)[0])
 
-    @app.get("/api/artifact")
-    def get_artifact(path: str = Query(...)) -> Any:
+    @app.get("/api/runs/{run_id}/artifact")
+    def get_artifact(run_id: str, path: str = Query(...)) -> Any:
         """Serve a report-referenced local figure, constrained to this run."""
-        resolved = _resolve_media(current().root, path)
+        resolved = _resolve_media(loaded(run_id).root, path)
         if resolved is None:
             raise HTTPException(status_code=404, detail="Artifact is not available in this run")
         return FileResponse(resolved, media_type=mimetypes.guess_type(resolved.name)[0])
@@ -535,7 +544,7 @@ def _resolve_indexed_media(root: Path, value: str) -> Path | None:
     Case assets may live at ``<example>/data`` while a run writes its log to
     ``<example>/outputs*/logs``.  The media index was built from saved case
     records, so this endpoint permits only that nearby data directory in
-    addition to the usual run-owned roots.  ``/api/artifact`` deliberately
+    addition to the usual run-owned roots.  The artifact route deliberately
     does not use this broader resolver.
     """
     resolved = _resolve_media(root, value)

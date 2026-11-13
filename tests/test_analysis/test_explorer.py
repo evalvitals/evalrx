@@ -606,7 +606,7 @@ print("EXPLORATORY_RESULT_JSON=" + json.dumps(result))
 
     class _FakeCliAgent:
         def run(self, prompt, *, workdir, timeout_sec):
-            from evalrx.eval_agent.cli_agent import CliAgentResult
+            from evalrx.agent_runtime import CliAgentResult
             return CliAgentResult(
                 files={"analysis.py": agent_written_code},
                 provider_name="fake", elapsed_sec=0.1, raw_output="fake trajectory",
@@ -616,7 +616,7 @@ print("EXPLORATORY_RESULT_JSON=" + json.dumps(result))
         "evalrx.agent_runtime.providers.registry.create_cli_agent", lambda config: _FakeCliAgent()
     )
 
-    from evalrx.eval_agent.cli_agent import CliAgentConfig
+    from evalrx.agent_runtime import CliAgentConfig
 
     sandbox = ExperimentSandbox(workdir=tmp_path / "wd", cleanup=False)
     agent = ExploratoryAnalysisAgent(cli_config=CliAgentConfig(provider="claude_code"), sandbox=sandbox)

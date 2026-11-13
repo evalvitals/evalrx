@@ -32,10 +32,10 @@ priors override audio evidence" on its own and reaches for AAD.
     5. loop.run_fix               FixAgent's tiered candidates -- including
                                    the paper-registered aad_silence_contrast /
                                    aad_silence_contrast_gated_false_yes L0
-                                   candidates (fix_agent.py's admission gate:
+                                   candidates (fix/proposal.py's admission gate:
                                    tasks=={"yes_no"} + generate_aad +
                                    paper_method_fidelity('aad')=='native_silence_contrast'
-                                   -- see evalrx/eval_agent/stages/fix_agent.py,
+                                   -- see evalrx/eval_agent/stages/fix/agent.py,
                                    search "aad_silence_contrast"), validated
                                    on a held-out CONFIRM split the loop's own
                                    M1-M4 discovery never saw (--confirm-split).
@@ -347,7 +347,7 @@ def _run_smoke_test(args: argparse.Namespace) -> None:
     if "aad_silence_contrast" not in names:
         raise SystemExit(
             "Smoke test FAILED: aad_silence_contrast was never proposed -- the L0 "
-            "admission gate (fix_agent.py _l0_candidates) did not fire. Check "
+            "admission gate (fix/proposal.py _l0_candidates) did not fire. Check "
             "case.metadata['task']=='yes_no', and the model's generate_aad/"
             "paper_method_fidelity."
         )
@@ -456,7 +456,7 @@ def main() -> int:
           f"({baseline['correct']}/{baseline['n']})")
 
     cases = make_cases(rows, baseline)
-    # The aad_silence_contrast admission gate (fix_agent.py _l0_candidates) is
+    # The aad_silence_contrast admission gate (fix/proposal.py _l0_candidates) is
     # an EXACT set match on case.metadata["task"] -- if this ever drifts (a
     # case loses the key, or gains a second task tag), AAD silently stops
     # being proposed with no error anywhere downstream. Fail loud, here, first.

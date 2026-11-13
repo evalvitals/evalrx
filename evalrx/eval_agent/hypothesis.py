@@ -137,7 +137,7 @@ def hypothesis_id(hypothesis: Any) -> str:
     per call site is how the same object ends up with two different names from
     two different stages, and the join between a claim and its verdict goes
     silently empty. Falls back to a hash of the statement, mirroring
-    ``eval_agent.loop._hyp_key`` — deterministic, so two stages holding the
+    ``eval_agent.loop_fix._hyp_key`` — deterministic, so two stages holding the
     same hypothesis always agree. ``evalrx.contract.emit.hypothesis_id``
     delegates here so the optional contract sidecar and the primary log never
     disagree on the id.

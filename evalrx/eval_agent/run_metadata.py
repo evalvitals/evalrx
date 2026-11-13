@@ -1,5 +1,5 @@
 """Shared run-provenance and logging-wiring helpers used by both
-``VLDiagnoseLoop`` (loop.py) and ``AutoDiagnoseLoop`` (legacy.py).
+``VLDiagnoseLoop`` (loop.py) and ``AgenticDiagnoseLoop`` (agentic/loop.py).
 """
 
 from __future__ import annotations

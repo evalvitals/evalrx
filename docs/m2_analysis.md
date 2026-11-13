@@ -161,7 +161,7 @@ you which clustering backend actually ran (`"hdbscan"` / `"agglomerative"` /
 `"cosine_greedy"` / `"single_cluster"`); `report.as_hypothesis_context()`
 renders a compact section for feeding into M3 hypothesis generation — this is
 exactly what `AgenticDiagnoseLoop`'s `cluster_failures` tool does
-automatically (see [quickstart](quickstart.md#agenticdiagnoseloop--judge-decided-m1-m4-alternative-to-the-fixed-cycle)).
+automatically (see [quickstart](quickstart.md#agentic-diagnosis-loop)).
 
 ### Failure-aware embedding and boundary-aware naming (opt-in)
 
@@ -186,6 +186,8 @@ report = cluster_failures(
   verified non-failure (`FailureMode.boundary_pairs`), and — when `judge` is
   given — the namer is shown these pairs to describe *where* the failure
   boundary sits rather than only what the failing cases share.
+
+<a id="probe-search"></a>
 
 ## Probe Search — Hierarchical MCTS Failure Discovery (VLM)
 

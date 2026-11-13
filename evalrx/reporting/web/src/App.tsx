@@ -8,12 +8,18 @@ import { Lightbox } from "./lightbox";
 import { RunDrop, RunSwitch, STATIC_MODE, type UploadedRun } from "./upload";
 import { StaticLanding } from "./landing";
 import { RunsPanel } from "./runsPanel";
-import { CasesView, DebugView, EvidenceView } from "./views";
+import { CasesView } from "./casesView";
+import { DebugView } from "./debugView";
+import { EvidenceView } from "./evidenceView";
+import { navigate, parseRoute, runFromHash, withRun, type Route } from "./route";
+import { api, RunIdContext } from "./api";
 
 type Payload = { data: ReportData; layout: LayoutEnvelope };
 
 declare global {
-  interface Window { __EVALRX_REPORT__?: Payload }
+  interface Window {
+    __EVALRX_REPORT__?: Payload;
+  }
 }
 
 export function App() {
@@ -23,7 +29,8 @@ export function App() {
   const [payload, setPayload] = useState<Payload | null>(window.__EVALRX_REPORT__ || null);
   const [error, setError] = useState("");
   const [needsRun, setNeedsRun] = useState(false);
-  const [view, setView] = useState("overview");
+  // The view on screen is the URL hash, so a refresh or a shared link lands on it.
+  const [route, setRoute] = useState<Route>(() => parseRoute(window.location.hash));
   // Charts read their colors through theme.tc at render time, so a switch
   // remounts the view tree (key={theme}) rather than restyling in place.
   const [theme, setTheme] = useState<Theme>(initialTheme);
@@ -33,83 +40,174 @@ export function App() {
   // path). Null for an uploaded/embedded run: it isn't one of the scanned
   // experiments, so nothing in the list should read as "this one".
   const [activeRoot, setActiveRoot] = useState<string | null>(null);
+  // The server's id for the run on screen: every report request names it.
+  // Empty when no server holds the run (an export, or an archive read in the
+  // static build).
+  const [runId, setRunId] = useState("");
   useEffect(() => applyTheme(theme), [theme]);
+  useEffect(() => {
+    const follow = () => setRoute(parseRoute(window.location.hash));
+    window.addEventListener("hashchange", follow);
+    return () => window.removeEventListener("hashchange", follow);
+  }, []);
   useEffect(() => {
     if (embedded) return;
     // The static build has no server: it opens on the landing page and reads archives itself.
-    if (STATIC_MODE) { setNeedsRun(true); return; }
-    fetch("/api/report").then(async (res) => {
+    if (STATIC_MODE) {
+      setNeedsRun(true);
+      return;
+    }
+    const open = async () => {
+      const session = await fetch(api.session).then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      });
+      // A reload or a shared link names the run that was on screen; the
+      // server's start-up run is the fallback — and the only choice after a
+      // restart, since a server knows only the run ids it handed out itself.
+      const named = runFromHash(window.location.hash);
+      for (const id of [named, session.run?.id]) {
+        if (!id) continue;
+        const res = await fetch(api.report(id));
+        if (res.status === 404) continue;
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const run = await res.json();
+        setPayload({ data: run.data, layout: run.layout });
+        setRunId(id);
+        setActiveRoot(run.root ?? null);
+        if (id !== named) {
+          // Another run than the hash named: its view of that run means nothing here.
+          const here = named
+            ? "#/"
+            : window.location.hash.startsWith("#/")
+              ? window.location.hash
+              : "#/";
+          window.location.replace(withRun(here, id));
+        }
+        return;
+      }
       // The server starts empty when `evalrx serve` was given no run.
-      if (res.status === 404) { setNeedsRun(true); return; }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setPayload(await res.json());
-    }).catch((err) => setError(String(err)));
-    fetch("/api/session").then((res) => res.ok ? res.json() : null)
-      .then((session) => { if (session?.root) setActiveRoot(session.root); })
-      .catch(() => undefined); // the runs panel just starts with nothing highlighted
-  }, []);
+      setNeedsRun(true);
+    };
+    open().catch((err) => setError(String(err)));
+  }, [embedded]);
   const load = (run: UploadedRun, root: string | null = null) => {
     setPayload({ data: run.data, layout: run.layout });
+    setRunId(run.id || "");
     setNeedsRun(false);
     setError("");
-    setView("overview");
+    navigate({ view: "overview" }, { run: run.id ?? null });
     setRunsOpen(false);
     setActiveRoot(root);
   };
-  const body = needsRun
-    ? (STATIC_MODE ? <StaticLanding onLoaded={load} /> : <RunDrop onLoaded={load} />)
-    : error
-      ? <div className="load-state"><Activity /><h1>Could not load this report</h1><p>{error}</p></div>
-      : !payload
-        ? <div className="load-state"><Activity className="pulse" /><p>Composing the failure-to-fix story…</p></div>
-        // Which view the reader is on is chosen here rather than returned from
-        // here, so the one figure overlay can sit above all of them — a chart
-        // opens the same way whether it was found on the overview, a stage
-        // brief or the full record, and the detail views all return past the
-        // topbar below.
-        : renderReport(payload, view, setView, embedded, load);
-  return <>
-    <div key={theme}>{body}</div>
-    {!embedded && !STATIC_MODE && <>
+  const body = needsRun ? (
+    STATIC_MODE ? (
+      <StaticLanding onLoaded={load} />
+    ) : (
+      <RunDrop onLoaded={load} />
+    )
+  ) : error ? (
+    <div className="load-state">
+      <Activity />
+      <h1>Could not load this report</h1>
+      <p>{error}</p>
+    </div>
+  ) : !payload ? (
+    <div className="load-state">
+      <Activity className="pulse" />
+      <p>Composing the failure-to-fix story…</p>
+    </div>
+  ) : (
+    // Which view the reader is on is chosen here rather than returned from
+    // here, so the one figure overlay can sit above all of them — a chart
+    // opens the same way whether it was found on the overview, a stage
+    // brief or the full record, and the detail views all return past the
+    // topbar below.
+    renderReport(payload, route, embedded, load)
+  );
+  return (
+    <>
+      <RunIdContext value={runId}>
+        <div key={theme}>{body}</div>
+      </RunIdContext>
+      {!embedded && !STATIC_MODE && (
+        <>
+          <button
+            type="button"
+            className="runs-toggle"
+            onClick={() => setRunsOpen((prev) => !prev)}
+            title="Browse experiments launched before"
+            aria-label="Browse experiments launched before"
+          >
+            <FolderClock size={15} />
+          </button>
+          <RunsPanel
+            open={runsOpen}
+            onClose={() => setRunsOpen(false)}
+            onOpened={load}
+            activeRoot={activeRoot}
+          />
+        </>
+      )}
       <button
-        type="button"
-        className="runs-toggle"
-        onClick={() => setRunsOpen((prev) => !prev)}
-        title="Browse experiments launched before"
-        aria-label="Browse experiments launched before"
-      ><FolderClock size={15} /></button>
-      <RunsPanel open={runsOpen} onClose={() => setRunsOpen(false)} onOpened={load} activeRoot={activeRoot} />
-    </>}
-    <button
-      className="theme-toggle"
-      onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-      title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-      aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-    >{theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}</button>
-    <Lightbox />
-  </>;
+        className="theme-toggle"
+        onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+        title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+        aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+      >
+        {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
+      </button>
+      <Lightbox />
+    </>
+  );
 }
 
 function renderReport(
-  payload: Payload, view: string, setView: (view: string) => void, embedded: boolean,
+  payload: Payload,
+  route: Route,
+  embedded: boolean,
   load: (run: UploadedRun, root?: string | null) => void,
 ) {
-  const back = () => setView("overview");
-  if (view === "evidence" || view.startsWith("evidence:")) {
-    return <EvidenceView data={payload.data} back={back} navigate={setView} initialStage={view.split(":")[1]} />;
+  const back = () => navigate({ view: "overview" });
+  if (route.view === "evidence") {
+    return <EvidenceView data={payload.data} route={route} back={back} navigate={navigate} />;
   }
-  // "cases:<id>" opens the studio focused on one case, which is how M5's
-  // repaired/broken chips link into it; "cases:split=<partition>" opens it
-  // filtered to one band of the batch cylinder.
-  if (view === "cases" || view.startsWith("cases:")) {
-    return <CasesView data={payload.data} back={back}
-      initialCaseId={view.split(":")[1]?.startsWith("split=") ? undefined : view.split(":")[1]}
-      initialSplit={view.split(":")[1]?.startsWith("split=") ? view.split(":")[1].slice("split=".length) : undefined} />;
+  // A case id opens the studio focused on one case, which is how M5's
+  // repaired/broken chips link into it; a split opens it filtered to one band
+  // of the batch cylinder.
+  if (route.view === "cases") {
+    return <CasesView data={payload.data} route={route} back={back} navigate={navigate} />;
   }
-  if (view === "debug") return <DebugView data={payload.data} back={back} />;
-  return <>
-    <div className="topbar"><a href="#"><span className="logo-mark">EV</span><strong>EvalRX</strong></a>{!embedded && <RunSwitch onLoaded={load} />}{payload.data.setting.diagnosed_by && <div className="run-agent" title="The agent that drove this run"><Bot size={13} />{payload.data.setting.diagnosed_by}</div>}<div><span className="live-dot" /> report complete</div><code>{payload.data.trace_id.slice(0, 8)}</code></div>
-    <ReportProviders data={payload.data} navigate={setView}><JSONUIProvider registry={registry} initialState={{}}><Renderer spec={payload.layout.spec} registry={registry} /></JSONUIProvider></ReportProviders>
-    <footer><span>EvalRX</span><p>Evidence is progressively disclosed from overview to raw audit logs.</p><small>Layout: {payload.layout.generated_by.mode}</small></footer>
-  </>;
+  if (route.view === "debug") return <DebugView data={payload.data} back={back} />;
+  return (
+    <>
+      <div className="topbar">
+        <a href={withRun("#/", runFromHash(window.location.hash))}>
+          <span className="logo-mark">EV</span>
+          <strong>EvalRX</strong>
+        </a>
+        {!embedded && <RunSwitch onLoaded={load} />}
+        {payload.data.setting.diagnosed_by && (
+          <div className="run-agent" title="The agent that drove this run">
+            <Bot size={13} />
+            {payload.data.setting.diagnosed_by}
+          </div>
+        )}
+        <div>
+          <span className="live-dot" /> report complete
+        </div>
+        <code>{payload.data.trace_id.slice(0, 8)}</code>
+      </div>
+      <ReportProviders data={payload.data} navigate={navigate}>
+        <JSONUIProvider registry={registry} initialState={{}}>
+          <Renderer spec={payload.layout.spec} registry={registry} />
+        </JSONUIProvider>
+      </ReportProviders>
+      <footer>
+        <span>EvalRX</span>
+        <p>Evidence is progressively disclosed from overview to raw audit logs.</p>
+        <small>Layout: {payload.layout.generated_by.mode}</small>
+      </footer>
+    </>
+  );
 }

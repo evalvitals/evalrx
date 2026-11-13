@@ -6,15 +6,15 @@
 # (outputs/analysis/analysis_state.pkl exists). Runs, with GPU + claude:
 #   1) run_confirm_fix.py   M4 confirm (reuses PHASE 1's hypotheses + stats)
 #                           → M5 surgery → tiered Fix (validated vs the baseline)
-#   2) dashboard            the FULL story — analysis + the M4/M5/Fix verdicts merged
+#   2) report            the FULL story — analysis + the M4/M5/Fix verdicts merged
 #
 # It reuses outputs/analysis/ so the hypotheses confirmed here are exactly the ones
-# the analysis dashboard showed (not a fresh re-proposal). The VLM is loaded here
+# the analysis report showed (not a fresh re-proposal). The VLM is loaded here
 # because the fix module validates candidate repairs against the live model.
 #
 # Overridable via env vars:
 #   MODEL=qwen3-vl-2b-instruct  DEVICE=cuda  BACKEND=claude
-#   PORT=8501  DASHBOARD=1  (DASHBOARD=0 just prints the dashboard command)
+#   PORT=8501  REPORT=1  (REPORT=0 just prints the report command)
 #   PY=/path/to/python  (defaults to the repo's .venv, then `python`)
 #   MODEL should match the model M1 was frozen with.
 #
@@ -29,7 +29,7 @@ MODEL="${MODEL:-qwen3-vl-2b-instruct}"
 DEVICE="${DEVICE:-cuda}"
 BACKEND="${BACKEND:-claude}"
 PORT="${PORT:-8501}"
-DASHBOARD="${DASHBOARD:-1}"
+REPORT="${REPORT:-1}"
 
 if [[ -z "${PY:-}" ]]; then
   if [[ -x "$REPO_ROOT/.venv/bin/python" ]]; then PY="$REPO_ROOT/.venv/bin/python"; else PY="python"; fi
@@ -50,11 +50,11 @@ echo "reuse  : $HERE/outputs/analysis/  (proposed hypotheses + frozen M2 stats)"
 step "1/2  run_confirm_fix.py  — M4 confirm → M5 + tiered Fix [GPU + claude]"
 "$PY" run_confirm_fix.py --model "$MODEL" --device "$DEVICE" --backend "$BACKEND"
 
-step "2/2  dashboard  (full story — analysis + verdicts merged)"
-if [[ "$DASHBOARD" == "1" ]]; then
+step "2/2  report  (full story — analysis + verdicts merged)"
+if [[ "$REPORT" == "1" ]]; then
   echo "serving on http://localhost:$PORT  (Ctrl-C to stop)"
-  exec "$PY" -m evalrx.cli dashboard outputs --port "$PORT"
+  exec "$PY" -m evalrx.cli serve outputs/logs_confirm_fix --port "$PORT"
 else
-  echo "skipped (DASHBOARD=0). Launch it with:"
-  echo "  $PY -m evalrx.cli dashboard outputs --port $PORT"
+  echo "skipped (REPORT=0). Launch it with:"
+  echo "  $PY -m evalrx.cli serve outputs/logs_confirm_fix --port $PORT"
 fi

@@ -1,0 +1,6 @@
+# Dated runs are local evidence. Keep the curated audit source and notes visible.
+/*/
+!/agentic-default-20261012/
+/agentic-default-20261012/*
+!/agentic-default-20261012/README.md
+!/agentic-default-20261012/audit.py
