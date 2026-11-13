@@ -286,6 +286,7 @@ def main() -> None:
         print("m5:", fix)
         outcome = loop.run_fix(report, cases)
         print("fix outcome:", getattr(outcome, "recommendation", None) or outcome)
+    run_logger.close()
 
 
 if __name__ == "__main__":
