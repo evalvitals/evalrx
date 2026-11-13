@@ -1,0 +1,133 @@
+{
+  "$defs": {
+    "CaseBatchRef": {
+      "additionalProperties": false,
+      "description": "A batch referenced by file rather than inlined (the normal case).",
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "n_cases": {
+          "title": "N Cases",
+          "type": "integer"
+        },
+        "split": {
+          "anyOf": [
+            {
+              "enum": [
+                "all",
+                "explore",
+                "confirm",
+                "discovery"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Split"
+        }
+      },
+      "required": [
+        "path",
+        "n_cases"
+      ],
+      "title": "CaseBatchRef",
+      "type": "object"
+    },
+    "ProtocolWire": {
+      "additionalProperties": true,
+      "description": "The user's natural-language statement of what to investigate.\n\nCarried through to M2 (tool selection), M3 (prompt) and M4 (the\nprotocol-consistency gate) — a hypothesis can be statistically real and still\nbe off-topic, and only this makes that judgeable.",
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "task_domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Domain"
+        },
+        "probe_hints": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Probe Hints",
+          "type": "array"
+        }
+      },
+      "required": [
+        "description"
+      ],
+      "title": "ProtocolWire",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "M4's inputs.\n\n``split`` is recorded because it changes what the verdict MEANS: testing on\nthe same cases the hypotheses were generated from is an internal consistency\ncheck, not out-of-sample evidence. A reader cannot infer this from the numbers\nand must not be left to guess.",
+  "properties": {
+    "hypotheses_ref": {
+      "description": "Path to the M3 DiagnosisOutput.",
+      "title": "Hypotheses Ref",
+      "type": "string"
+    },
+    "stats_report_ref": {
+      "description": "Path to the M2 StatsReportWire (post-correction).",
+      "title": "Stats Report Ref",
+      "type": "string"
+    },
+    "data": {
+      "$ref": "#/$defs/CaseBatchRef"
+    },
+    "protocol": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProtocolWire"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "None => every hypothesis is assumed protocol-consistent."
+    },
+    "split": {
+      "default": "explore",
+      "description": "Which partition M4 actually ran on. 'explore' means the hypotheses were generated on these same cases — an in-sample adjudication, not held-out.",
+      "enum": [
+        "explore",
+        "confirm",
+        "all"
+      ],
+      "title": "Split",
+      "type": "string"
+    },
+    "alpha": {
+      "default": 0.05,
+      "title": "Alpha",
+      "type": "number"
+    }
+  },
+  "required": [
+    "hypotheses_ref",
+    "stats_report_ref",
+    "data"
+  ],
+  "title": "HypothesisTestInput",
+  "type": "object",
+  "$id": "https://evalrx.dev/contract/m4.HypothesisTestInput.json",
+  "x-stage": "m4",
+  "x-role": "input",
+  "x-schema-version": 5,
+  "x-optional-stage": false
+}
