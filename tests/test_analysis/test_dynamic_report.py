@@ -618,3 +618,8 @@ def test_m5_confirmation_joins_the_winning_candidate_the_logger_recorded(tmp_pat
     assert (m5["confirmation"]["n_fixed"], m5["confirmation"]["n_broken"]) == (25, 0)
     assert m5["best"]["name"] == "malformed_choice_consensus"
     assert {m["id"]: m["value"] for m in data["metrics"]}["fixed"] == 25
+    # The repair list the loop figure reads, not the per-case repair outcomes.
+    assert data["repairs"] == [{
+        "id": "repair-1", "fixed": True, "title": "malformed_choice_consensus",
+        "effect": 0.5, "fixed_cases": 0, "broken_cases": 0,
+    }]

@@ -158,9 +158,9 @@ def build_report_data(
     normalized_cases = _merge_recorded_case_evidence(normalized_cases, root)
     # Attach what M5's repair answered on each case, so "12 repaired, 1 broken"
     # is thirteen cases a reader can open rather than two numbers.
-    repairs = _repair_outcomes(root, contract)
+    repair_outcomes = _repair_outcomes(root, contract)
     for case in normalized_cases:
-        hit = repairs.get(case["id"])
+        hit = repair_outcomes.get(case["id"])
         if hit:
             case["repair"] = hit
     # Which partition each case sat in -- explore for M1-M3, the withheld
@@ -170,7 +170,7 @@ def build_report_data(
         normalized_cases,
         logged_ids=[str(c.get("id") or c.get("case_id") or "") for c in case_events],
         n_explore=run.get("n_cases"),
-        final_ids=set(repairs),
+        final_ids=set(repair_outcomes),
     )
     stage_detail = _stage_detail(raw, root, normalized_cases, events)
     stages = _stages(raw, stage_detail.get("m5") if isinstance(stage_detail, dict) else None)

@@ -6,6 +6,14 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed — `ReportData.repairs` carried the per-case repair outcomes
+
+`build_report_data` reused the name `repairs` for M5's per-case outcomes, so
+the report's `repairs` list (`[{id, fixed, title, effect, fixed_cases,
+broken_cases}]`) was replaced by a `case id → outcome` dict, and the loop
+figure, which reads `repairs[0]`, never showed the repair. The list is back;
+the per-case outcomes still reach each case as `case.repair`.
+
 ### Fixed — delta-rule relevance on transformers 5.23
 
 transformers 5.23 moved the grouped query/key head expansion of Qwen3-Next /
