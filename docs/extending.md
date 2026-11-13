@@ -226,11 +226,11 @@ loop  = VLDiagnoseLoop(model=my_model, protocol=protocol,
 
 The judge receives a JSON dump of all analyzer findings and must reply with lines
 of the form `HYPOTHESIS: ...` / `FAILURE_MODE: ...` (one pair per hypothesis) or
-`NO_ISSUE`.  You can use `evalrx.eval_agent.diagnosis._DIAGNOSE_PROMPT` as a
+`NO_ISSUE`.  You can use `evalrx.eval_agent.prompts.diagnosis._DIAGNOSE_PROMPT` as a
 starting point and override it by subclassing `DiagnosisAgent`:
 
 ```python
-from evalrx.eval_agent.diagnosis import DiagnosisAgent, _parse_hypotheses, DiagnosisResult
+from evalrx.eval_agent.stages.diagnosis import DiagnosisAgent, _parse_hypotheses, DiagnosisResult
 import json
 
 class MyDiagnosisAgent(DiagnosisAgent):
