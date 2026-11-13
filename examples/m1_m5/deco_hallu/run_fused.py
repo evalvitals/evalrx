@@ -141,9 +141,9 @@ def main() -> None:
               "run_m2-5.py --explore-report outputs/fused/fused_report.json)")
 
     if args.serve_report:
-        from evalrx.reporting.html_report import build_html_report, open_in_browser
+        from evalrx.reporting.static_export import write_report
 
-        open_in_browser(build_html_report(FUSED_DIR, out_path=FUSED_DIR / "report.html"))
+        write_report(FUSED_DIR, open_report=True)
 
 
 if __name__ == "__main__":

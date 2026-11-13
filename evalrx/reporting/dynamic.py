@@ -30,7 +30,7 @@ from typing import Any, Iterable, Mapping, Sequence
 #     makes an already-published run pick the change up — `report_is_current`
 #     only tracks new EVENTS, so without the bump every existing run would
 #     keep serving the labels its old compiler produced.
-REPORT_DATA_VERSION = 19
+REPORT_DATA_VERSION = 20
 REPORT_SCHEMA_VERSION = 1
 JSON_RENDER_VERSION = "0.19.0"
 CATALOG_VERSION = "evalrx-report@2"
@@ -198,6 +198,9 @@ def build_report_data(
                 # repr() -- an unreadable line ending in a memory address.
                 "model": _contract_model_name(contract) or run.get("model") or "Target model",
                 "dataset": run.get("benchmark_name") or "Evaluation dataset",
+                # What produced the run: the diagnose loop, or an explore step
+                # on its own (no model was evaluated; only M2/M3 ran).
+                "kind": run.get("kind") or "loop",
                 "question": reader.get("question") or "Why did the model fail, and can we fix it?",
                 "protocol": run.get("protocol") or "",
                 # Who drove the pipeline, as opposed to `model`, which is what
@@ -217,7 +220,10 @@ def build_report_data(
                 "confidence": reader.get("confidence") or "unknown",
                 "stopped_by": run.get("stopped_by") or "completed",
             },
-            "metrics": _metrics(run, raw, normalized_cases, m5_detail),
+            "metrics": (
+                _explore_metrics(stage_detail) if run.get("kind") == "explore"
+                else _metrics(run, raw, normalized_cases, m5_detail)
+            ),
             "stages": stages,
             "findings": findings,
             "charts": charts,
@@ -468,7 +474,17 @@ def report_is_current(run_dir: str | Path) -> bool:
         ),
         default=0,
     )
-    return cached_seq >= evidence_seq
+    if cached_seq < evidence_seq:
+        return False
+    # An explore output has no event log: a rerun shows only as a report file
+    # newer than the cached layout.
+    from evalrx.reporting.run_data import EXPLORE_REPORTS
+
+    cached_at = (root / "report" / "report_spec.json").stat().st_mtime
+    return not any(
+        (root / name).is_file() and (root / name).stat().st_mtime > cached_at
+        for name in EXPLORE_REPORTS
+    )
 
 
 #: CLI providers under the names their vendors use. A provider absent here is
@@ -1586,6 +1602,16 @@ def _metrics(
         {"id": "failed", "label": "Initial failures", "value": int(failed or 0)},
         {"id": "verified", "label": "Mechanisms checked", "value": verified},
         {"id": "fixed", "label": "Cases repaired", "value": fixed},
+    ]
+
+
+def _explore_metrics(stage_detail: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """An explore run evaluated no model: count what it found instead."""
+    m2, m3 = stage_detail.get("m2") or {}, stage_detail.get("m3") or {}
+    return [
+        {"id": "takeaways", "label": "Patterns found", "value": len(m2.get("takeaways") or [])},
+        {"id": "figures", "label": "Charts drawn", "value": len(m2.get("figures") or [])},
+        {"id": "hypotheses", "label": "Causes proposed", "value": len(m3.get("hypotheses") or [])},
     ]
 
 

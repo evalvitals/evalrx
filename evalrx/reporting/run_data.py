@@ -1,9 +1,9 @@
 """Read a finished run's artifacts into one dictionary.
 
-:func:`extract_run_data` is the single reader behind every report renderer
-(the dynamic UI in :mod:`evalrx.reporting.dynamic`, the legacy static page in
-:mod:`evalrx.reporting.html_report`, the Langfuse bundle export). It knows the
-on-disk run layout and the run log; it knows nothing about HTML.
+:func:`extract_run_data` is the single reader behind every report (the UI's
+data in :mod:`evalrx.reporting.dynamic`, the Langfuse bundle export). It knows
+the on-disk layout of a loop run and of an explore output, and the run log; it
+knows nothing about HTML.
 """
 
 from __future__ import annotations
@@ -183,8 +183,17 @@ def _dig(d: dict, path: str) -> Any:
     return cur
 
 
+#: What an explore step writes as its report: ``evalrx explore`` / run-codebase
+#: write the first, a fused discover→confirm run the second.
+EXPLORE_REPORTS = ("exploratory_report.json", "fused_report.json")
+
+
 def resolve_run_dirs(run_dir: Path) -> tuple[Path, Path | None, Path | None]:
-    """Return (logs_dir, explore_dir, fixes_dir)."""
+    """Return (logs_dir, explore_dir, fixes_dir).
+
+    An explore output (``evalrx explore``, run-codebase, a fused run) has no
+    run log and holds its report at the top: it is its own explore directory.
+    """
     run_dir = run_dir.resolve()
     logs_dir = run_dir
     if (run_dir / "logs" / "run.json").exists():
@@ -200,6 +209,8 @@ def resolve_run_dirs(run_dir: Path) -> tuple[Path, Path | None, Path | None]:
         explore_dir = logs_dir.parent / "explore"
     if not explore_dir.is_dir():
         explore_dir = None
+    if explore_dir is None and any((run_dir / name).is_file() for name in EXPLORE_REPORTS):
+        explore_dir = run_dir
 
     fixes_dir: Path | None
     fixes_dir = logs_dir / "fixes"
@@ -630,9 +641,11 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
     stats.sort(key=lambda s: (not s["reject"], -abs(s.get("effect") or 0)))
 
     explore_data: dict[str, Any] = {}
-    if explore_dir and (explore_dir / "exploratory_report.json").exists():
+    report_path = next((explore_dir / name for name in EXPLORE_REPORTS
+                        if explore_dir and (explore_dir / name).exists()), None)
+    if report_path is not None:
         try:
-            explore_data = json.loads((explore_dir / "exploratory_report.json").read_text())
+            explore_data = json.loads(report_path.read_text())
         except Exception:
             pass
     # RunLoggerV2 records the explore step as an M2 event; both fallbacks
@@ -867,8 +880,11 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
     order = {"fixed": 0, "broken": 1, "unchanged": 2, "untested": 3}
     cases.sort(key=lambda c: (order.get(c["status"], 9), c["id"]))
 
-    data = {
+    data: dict[str, Any] = {
         "run": {
+            # "loop" for a diagnose loop's run log, "explore" for the report
+            # an explore step wrote on its own.
+            "kind": "loop",
             "model": clean_model,
             "raw_model": raw_model_name,
             "benchmark_name": benchmark_name,
@@ -935,6 +951,19 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
         "explore_dir": explore_dir,
         "example_dir": example_dir or logs_dir.parent,
     }
+    if explore_dir is not None and explore_dir == logs_dir and explore_data:
+        # An explore output: no run log, so the stages that ran, the question
+        # and the data explored are all read off its report.
+        data["m2"]["ran"] = True
+        data["m3"]["ran"] = bool(explore_data.get("hypotheses"))
+        profile = explore_data.get("data_profile") or {}
+        source = Path(str(profile.get("source_path") or "")).name
+        data["run"].update(
+            kind="explore",
+            benchmark_name=source or data["run"]["benchmark_name"],
+            protocol=data["run"]["protocol"] or str(
+                explore_data.get("plain_question") or explore_data.get("question") or ""),
+        )
     # Keep the audience-first semantic layer independent from HTML.  The same
     # object can later drive a different renderer without reinterpreting logs.
     from evalrx.reporting.compiler import compile_reader_report

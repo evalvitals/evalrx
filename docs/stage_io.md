@@ -10,8 +10,8 @@ covers the shape of the data crossing each boundary, and — since that shape
 is exactly what a viewer has to render — [what to put on screen for it](#ui-reference-building-a-viewer-on-this-pipeline).
 Building a new UI on this pipeline? Read the stage you're rendering below,
 then [UI Reference](#ui-reference-building-a-viewer-on-this-pipeline) at the
-bottom for the static report's page layout, tab-to-stage mapping, and
-rendering conventions (source: `evalrx/reporting/html_report.py`).
+bottom for the report's page layout, tab-to-stage mapping, and
+rendering conventions (source: `evalrx/reporting/web`).
 For an implementation hand-off, start with
 [Frontend implementation contract](#frontend-implementation-contract): it
 defines the files to load, event fields, joins, state derivation, null/error
@@ -914,10 +914,9 @@ exports the same UI as one portable `report.html` — see the
 `evalrx/reporting/dynamic.py` (compiles `ReportData` + layout),
 `evalrx/reporting/server.py` (the `serve` FastAPI app) and
 `evalrx/reporting/static_export.py` (the `report` exporter); all three share
-the same React/json-render renderer. (`evalrx/reporting/html_report.py` is
-the older, pre-React renderer that `evalrx explore` / `run-codebase` still
-use for their explore-shaped output — not this contract.) Read this section as the contract that
-renderer must preserve.
+the same React/json-render renderer, which also renders an `evalrx explore` /
+`run-codebase` output. Read this section as the contract that renderer must
+preserve.
 
 ### Requirements for the new UI
 

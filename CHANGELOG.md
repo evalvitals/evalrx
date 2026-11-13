@@ -84,20 +84,28 @@ from `evalrx.agent_runtime.providers.<name>`; `SkillInstaller` /
 `evalrx.eval_agent` still exports `CliAgentConfig`, `CliAgentResult` and
 `create_cli_agent`.
 
-### Removed — the `dashboard` report server (breaking)
+### Removed — the `dashboard` report server and the legacy static report (breaking)
 
 Run reports have one UI: the React report (`evalrx serve` / `evalrx report` /
-`evalrx publish-report`).
+`evalrx publish-report`), for loop runs and explore outputs alike.
 
 - `evalrx dashboard` and `evalrx.analysis.dashboard` are removed: the
   standard-library server that served the legacy static `report.html`, and the
   `load_run` / `load_case_studies` / `load_loop_story` loaders, which nothing
   outside their tests used. Use `evalrx serve <run dir>` for a run.
-- `evalrx explore`, `evalrx run-codebase` and `evalrx-explore`: an explore
-  output is not an M1–M5 run, and the React report cannot render one (all five
-  stages read "not run"), so these keep writing the legacy static
-  `report.html` (`evalrx.reporting.html_report`, now used only for this).
-  `--serve-report` opens that file in a browser instead of starting a server;
+- `evalrx.reporting.html_report` (`build_html_report`, `generate_html_report`,
+  `embed_figures`, `embed_media`, and the `evalrx.reporting.build_html_report`
+  export) is removed. An explore output (`evalrx explore`, `evalrx
+  run-codebase`, a fused run) is now read as its own report: M2 and M3 show
+  as completed, the question and data come from its `exploratory_report.json`
+  (or `fused_report.json`), and the header counts patterns, charts and
+  proposed causes instead of cases. `evalrx serve <explore out>` works on it,
+  and the `report.html` these commands write is the React report's portable
+  export (`evalrx.reporting.static_export.write_report`). A source checkout
+  must build the renderer (`npm run build` in `evalrx/reporting/web`) for that
+  file; without it the run finishes and says why the file was not written.
+- `evalrx explore`, `evalrx run-codebase` and `evalrx-explore`:
+  `--serve-report` opens the written `report.html` in a browser instead of starting a server;
   the deprecated `--dashboard` alias and `--port` are removed (`evalrx-explore`
   had `--dashboard`, now `--serve-report`). The `run_explore` /
   `run_codebase_cli` keywords `dashboard` / `dashboard_port` become

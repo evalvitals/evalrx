@@ -187,7 +187,10 @@ export const { registry } = defineRegistry(reportCatalog, {
       return (
         <section className={`setting-hero${hero ? " has-figure" : ""}`}>
           <div className="eyebrow eyebrow-title">
-            <CircleDot size={14} /> {data.setting.model} model's diagnosis and fixing recipe report
+            <CircleDot size={14} />{" "}
+            {data.setting.kind === "explore"
+              ? "Exploratory analysis report"
+              : `${data.setting.model} model's diagnosis and fixing recipe report`}
           </div>
           <p className="lead">{data.setting.question}</p>
           {hero && (
@@ -204,7 +207,8 @@ export const { registry } = defineRegistry(reportCatalog, {
             in the agent that drove them — named when the run recorded it,
             never guessed. */}
           <p className="setting-line">
-            Evaluated on dataset <strong>{data.setting.dataset}</strong>.
+            {data.setting.kind === "explore" ? "Explored " : "Evaluated on dataset "}
+            <strong>{data.setting.dataset}</strong>.
             {data.setting.diagnosed_by && (
               <>
                 {" "}

@@ -229,9 +229,7 @@ def run_codebase_cli(
     ok = result.ran_ok and (result.explore is None or result.explore.ok)
 
     if ok:
-        from evalrx.reporting.html_report import build_html_report, open_in_browser
+        from evalrx.reporting.static_export import write_report
 
-        written = build_html_report(out_dir, out_path=out_dir / "report.html")
-        if open_report:
-            open_in_browser(written)
+        write_report(out_dir, open_report=open_report)
     return 0 if ok else 1

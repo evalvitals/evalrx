@@ -639,3 +639,114 @@ def test_m5_confirmation_joins_the_winning_candidate_the_logger_recorded(tmp_pat
         "effect": 0.5, "fixed_cases": 25, "broken_cases": 0,
     }]
 
+
+def _explore_output(root, *, hypotheses=True):
+    root.mkdir(parents=True, exist_ok=True)
+    report = {
+        "question": "Does batch temperature predict yield?",
+        "plain_question": "Which batch setting goes with low yield?",
+        "ok": True,
+        "observations": ["Hot batches yield less."],
+        "takeaways": [],
+        "hypotheses": [{"statement": "Heat lowers yield."}] if hypotheses else [],
+    }
+    (root / "exploratory_report.json").write_text(json.dumps(report), encoding="utf-8")
+    return root
+
+
+def test_an_explore_output_is_its_own_report(tmp_path):
+    """`evalrx explore` / run-codebase write no run log, only their report."""
+    from evalrx.reporting.dynamic import build_report_data
+    from evalrx.reporting.run_data import resolve_run_dirs
+
+    root = _explore_output(tmp_path / "explore")
+    assert resolve_run_dirs(root)[1] == root
+
+    data = build_report_data(root)
+    status = {stage["id"]: stage["status"] for stage in data["stages"]}
+    assert status["m1"] == "not-run"
+    assert status["m2"] == status["m3"] == "completed"
+    assert data["setting"]["question"] == "Which batch setting goes with low yield?"
+    assert data["stage_detail"]["m3"]["hypotheses"]
+
+    without = build_report_data(_explore_output(tmp_path / "bare", hypotheses=False))
+    assert {s["id"]: s["status"] for s in without["stages"]}["m3"] == "not-run"
+
+
+def test_a_rerun_explore_output_invalidates_its_cached_report(tmp_path):
+    from evalrx.reporting.dynamic import publish_report, report_is_current
+
+    root = _explore_output(tmp_path)
+    publish_report(root)
+    assert report_is_current(root)
+    later = (root / "report" / "report_spec.json").stat().st_mtime + 5
+    os.utime(root / "exploratory_report.json", (later, later))
+    assert not report_is_current(root)
+
+
+def test_write_report_notes_a_missing_renderer_instead_of_failing(tmp_path, monkeypatch, capsys):
+    import evalrx.reporting.static_export as static_export
+
+    def _missing(*_args, **_kwargs):
+        raise FileNotFoundError("Packaged report renderer is missing")
+
+    monkeypatch.setattr(static_export, "export_static_report", _missing)
+    assert static_export.write_report(_explore_output(tmp_path)) is None
+    assert "report.html not written" in capsys.readouterr().out
+
+
+def test_static_export_escapes_script_terminators(tmp_path):
+    """Run text must not be able to close the bootstrap script block."""
+    from pathlib import Path
+
+    import pytest
+
+    import evalrx.reporting.static_export as static_export
+
+    if not (Path(static_export.__file__).with_name("web_dist") / "index.html").exists():
+        pytest.skip("report renderer not built")
+    root = _explore_output(tmp_path)
+    payload = "</script><script>globalThis.pwned = true</script>"
+    report = json.loads((root / "exploratory_report.json").read_text())
+    report["plain_question"] = payload
+    (root / "exploratory_report.json").write_text(json.dumps(report), encoding="utf-8")
+
+    page = static_export.export_static_report(root).read_text(encoding="utf-8")
+    assert payload not in page
+    assert "\\u003c/script" in page
+
+
+def test_report_reads_model_m1_and_m4_status(tmp_path):
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.reporting.run_data import extract_run_data
+
+    logger = RunLoggerV2(tmp_path, observability_mode="offline")
+    logger.log_run_start({"model": "new", "protocol": {}, "n_cases": 1})
+    logger._append_stage("M1", "probe", {"cycle": 0, "analyzers": ["new_probe"]})
+    logger._append_stage("M4", "surgery", {
+        "module": "m4", "status": "supported", "fixed": False, "confidence_score": 0.8,
+        "evidence": {
+            "m4_test_name": "association", "m4_effect_size": 0.3,
+            "m4_verdict": "supported by held-out evidence", "m4_evidence_grade": "causal",
+        },
+    })
+    logger.close()
+
+    data = extract_run_data(tmp_path)
+    assert data["run"]["raw_model"] == "new"
+    assert data["m1"]["analyzers"] == ["new_probe"]
+    assert data["m4"]["results"][0]["status"] == "supported"
+
+
+def test_langfuse_bundle_export(tmp_path):
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.reporting.langfuse_exporter import export_to_langfuse_bundle
+
+    logger = RunLoggerV2(tmp_path / "run", observability_mode="offline")
+    logger.log_run_start({"model": "demo-model", "protocol": {}, "n_cases": 1})
+    logger.close()
+
+    out_json = tmp_path / "langfuse_trace.json"
+    bundle = export_to_langfuse_bundle(tmp_path / "run", out_json)
+    assert {"trace", "spans", "scores"} <= set(bundle)
+    assert json.loads(out_json.read_text(encoding="utf-8"))["trace"]["name"].startswith("EvalRX:")

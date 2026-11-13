@@ -326,6 +326,9 @@ export type ReportData = {
     question: string;
     protocol: string;
     n_cases: number;
+    /** `explore` when an explore step wrote the run on its own: no model was
+     *  evaluated, only M2/M3 ran. */
+    kind: "loop" | "explore";
     diagnosed_by?: string;
     /** The cover figure the run shipped (`evalrx_main.*` at its root), as a data URI. */
     hero_image?: string;

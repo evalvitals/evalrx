@@ -114,7 +114,7 @@ set.
 | `--model` (`--coder-model`) | backend default | Model name passed to the coding agent. |
 | `--max-rows` / `--max-files` | `2000` / `200` | Sampling caps for large inputs. |
 | `--timeout-sec` / `--max-attempts` | `120` / `2` | Per-attempt timeout and repair-retry budget. |
-| `--serve-report` | off | Open the run's static `report.html` in a browser when it finishes. |
+| `--serve-report` | off | Open the run's `report.html` in a browser when it finishes. |
 | `--skill DIR` (repeatable) | — | Agent-Skill directory to style agent-authored figures. Implies `--allow-skills`. |
 | `--no-skills` | off | Skip the package's bundled skills (e.g. `nature-figure`). |
 | `--no-hypotheses` | off | Skip M3 — stop after M2's takeaways. |
@@ -124,9 +124,11 @@ set.
 | `--no-narrate` | off | Don't print live per-stage terminal narration (see above). |
 | `--progress-path PATH` | — | Also append durable JSONL progress events to `PATH`, for a separate workbench UI — independent of narration; both can run together. |
 
-An explore output is not an M1–M5 run, so `serve` has nothing to show for it;
-its report is the static `report.html` (`evalrx/reporting/html_report.py`)
-written into `--out`, which opens from disk.
+An explore output renders in the same report as a full run, with M2 and M3
+filled in and the other stages marked not run: `--out` gets a portable
+`report.html` that opens from disk, and `evalrx serve <out>` shows it live.
+A source checkout writes that file only once the renderer is built
+(`npm run build` in `evalrx/reporting/web`); an installed package carries it.
 
 ## `evalrx run-codebase`
 
