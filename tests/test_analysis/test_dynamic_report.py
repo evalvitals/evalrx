@@ -796,3 +796,27 @@ def test_langfuse_bundle_export(tmp_path):
     bundle = export_to_langfuse_bundle(tmp_path / "run", out_json)
     assert {"trace", "spans", "scores"} <= set(bundle)
     assert json.loads(out_json.read_text(encoding="utf-8"))["trace"]["name"].startswith("EvalRX:")
+
+
+def test_serve_opens_an_explore_output_and_its_figures(tmp_path):
+    """`evalrx serve <explore out>`: the report and the charts it cites."""
+    import shutil
+    from pathlib import Path
+
+    from fastapi.testclient import TestClient
+
+    from evalrx.reporting.server import create_app
+
+    reference = Path(__file__).resolve().parents[2] / "examples/m2_m3/synthetic_yield_explore/reference_output"
+    root = tmp_path / "explore"
+    shutil.copytree(reference, root, ignore=shutil.ignore_patterns("report", "report.html"))
+
+    with TestClient(create_app(root)) as client:
+        run = client.get("/api/session").json()["run"]
+        data = client.get(f"/api/runs/{run['id']}/report").json()["data"]
+        assert data["setting"]["kind"] == "explore"
+        figures = data["stage_detail"]["m2"]["figures"]
+        assert figures
+        figure = client.get(f"/api/runs/{run['id']}/artifact", params={"path": figures[0]["path"]})
+        assert figure.status_code == 200
+        assert figure.headers["content-type"] == "image/png"
