@@ -19,17 +19,35 @@ import type {
   Case,
   DebugEvent,
   DiagnosisOutput,
+  FigureView,
   FixAttemptWire,
   Partition,
   FixOutput,
   HypothesisTestOutput,
+  M1StageDetail,
+  M2StageDetail,
+  M3StageDetail,
+  M4StageDetail,
+  M5StageDetail,
   Modality,
+  ModelCallView,
+  OperationExample,
+  ProbeExample,
   ProbeOutput,
+  Proposal,
+  RepairCandidateView,
+  RepairExample,
+  RepairOperationPreview,
   ReportData,
+  StatView,
+  ValidationEventView,
+  ValidationEvidence,
+  ValidationExample,
+  ValidationResultView,
 } from "./types";
 import { buildBrief, StageBrief } from "./brief";
 import { ZoomableImage } from "./lightbox";
-import { chartPercent, chartValue, findContract, stageCode } from "./reportAccess";
+import { chartPercent, chartValue, findContract, stageCode, stageDetail } from "./reportAccess";
 
 /**
  * A stage, at whichever of the two depths the reader asked for.
@@ -127,12 +145,7 @@ export function EvidenceView({
           {brief && !full ? (
             <StageBrief brief={brief} onDeepen={() => setFull(true)} />
           ) : (
-            <StageArtifact
-              stage={selected || ""}
-              detail={data.stage_detail || {}}
-              report={data}
-              navigate={navigate}
-            />
+            <StageArtifact stage={selected || ""} report={data} navigate={navigate} />
           )}
         </section>
       </div>
@@ -142,21 +155,19 @@ export function EvidenceView({
 
 function StageArtifact({
   stage,
-  detail,
   report,
   navigate,
 }: {
   stage: string;
-  detail: Record<string, any>;
   report: ReportData;
   navigate?: (view: string) => void;
 }) {
-  if (stage === "m1") return <M1Detail data={detail.m1 || {}} report={report} />;
-  if (stage === "m2") return <M2Detail data={detail.m2 || {}} />;
-  if (stage === "m3") return <M3Detail data={detail.m3 || {}} report={report} />;
-  if (stage === "m4") return <M4Detail data={detail.m4 || {}} report={report} />;
+  if (stage === "m1") return <M1Detail data={stageDetail(report, "m1")} report={report} />;
+  if (stage === "m2") return <M2Detail data={stageDetail(report, "m2")} />;
+  if (stage === "m3") return <M3Detail data={stageDetail(report, "m3")} report={report} />;
+  if (stage === "m4") return <M4Detail data={stageDetail(report, "m4")} report={report} />;
   if (stage === "m5")
-    return <M5Detail data={detail.m5 || {}} report={report} navigate={navigate} />;
+    return <M5Detail data={stageDetail(report, "m5")} report={report} navigate={navigate} />;
   return (
     <EmptyStage title="No stage data" body="This stage did not retain a structured artifact." />
   );
@@ -185,7 +196,7 @@ function StageBanner({
 function StageKpis({
   items,
 }: {
-  items: Array<{ label: string; value: React.ReactNode; note?: string }>;
+  items: Array<{ label: string; value: React.ReactNode; note?: string | null }>;
 }) {
   return (
     <div className="stage-kpis">
@@ -249,7 +260,7 @@ function labelModality(slot: Modality): string {
   return { text: "text", image: "images", audio: "audio", video: "video" }[slot] || slot;
 }
 
-function M1Detail({ data, report }: { data: any; report: ReportData }) {
+function M1Detail({ data, report }: { data: Partial<M1StageDetail>; report: ReportData }) {
   const probes = data.probes || [];
   const examples = data.examples || [];
   const m1 = findContract<ProbeOutput>(report, "m1");
@@ -274,17 +285,17 @@ function M1Detail({ data, report }: { data: any; report: ReportData }) {
           note="Examples make the measurement concrete. The result below is based on all measured cases, not just this one."
         >
           <div className="example-deck">
-            {examples.map((example: any) => (
+            {examples.map((example) => (
               <M1Example example={example} report={report} key={example.id} />
             ))}
           </div>
         </ExampleSection>
       )}
-      {data.operations?.length > 0 && (
+      {!!data.operations?.length && (
         <OperationExamples examples={data.operations} report={report} />
       )}
       <div className="probe-grid">
-        {probes.map((probe: any, index: number) => (
+        {probes.map((probe, index) => (
           <details className="probe-card" key={probe.id} open={index === 0}>
             <summary>
               <span className="section-kicker">
@@ -293,7 +304,7 @@ function M1Detail({ data, report }: { data: any; report: ReportData }) {
               <h3>{probe.title}</h3>
               <p>{probe.question}</p>
               <div className="probe-metrics">
-                {(probe.metrics || []).map((metric: any) => (
+                {(probe.metrics || []).map((metric) => (
                   <span key={metric.label}>
                     <b>{metric.value ?? "—"}</b>
                     {metric.label}
@@ -325,7 +336,7 @@ function M1Detail({ data, report }: { data: any; report: ReportData }) {
                   <KeyValueGrid values={probe.raw_finding_summary} />
                 </details>
               )}
-              {probe.sample_rows?.length > 0 && (
+              {!!probe.sample_rows?.length && (
                 <details className="nested-detail">
                   <summary>
                     Inspect {probe.sample_rows.length} representative measurement rows
@@ -346,13 +357,13 @@ function M1Detail({ data, report }: { data: any; report: ReportData }) {
  * its numbers. Collapsed by default: a probe can make hundreds of calls, and
  * the list is for checking one, not reading all.
  */
-function ProbeCalls({ calls }: { calls: any[] }) {
+function ProbeCalls({ calls }: { calls: ModelCallView[] }) {
   if (!calls.length) return null;
   return (
     <details className="nested-detail probe-calls">
       <summary>Model calls ({calls.length}) — prompt and reply, one per call</summary>
       <div className="call-list">
-        {calls.map((call: any, index: number) => {
+        {calls.map((call, index) => {
           const scope = call.case_id
             ? `case ${String(call.case_id).slice(0, 12)}`
             : call.batch_case_ids?.length
@@ -379,7 +390,7 @@ function ProbeCalls({ calls }: { calls: any[] }) {
                   label={call.error ? "ERROR" : "REPLY"}
                   value={call.error || call.output}
                 />
-                {call.batch_case_ids?.length > 0 && (
+                {!!call.batch_case_ids?.length && (
                   <small className="call-cases">cases: {call.batch_case_ids.join(", ")}</small>
                 )}
               </div>
@@ -414,7 +425,7 @@ function ExampleSection({
   );
 }
 
-function M1Example({ example, report }: { example: any; report?: ReportData }) {
+function M1Example({ example, report }: { example: ProbeExample; report?: ReportData }) {
   const outcome = String(example.outcome || "unknown").toLowerCase();
   return (
     <article className="example-card m1-example">
@@ -455,9 +466,9 @@ function ExampleMedia({
   report,
   caseId,
 }: {
-  mediaIds?: string[];
+  mediaIds?: string[] | null;
   report?: ReportData;
-  caseId?: string;
+  caseId?: string | null;
 }) {
   if (!report || !mediaIds?.length) return null;
   const media = mediaIds
@@ -489,7 +500,7 @@ function ExampleMedia({
  * cannot collide (every explorer chart name this loose match applies to is
  * far longer than the floor).
  */
-function chartCited(figureId: any, citedKeys: string[]): boolean {
+function chartCited(figureId: string, citedKeys: string[]): boolean {
   const fig = normalizeKey(figureId).replace(/^\d+/, "");
   return citedKeys.some(
     (cited) =>
@@ -511,27 +522,30 @@ function chartCited(figureId: any, citedKeys: string[]): boolean {
  * only de-slugged — the same words, minus the underscores. The original title
  * survives on the card as its hover text.
  */
-function labelledFigures(figures: any[], stats: any[]): any[] {
+/** A figure as shown: `raw_title` keeps the explorer's own title when it was relabelled. */
+type LabelledFigure = FigureView & { raw_title?: string };
+
+function labelledFigures(figures: FigureView[], stats: StatView[]): LabelledFigure[] {
   const pairs = (stats || [])
-    .filter((row: any) => row?.raw_signal && row?.label && String(row.raw_signal).includes("."))
-    .map((row: any) => [String(row.raw_signal).replace(/\./g, "_"), String(row.label)] as const)
+    .filter((row) => row?.raw_signal && row?.label && String(row.raw_signal).includes("."))
+    .map((row) => [String(row.raw_signal).replace(/\./g, "_"), String(row.label)] as const)
     .sort((a, b) => b[0].length - a[0].length);
   const display = (title: string) => {
     let out = title;
     for (const [flat, label] of pairs) out = out.split(flat).join(label);
     return out.replace(/\b[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}\b/g, (m) => m.replace(/_/g, " "));
   };
-  return (figures || []).map((figure: any) => {
+  return (figures || []).map((figure) => {
     const title = display(String(figure.title || ""));
     return title === figure.title ? figure : { ...figure, title, raw_title: figure.title };
   });
 }
 
-function M2Detail({ data }: { data: any }) {
+function M2Detail({ data }: { data: Partial<M2StageDetail> }) {
   const figures = labelledFigures(data.figures || [], data.stats || []);
   const takeaways = data.takeaways || [];
-  const citedKeys = takeaways.flatMap((item: any) => item.chart_names || []).map(normalizeKey);
-  const supporting = figures.filter((figure: any) => !chartCited(figure.id, citedKeys));
+  const citedKeys = takeaways.flatMap((item) => item.chart_names || []).map(normalizeKey);
+  const supporting = figures.filter((figure) => !chartCited(figure.id, citedKeys));
   return (
     <>
       <StageBanner kind="DESCRIPTIVE" title="Exploratory evidence">
@@ -551,7 +565,7 @@ function M2Detail({ data }: { data: any }) {
           <p>{data.conclusion}</p>
         </div>
       )}
-      {data.stats?.length > 0 && (
+      {!!data.stats?.length && (
         <StatEvidenceChart
           stats={data.stats}
           title="Which measured behaviors are most connected to errors?"
@@ -559,9 +573,9 @@ function M2Detail({ data }: { data: any }) {
         />
       )}
       <div className="finding-stack">
-        {takeaways.map((item: any, index: number) => {
+        {takeaways.map((item, index) => {
           const names = (item.chart_names || []).map(normalizeKey);
-          const evidence = figures.filter((figure: any) => chartCited(figure.id, names));
+          const evidence = figures.filter((figure) => chartCited(figure.id, names));
           return (
             <article className="analysis-finding" key={index}>
               <header>
@@ -570,7 +584,7 @@ function M2Detail({ data }: { data: any }) {
               </header>
               {evidence.length > 0 ? (
                 <div className="analysis-figures">
-                  {evidence.map((figure: any) => (
+                  {evidence.map((figure) => (
                     <EvidenceFigure figure={figure} key={figure.id} />
                   ))}
                 </div>
@@ -589,7 +603,7 @@ function M2Detail({ data }: { data: any }) {
                     {item.caveat}
                   </div>
                 )}
-                {item.table_names?.length > 0 && (
+                {!!item.table_names?.length && (
                   <small>Source tables: {item.table_names.join(", ")}</small>
                 )}
               </details>
@@ -603,13 +617,13 @@ function M2Detail({ data }: { data: any }) {
             Supporting exploratory material—not ranked conclusions ({supporting.length})
           </summary>
           <div className="analysis-figures supporting">
-            {supporting.map((figure: any) => (
+            {supporting.map((figure) => (
               <EvidenceFigure figure={figure} key={figure.id} />
             ))}
           </div>
         </details>
       )}
-      {data.stats?.length > 0 && (
+      {!!data.stats?.length && (
         <details className="agent-transcript">
           <summary>Statistical screening records ({data.stats.length})</summary>
           <RecordTable rows={data.stats} />
@@ -619,7 +633,7 @@ function M2Detail({ data }: { data: any }) {
   );
 }
 
-function EvidenceFigure({ figure }: { figure: any }) {
+function EvidenceFigure({ figure }: { figure: LabelledFigure }) {
   const source = figure.data_uri || `/api/artifact?path=${encodeURIComponent(figure.path)}`;
   return (
     <figure>
@@ -739,7 +753,15 @@ function labelHoverTooltip(rowCount: number) {
   };
 }
 
-function StatEvidenceChart({ stats, title, note }: { stats: any[]; title: string; note: string }) {
+function StatEvidenceChart({
+  stats,
+  title,
+  note,
+}: {
+  stats: StatView[];
+  title: string;
+  note: string;
+}) {
   const rows = stats.filter((item) => typeof item.effect === "number").slice(0, 8);
   if (!rows.length) return null;
   const plotted = rows.slice().reverse();
@@ -879,10 +901,10 @@ function isRoutable(design?: string): boolean {
   return SIGNAL_REF.test(t.toLowerCase()) || DIRECTIVES.some((d) => t.includes(d));
 }
 
-function M3Detail({ data, report }: { data: any; report: ReportData }) {
+function M3Detail({ data, report }: { data: Partial<M3StageDetail>; report: ReportData }) {
   const accepted = data.hypotheses || [];
   const recovered = data.unparsed_proposals || [];
-  const hypotheses = accepted.length ? accepted : recovered;
+  const hypotheses: Proposal[] = accepted.length ? accepted : recovered;
   const m3 = findContract<DiagnosisOutput>(report, "m3");
   const untestable = m3 ? (m3.hypotheses || []).filter((h) => !h.test_design?.trim()) : [];
   const unroutable = m3
@@ -936,7 +958,7 @@ function M3Detail({ data, report }: { data: any; report: ReportData }) {
           { label: "Recovered from transcript", value: recovered.length },
           {
             label: "Test designs",
-            value: hypotheses.filter((item: any) => item.test_design).length,
+            value: hypotheses.filter((item) => item.test_design).length,
           },
         ]}
       />
@@ -949,7 +971,7 @@ function M3Detail({ data, report }: { data: any; report: ReportData }) {
           </div>
         </div>
       )}
-      {data.evidence_figures?.length > 0 && (
+      {!!data.evidence_figures?.length && (
         <section className="m3-evidence">
           <header>
             <span>THE VISUAL EVIDENCE THIS STEP STARTS FROM</span>
@@ -960,15 +982,13 @@ function M3Detail({ data, report }: { data: any; report: ReportData }) {
             </p>
           </header>
           <div className="analysis-figures">
-            {labelledFigures(data.evidence_figures, data.evidence_stats || []).map(
-              (figure: any) => (
-                <EvidenceFigure figure={figure} key={figure.id} />
-              ),
-            )}
+            {labelledFigures(data.evidence_figures, data.evidence_stats || []).map((figure) => (
+              <EvidenceFigure figure={figure} key={figure.id} />
+            ))}
           </div>
         </section>
       )}
-      {data.evidence_stats?.length > 0 && (
+      {!!data.evidence_stats?.length && (
         <StatEvidenceChart
           stats={data.evidence_stats}
           title="The strongest M2 patterns carried into this step"
@@ -977,7 +997,7 @@ function M3Detail({ data, report }: { data: any; report: ReportData }) {
       )}
       {hypotheses.length ? (
         <div className="hypothesis-list">
-          {hypotheses.map((hypothesis: any, index: number) => (
+          {hypotheses.map((hypothesis, index) => (
             <article className="hypothesis-card" key={index}>
               <header>
                 <span>H{index + 1}</span>
@@ -1026,11 +1046,11 @@ function M3Detail({ data, report }: { data: any; report: ReportData }) {
           body="The earlier pattern search did not yield an idea the pipeline could test."
         />
       )}
-      {(data.candidate_signals?.length > 0 || data.recommended_tests?.length > 0) && (
+      {(!!data.candidate_signals?.length || !!data.recommended_tests?.length) && (
         <details className="agent-transcript">
           <summary>Candidate signals and suggested follow-ups</summary>
-          {data.candidate_signals?.length > 0 && <RecordTable rows={data.candidate_signals} />}
-          {data.recommended_tests?.map((item: any, i: number) => (
+          {!!data.candidate_signals?.length && <RecordTable rows={data.candidate_signals} />}
+          {data.recommended_tests?.map((item, i) => (
             <p key={i}>• {String(item)}</p>
           ))}
         </details>
@@ -1081,7 +1101,7 @@ function UndecidableNote({ report }: { report: ReportData }) {
   );
 }
 
-function M4Detail({ data, report }: { data: any; report: ReportData }) {
+function M4Detail({ data, report }: { data: Partial<M4StageDetail>; report: ReportData }) {
   const results = data.results || [];
   if (!data.ran || !results.length)
     return (
@@ -1096,8 +1116,8 @@ function M4Detail({ data, report }: { data: any; report: ReportData }) {
       </>
     );
   const statuses = (name: string) =>
-    results.filter((item: any) => String(item.status || "").toLowerCase() === name).length;
-  const consistent = results.filter((item: any) => item.protocol_consistent !== false).length;
+    results.filter((item) => String(item.status || "").toLowerCase() === name).length;
+  const consistent = results.filter((item) => item.protocol_consistent !== false).length;
   const examples = data.examples || [];
   return (
     <>
@@ -1122,14 +1142,14 @@ function M4Detail({ data, report }: { data: any; report: ReportData }) {
           note="This is one recorded validation check. Its conclusion uses the complete independent test set—not a hand-picked example."
         >
           <div className="example-deck">
-            {examples.map((example: any) => (
+            {examples.map((example) => (
               <M4Example example={example} report={report} key={example.id} />
             ))}
           </div>
         </ExampleSection>
       )}
       <div className="verdict-list">
-        {results.map((result: any, index: number) => (
+        {results.map((result, index) => (
           <VerdictCard result={result} fallback={data.event} index={index} key={index} />
         ))}
       </div>
@@ -1137,7 +1157,7 @@ function M4Detail({ data, report }: { data: any; report: ReportData }) {
   );
 }
 
-function M4Example({ example, report }: { example: any; report?: ReportData }) {
+function M4Example({ example, report }: { example: ValidationExample; report?: ReportData }) {
   const status = String(example.status || "inconclusive").replaceAll("_", " ");
   const isCase = example.kind === "validation_case";
   return (
@@ -1186,8 +1206,16 @@ function M4Example({ example, report }: { example: any; report?: ReportData }) {
   );
 }
 
-function VerdictCard({ result, fallback, index }: { result: any; fallback: any; index: number }) {
-  const evidence = result.evidence || fallback?.evidence || {};
+function VerdictCard({
+  result,
+  fallback,
+  index,
+}: {
+  result: ValidationResultView;
+  fallback?: ValidationEventView;
+  index: number;
+}) {
+  const evidence: ValidationEvidence = result.evidence || fallback?.evidence || {};
   const status = String(result.status || fallback?.status || "inconclusive").toLowerCase();
   const hypothesis =
     result.hypothesis || result.statement || fallback?.hypothesis || `Hypothesis ${index + 1}`;
@@ -1283,7 +1311,7 @@ function repairRefs(report: ReportData): Map<string, FixAttemptWire> {
   return byName;
 }
 
-function refFor(report: ReportData, name?: string) {
+function refFor(report: ReportData, name?: string | null) {
   if (!name) return "";
   const row = repairRefs(report).get(name);
   if (row?.ref) return row.ref;
@@ -1291,7 +1319,7 @@ function refFor(report: ReportData, name?: string) {
   return order >= 0 ? `R${order + 1}` : "";
 }
 
-function headlineFor(report: ReportData, name?: string) {
+function headlineFor(report: ReportData, name?: string | null) {
   return (name && repairRefs(report).get(name)?.headline) || "";
 }
 
@@ -1457,7 +1485,7 @@ function M5Detail({
   report,
   navigate,
 }: {
-  data: any;
+  data: Partial<M5StageDetail>;
   report: ReportData;
   navigate?: (view: string) => void;
 }) {
@@ -1488,12 +1516,12 @@ function M5Detail({
         />
       </>
     );
-  const fixed = candidates.reduce((sum: number, item: any) => sum + Number(item.n_fixed || 0), 0);
-  const broken = candidates.reduce((sum: number, item: any) => sum + Number(item.n_broken || 0), 0);
+  const fixed = candidates.reduce((sum, item) => sum + Number(item.n_fixed || 0), 0);
+  const broken = candidates.reduce((sum, item) => sum + Number(item.n_broken || 0), 0);
   const winner =
-    candidates.find((item: any) => item.fixed) ||
-    candidates.reduce(
-      (best: any, item: any) =>
+    candidates.find((item) => item.fixed) ||
+    candidates.reduce<RepairCandidateView | null>(
+      (best, item) =>
         Number(item.effect || -Infinity) > Number(best?.effect || -Infinity) ? item : best,
       null,
     );
@@ -1510,10 +1538,7 @@ function M5Detail({
     yAxis: {
       type: "category",
       data: candidates
-        .map(
-          (item: any, i: number) =>
-            `${refFor(report, item.name) || `R${i + 1}`} · ${item.tier || "?"}`,
-        )
+        .map((item, i) => `${refFor(report, item.name) || `R${i + 1}`} · ${item.tier || "?"}`)
         .reverse(),
       axisLabel: { color: tc("#b8c9c4"), width: 130, overflow: "truncate" },
     },
@@ -1522,13 +1547,13 @@ function M5Detail({
         name: "Repaired",
         type: "bar",
         stack: "cases",
-        data: candidates.map((item: any) => item.n_fixed || 0).reverse(),
+        data: candidates.map((item) => item.n_fixed || 0).reverse(),
       },
       {
         name: "Broken",
         type: "bar",
         stack: "cases",
-        data: candidates.map((item: any) => item.n_broken || 0).reverse(),
+        data: candidates.map((item) => item.n_broken || 0).reverse(),
       },
     ],
   };
@@ -1572,8 +1597,8 @@ function M5Detail({
           )}
         </div>
       </div>
-      {data.examples?.length > 0 && <M5ExampleSection examples={data.examples} report={report} />}
-      {data.operation_previews?.length > 0 && (
+      {!!data.examples?.length && <M5ExampleSection examples={data.examples} report={report} />}
+      {!!data.operation_previews?.length && (
         <RepairOperationPreviews examples={data.operation_previews} report={report} />
       )}
       <SelectionSweep report={report} />
@@ -1582,7 +1607,7 @@ function M5Detail({
         <ReactECharts option={option} style={{ height: Math.max(300, candidates.length * 48) }} />
       </div>
       <div className="candidate-list">
-        {candidates.map((candidate: any, index: number) => (
+        {candidates.map((candidate, index) => (
           <article
             className={`candidate-card candidate-${candidate.verdict || "unknown"}`}
             key={`${candidate.name}-${index}`}
@@ -1654,7 +1679,7 @@ function M5Detail({
  * the details toggle, but it is not an answer to "did this repair work?" for
  * anyone who has not met an e-value. The numbers here are the same numbers.
  */
-function RepairVerdict({ candidate }: { candidate: any }) {
+function RepairVerdict({ candidate }: { candidate: RepairCandidateView }) {
   const fixed = Number(candidate.n_fixed || 0);
   const broke = Number(candidate.n_broken || 0);
   const pairs = Number(candidate.n_pairs || 0);
@@ -1707,7 +1732,7 @@ function RepairVerdict({ candidate }: { candidate: any }) {
  * debugging a failed search needs a real case, not just a gate that closed —
  * but the copy around it says plainly that nothing here was accepted.
  */
-function M5ExampleSection({ examples, report }: { examples: any[]; report: ReportData }) {
+function M5ExampleSection({ examples, report }: { examples: RepairExample[]; report: ReportData }) {
   const first = examples[0] || {};
   const confirmed = first.confirmed !== false;
   const broke = !confirmed && first.kind === "broken";
@@ -1727,7 +1752,7 @@ function M5ExampleSection({ examples, report }: { examples: any[]; report: Repor
   return (
     <ExampleSection eyebrow={eyebrow} title={title} note={note}>
       <div className="example-deck">
-        {examples.map((example: any) => (
+        {examples.map((example) => (
           <M5Example example={example} report={report} key={example.id} />
         ))}
       </div>
@@ -1735,7 +1760,7 @@ function M5ExampleSection({ examples, report }: { examples: any[]; report: Repor
   );
 }
 
-function M5Example({ example, report }: { example: any; report: ReportData }) {
+function M5Example({ example, report }: { example: RepairExample; report: ReportData }) {
   const confirmed = example.confirmed !== false;
   const broke = example.kind === "broken";
   const label = confirmed
@@ -1776,7 +1801,13 @@ function M5Example({ example, report }: { example: any; report: ReportData }) {
   );
 }
 
-function OperationExamples({ examples, report }: { examples: any[]; report: ReportData }) {
+function OperationExamples({
+  examples,
+  report,
+}: {
+  examples: OperationExample[];
+  report: ReportData;
+}) {
   return (
     <ExampleSection
       eyebrow="Recorded agent actions"
@@ -1795,7 +1826,7 @@ function OperationExamples({ examples, report }: { examples: any[]; report: Repo
             <ExampleMedia mediaIds={example.media_ids} report={report} caseId={example.case_id} />
             <p className="operation-prompt">{example.input}</p>
             <div className="operation-steps">
-              {example.steps.map((step: any) => (
+              {example.steps.map((step) => (
                 <div key={`${step.order}-${step.raw_action}`}>
                   <span>{step.order}</span>
                   <section>
@@ -1820,7 +1851,13 @@ function OperationExamples({ examples, report }: { examples: any[]; report: Repo
   );
 }
 
-function RepairOperationPreviews({ examples, report }: { examples: any[]; report: ReportData }) {
+function RepairOperationPreviews({
+  examples,
+  report,
+}: {
+  examples: RepairOperationPreview[];
+  report: ReportData;
+}) {
   return (
     <ExampleSection
       eyebrow="A repair operation, made concrete"
@@ -1849,7 +1886,7 @@ function RepairOperationPreviews({ examples, report }: { examples: any[]; report
               </div>
             </div>
             <div className="operation-steps">
-              {example.operations.map((operation: any, index: number) => (
+              {example.operations.map((operation, index) => (
                 <div key={`${operation.raw_action}-${index}`}>
                   <span>{index + 1}</span>
                   <section>
@@ -1884,7 +1921,7 @@ function EmptyStage({ title, body }: { title: string; body: string }) {
   );
 }
 
-function KeyValueGrid({ values }: { values: Record<string, any> }) {
+function KeyValueGrid({ values }: { values: Record<string, unknown> }) {
   return (
     <div className="kv-grid">
       {Object.entries(values).map(([key, value]) => (
@@ -1897,7 +1934,7 @@ function KeyValueGrid({ values }: { values: Record<string, any> }) {
   );
 }
 
-function RecordTable({ rows }: { rows: any[] }) {
+function RecordTable({ rows }: { rows: Array<object | null> }) {
   const columns = [...new Set(rows.flatMap((row) => Object.keys(row || {})))].slice(0, 8);
   return (
     <div className="record-table-wrap">
@@ -1913,7 +1950,9 @@ function RecordTable({ rows }: { rows: any[] }) {
           {rows.slice(0, 16).map((row, index) => (
             <tr key={index}>
               {columns.map((column) => (
-                <td key={column}>{formatCompact(row?.[column])}</td>
+                <td key={column}>
+                  {formatCompact((row as Record<string, unknown> | null)?.[column])}
+                </td>
               ))}
             </tr>
           ))}
@@ -1923,7 +1962,7 @@ function RecordTable({ rows }: { rows: any[] }) {
   );
 }
 
-function normalizeKey(value: any) {
+function normalizeKey(value: unknown) {
   return String(value || "")
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "");
@@ -1942,7 +1981,7 @@ function plainStatus(value: string) {
     )[value.toLowerCase()] || humanize(value)
   );
 }
-function plainEvidence(value: any) {
+function plainEvidence(value: unknown) {
   return (
     (
       {
@@ -1953,7 +1992,7 @@ function plainEvidence(value: any) {
     )[String(value || "").toLowerCase()] || "recorded evidence"
   );
 }
-function plainTest(value: any) {
+function plainTest(value: unknown) {
   return (
     (
       {
@@ -1970,7 +2009,7 @@ function plainVerdict(value: string) {
     .replace(/\[clustered bootstrap \(unpaired\)\]\s*/i, "")
     .replace(/\s*\[BH:.*?\]/i, "");
 }
-function plainFailureMode(value: any) {
+function plainFailureMode(value: unknown) {
   return (
     (
       {
@@ -1982,7 +2021,7 @@ function plainFailureMode(value: any) {
     )[String(value || "").toLowerCase()] || (value ? humanize(String(value)) : "Not specified")
   );
 }
-function plainCandidateKind(value: any) {
+function plainCandidateKind(value: unknown) {
   return (
     (
       {
@@ -1994,7 +2033,7 @@ function plainCandidateKind(value: any) {
     )[String(value || "").toLowerCase()] || "A proposed repair"
   );
 }
-function plainOperation(value: any) {
+function plainOperation(value: unknown) {
   return (
     (
       {
@@ -2009,23 +2048,23 @@ function plainOperation(value: any) {
     )[normalizeKey(value)] || humanize(String(value || "tool"))
   );
 }
-function seconds(value: any) {
+function seconds(value: unknown) {
   return typeof value === "number" ? `${value.toFixed(1)}s` : "—";
 }
-function number(value: any) {
+function number(value: unknown) {
   return typeof value === "number" && Number.isFinite(value)
     ? value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")
     : "—";
 }
-function percent(value: any) {
+function percent(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : "—";
 }
-function formatInterval(value: any) {
+function formatInterval(value: unknown) {
   return Array.isArray(value) && value.length >= 2
     ? `[${number(value[0])}, ${number(value[1])}]`
     : "—";
 }
-function formatCompact(value: any) {
+function formatCompact(value: unknown) {
   if (value === null || value === undefined || value === "") return "—";
   if (typeof value === "number")
     return Number.isInteger(value)
@@ -2034,7 +2073,7 @@ function formatCompact(value: any) {
   if (typeof value === "object") return JSON.stringify(value).slice(0, 180);
   return String(value).slice(0, 220);
 }
-function displayValue(value: any) {
+function displayValue(value: unknown) {
   return formatCompact(value);
 }
 

@@ -35,10 +35,18 @@ import type {
   AnalyzerSelection,
   Chart,
   DiagnosisOutput,
+  FigureView,
   FixOutput,
   HypothesisTestOutput,
+  M1StageDetail,
+  M2StageDetail,
+  M3StageDetail,
+  M4StageDetail,
+  M5StageDetail,
   Modality,
   ProbeOutput,
+  Proposal,
+  RepairCandidateView,
   ReportData,
 } from "./types";
 import { ZoomableImage } from "./lightbox";
@@ -246,7 +254,7 @@ function BriefChart({ chart }: { chart: Chart }) {
 }
 
 /** A saved PNG a stage produced. `data_uri` on an exported report, path on a served one. */
-function BriefImage({ figure }: { figure: any }) {
+function BriefImage({ figure }: { figure: FigureView }) {
   const source = figure.data_uri || `/api/artifact?path=${encodeURIComponent(figure.path)}`;
   return (
     <ZoomableImage
@@ -263,7 +271,6 @@ function BriefImage({ figure }: { figure: any }) {
 // ---------------------------------------------------------------------------
 
 export function buildBrief(stage: string, report: ReportData): Brief | null {
-  const detail = stageDetail(report, stage);
   const status = report.stages.find((item) => item.id === stage)?.status || "";
   if (["not-run", "skipped"].includes(status) && stage !== "m5") {
     return {
@@ -275,11 +282,11 @@ export function buildBrief(stage: string, report: ReportData): Brief | null {
       points: [],
     };
   }
-  if (stage === "m1") return briefM1(report, detail);
-  if (stage === "m2") return briefM2(report, detail);
-  if (stage === "m3") return briefM3(report, detail);
-  if (stage === "m4") return briefM4(report, detail);
-  if (stage === "m5") return briefM5(report, detail);
+  if (stage === "m1") return briefM1(report, stageDetail(report, "m1"));
+  if (stage === "m2") return briefM2(report, stageDetail(report, "m2"));
+  if (stage === "m3") return briefM3(report, stageDetail(report, "m3"));
+  if (stage === "m4") return briefM4(report, stageDetail(report, "m4"));
+  if (stage === "m5") return briefM5(report, stageDetail(report, "m5"));
   return null;
 }
 
@@ -305,8 +312,8 @@ function modalityWords(slots?: Modality[]): string {
 }
 
 // ── M1 ─────────────────────────────────────────────────────────────────────
-function briefM1(report: ReportData, detail: Record<string, any>): Brief {
-  const probes: any[] = detail.probes || [];
+function briefM1(report: ReportData, detail: Partial<M1StageDetail>): Brief {
+  const probes = detail.probes || [];
   const measured = Number(detail.n_measured || 0);
   const evaluated = metric(report, "evaluated");
   const failed = metric(report, "failed");
@@ -439,10 +446,10 @@ function briefM1(report: ReportData, detail: Record<string, any>): Brief {
 }
 
 // ── M2 ─────────────────────────────────────────────────────────────────────
-function briefM2(report: ReportData, detail: Record<string, any>): Brief {
-  const stats: any[] = detail.stats || [];
-  const takeaways: any[] = detail.takeaways || [];
-  const figures: any[] = detail.figures || [];
+function briefM2(report: ReportData, detail: Partial<M2StageDetail>): Brief {
+  const stats = detail.stats || [];
+  const takeaways = detail.takeaways || [];
+  const figures = detail.figures || [];
   const conclusion = stripMarkdown(detail.conclusion || detail.narrative || "");
   const [headline, rest] = headlineSplit(conclusion);
   const survived = stats.filter((item) => item.reject);
@@ -466,12 +473,11 @@ function briefM2(report: ReportData, detail: Record<string, any>): Brief {
     // supposed to spare the reader. It stays reachable one level down.
     for (const item of survived.slice(0, 3)) {
       const label = stripMarkdown(String(item.label || item.raw_signal || "A measured behaviour"));
-      const hasRates =
-        typeof item.fail_rate_signal === "number" && typeof item.fail_rate_control === "number";
-      if (hasRates) {
+      const { fail_rate_signal: withIt, fail_rate_control: without } = item;
+      if (typeof withIt === "number" && typeof without === "number") {
         points.push(
-          `${label}: the model got ${Math.round(item.fail_rate_signal * 100)}% of cases ` +
-            `wrong when this shows up, against ${Math.round(item.fail_rate_control * 100)}% when it does not.`,
+          `${label}: the model got ${Math.round(withIt * 100)}% of cases ` +
+            `wrong when this shows up, against ${Math.round(without * 100)}% when it does not.`,
         );
         continue;
       }
@@ -533,13 +539,14 @@ function briefM2(report: ReportData, detail: Record<string, any>): Brief {
 }
 
 // ── M3 ─────────────────────────────────────────────────────────────────────
-function briefM3(report: ReportData, detail: Record<string, any>): Brief {
-  const accepted: any[] = detail.hypotheses || [];
-  const recovered: any[] = detail.unparsed_proposals || [];
-  const list = accepted.length ? accepted : recovered;
+function briefM3(report: ReportData, detail: Partial<M3StageDetail>): Brief {
+  const accepted = detail.hypotheses || [];
+  const recovered = detail.unparsed_proposals || [];
+  const list: Proposal[] = accepted.length ? accepted : recovered;
   const m3 = findContract<DiagnosisOutput>(report, "m3");
   const untestable = (m3?.hypotheses || []).filter((h) => !h.test_design?.trim());
   const withTest = list.filter((h) => String(h.test_design || "").trim()).length;
+  const evidenceFigure = (detail.evidence_figures || [])[0];
 
   const verdict = list.length
     ? `${plural(list.length, "possible explanation")} for the failures ${list.length === 1 ? "was" : "were"} ` +
@@ -618,9 +625,7 @@ function briefM3(report: ReportData, detail: Record<string, any>): Brief {
     // would put the same picture on two screens in a row, which is exactly the
     // "L2 is L3 rearranged" failure this layer exists to avoid — and it would
     // imply M3 measured something, which it never does.
-    figure: (detail.evidence_figures || [])[0] ? (
-      <BriefImage figure={detail.evidence_figures[0]} />
-    ) : undefined,
+    figure: evidenceFigure ? <BriefImage figure={evidenceFigure} /> : undefined,
     figureNote:
       "The pattern these explanations are trying to account for. It comes " +
       "from the previous step, and motivates the ideas — it does not confirm them.",
@@ -636,8 +641,8 @@ const M4_WORD: Record<string, string> = {
   inconclusive: "the held-out cases could not settle it",
 };
 
-function briefM4(report: ReportData, detail: Record<string, any>): Brief {
-  const results: any[] = detail.results || [];
+function briefM4(report: ReportData, detail: Partial<M4StageDetail>): Brief {
+  const results = detail.results || [];
   if (!detail.ran || !results.length) {
     return {
       verdict: "No explanation reached the independent check.",
@@ -784,8 +789,8 @@ function briefM4(report: ReportData, detail: Record<string, any>): Brief {
 }
 
 // ── M5 ─────────────────────────────────────────────────────────────────────
-function briefM5(report: ReportData, detail: Record<string, any>): Brief {
-  const candidates: any[] = detail.candidates || [];
+function briefM5(report: ReportData, detail: Partial<M5StageDetail>): Brief {
+  const candidates = detail.candidates || [];
   const m5 = findContract<FixOutput>(report, "m5_fix");
   const sweep = m5?.selection || [];
 
@@ -814,8 +819,8 @@ function briefM5(report: ReportData, detail: Record<string, any>): Brief {
 
   const winner =
     candidates.find((item) => item.fixed) ||
-    candidates.reduce(
-      (best: any, item: any) =>
+    candidates.reduce<RepairCandidateView | null>(
+      (best, item) =>
         Number(item.effect ?? -Infinity) > Number(best?.effect ?? -Infinity) ? item : best,
       null,
     );
@@ -837,7 +842,7 @@ function briefM5(report: ReportData, detail: Record<string, any>): Brief {
       "",
   ).trim();
 
-  const held = candidates.filter((item: any) => item.fixed).length;
+  const held = candidates.filter((item) => item.fixed).length;
   const ratio = oddsValue(winner?.e_value);
   const bar = gate ? `the ${gate} bar` : "the bar";
   const heldNote = held
@@ -1023,12 +1028,12 @@ function briefM5(report: ReportData, detail: Record<string, any>): Brief {
 
 /** Status icon for the L2 header, so the verdict reads before the words do. */
 export function BriefStatusIcon({ stage, report }: { stage: string; report: ReportData }) {
-  const detail = stageDetail(report, stage);
   if (stage === "m5") {
+    const detail = stageDetail(report, "m5");
     return detail.fixed ? <CheckCircle2 /> : detail.ran ? <XCircle /> : <HelpCircle />;
   }
   if (stage === "m4") {
-    const results: any[] = detail.results || [];
+    const results = stageDetail(report, "m4").results || [];
     const supported = results.filter((r) => String(r.status).toLowerCase() === "supported").length;
     if (!results.length) return <HelpCircle />;
     return supported ? <CheckCircle2 /> : <XCircle />;

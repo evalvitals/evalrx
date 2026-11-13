@@ -1,0 +1,2225 @@
+{
+  "$defs": {
+    "CandidateSignalView": {
+      "additionalProperties": true,
+      "description": "A signal the explorer proposed for confirmation, as it recorded it.",
+      "properties": {},
+      "title": "CandidateSignalView",
+      "type": "object"
+    },
+    "FigureView": {
+      "additionalProperties": false,
+      "description": "A chart the run saved, with the reading written for it.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "question": {
+          "title": "Question",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "reading": {
+          "title": "Reading",
+          "type": "string"
+        },
+        "do_not_infer": {
+          "title": "Do Not Infer",
+          "type": "string"
+        },
+        "disposition": {
+          "title": "Disposition",
+          "type": "string"
+        },
+        "not_promoted_reason": {
+          "title": "Not Promoted Reason",
+          "type": "string"
+        },
+        "data_uri": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The image inlined, on a portable export only (`evalrx report`).",
+          "title": "Data Uri"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "question",
+        "path",
+        "reading",
+        "do_not_infer",
+        "disposition",
+        "not_promoted_reason"
+      ],
+      "title": "FigureView",
+      "type": "object"
+    },
+    "HypothesisView": {
+      "additionalProperties": true,
+      "description": "A hypothesis M3 proposed, as the run recorded it.",
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "statement": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Statement"
+        },
+        "plain_statement": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plain Statement"
+        },
+        "hypothesis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hypothesis"
+        },
+        "failure_mode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Failure Mode"
+        },
+        "basis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Basis"
+        },
+        "test_design": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Test Design"
+        },
+        "expected_association": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Association"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        }
+      },
+      "title": "HypothesisView",
+      "type": "object"
+    },
+    "M1StageDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "duration": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Duration"
+        },
+        "probes": {
+          "items": {
+            "$ref": "#/$defs/ProbeView"
+          },
+          "title": "Probes",
+          "type": "array"
+        },
+        "n_probes": {
+          "title": "N Probes",
+          "type": "integer"
+        },
+        "n_measured": {
+          "title": "N Measured",
+          "type": "integer"
+        },
+        "examples": {
+          "items": {
+            "$ref": "#/$defs/ProbeExample"
+          },
+          "title": "Examples",
+          "type": "array"
+        },
+        "operations": {
+          "items": {
+            "$ref": "#/$defs/OperationExample"
+          },
+          "title": "Operations",
+          "type": "array"
+        },
+        "calls": {
+          "additionalProperties": {
+            "items": {
+              "$ref": "#/$defs/ModelCallView"
+            },
+            "type": "array"
+          },
+          "description": "Each analyzer's model calls, oldest first, capped per analyzer.",
+          "title": "Calls",
+          "type": "object"
+        },
+        "n_calls": {
+          "title": "N Calls",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "duration",
+        "probes",
+        "n_probes",
+        "n_measured",
+        "examples",
+        "operations",
+        "calls",
+        "n_calls"
+      ],
+      "title": "M1StageDetail",
+      "type": "object"
+    },
+    "M2StageDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "title": "Mode",
+          "type": "string"
+        },
+        "conclusion": {
+          "title": "Conclusion",
+          "type": "string"
+        },
+        "narrative": {
+          "title": "Narrative",
+          "type": "string"
+        },
+        "stats": {
+          "items": {
+            "$ref": "#/$defs/StatView"
+          },
+          "title": "Stats",
+          "type": "array"
+        },
+        "takeaways": {
+          "items": {
+            "$ref": "#/$defs/TakeawayView"
+          },
+          "title": "Takeaways",
+          "type": "array"
+        },
+        "figures": {
+          "items": {
+            "$ref": "#/$defs/FigureView"
+          },
+          "title": "Figures",
+          "type": "array"
+        },
+        "observations": {
+          "items": {},
+          "title": "Observations",
+          "type": "array"
+        },
+        "caveats": {
+          "items": {},
+          "title": "Caveats",
+          "type": "array"
+        },
+        "candidate_signals": {
+          "items": {
+            "$ref": "#/$defs/CandidateSignalView"
+          },
+          "title": "Candidate Signals",
+          "type": "array"
+        },
+        "recommended_tests": {
+          "items": {},
+          "title": "Recommended Tests",
+          "type": "array"
+        }
+      },
+      "required": [
+        "mode",
+        "conclusion",
+        "narrative",
+        "stats",
+        "takeaways",
+        "figures",
+        "observations",
+        "caveats",
+        "candidate_signals",
+        "recommended_tests"
+      ],
+      "title": "M2StageDetail",
+      "type": "object"
+    },
+    "M3StageDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "title": "Mode",
+          "type": "string"
+        },
+        "hypotheses": {
+          "items": {
+            "$ref": "#/$defs/HypothesisView"
+          },
+          "title": "Hypotheses",
+          "type": "array"
+        },
+        "unparsed_proposals": {
+          "items": {
+            "$ref": "#/$defs/UnparsedProposal"
+          },
+          "title": "Unparsed Proposals",
+          "type": "array"
+        },
+        "agent_response": {
+          "title": "Agent Response",
+          "type": "string"
+        },
+        "candidate_signals": {
+          "items": {
+            "$ref": "#/$defs/CandidateSignalView"
+          },
+          "title": "Candidate Signals",
+          "type": "array"
+        },
+        "recommended_tests": {
+          "items": {},
+          "title": "Recommended Tests",
+          "type": "array"
+        },
+        "evidence_figures": {
+          "items": {
+            "$ref": "#/$defs/FigureView"
+          },
+          "title": "Evidence Figures",
+          "type": "array"
+        },
+        "evidence_stats": {
+          "items": {
+            "$ref": "#/$defs/StatView"
+          },
+          "title": "Evidence Stats",
+          "type": "array"
+        }
+      },
+      "required": [
+        "mode",
+        "hypotheses",
+        "unparsed_proposals",
+        "agent_response",
+        "candidate_signals",
+        "recommended_tests",
+        "evidence_figures",
+        "evidence_stats"
+      ],
+      "title": "M3StageDetail",
+      "type": "object"
+    },
+    "M4StageDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "ran": {
+          "title": "Ran",
+          "type": "boolean"
+        },
+        "mode": {
+          "title": "Mode",
+          "type": "string"
+        },
+        "results": {
+          "items": {
+            "$ref": "#/$defs/ValidationResultView"
+          },
+          "title": "Results",
+          "type": "array"
+        },
+        "event": {
+          "$ref": "#/$defs/ValidationEventView"
+        },
+        "examples": {
+          "items": {
+            "$ref": "#/$defs/ValidationExample"
+          },
+          "title": "Examples",
+          "type": "array"
+        }
+      },
+      "required": [
+        "ran",
+        "mode",
+        "results",
+        "event",
+        "examples"
+      ],
+      "title": "M4StageDetail",
+      "type": "object"
+    },
+    "M5StageDetail": {
+      "additionalProperties": false,
+      "properties": {
+        "ran": {
+          "title": "Ran",
+          "type": "boolean"
+        },
+        "fixed": {
+          "title": "Fixed",
+          "type": "boolean"
+        },
+        "skipped": {
+          "title": "Skipped",
+          "type": "boolean"
+        },
+        "skip_reason": {
+          "title": "Skip Reason",
+          "type": "string"
+        },
+        "skip_detail": {
+          "title": "Skip Detail",
+          "type": "string"
+        },
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/RepairCandidateView"
+          },
+          "title": "Candidates",
+          "type": "array"
+        },
+        "confirmation": {
+          "$ref": "#/$defs/RepairCandidateView"
+        },
+        "best": {
+          "$ref": "#/$defs/RepairCandidateView"
+        },
+        "recommendation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RepairRecommendation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "examples": {
+          "items": {
+            "$ref": "#/$defs/RepairExample"
+          },
+          "title": "Examples",
+          "type": "array"
+        },
+        "operation_previews": {
+          "items": {
+            "$ref": "#/$defs/RepairOperationPreview"
+          },
+          "title": "Operation Previews",
+          "type": "array"
+        },
+        "surgeries": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Surgeries",
+          "type": "array"
+        },
+        "prompt_template": {
+          "title": "Prompt Template",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ran",
+        "fixed",
+        "skipped",
+        "skip_reason",
+        "skip_detail",
+        "candidates",
+        "confirmation",
+        "best",
+        "recommendation",
+        "examples",
+        "operation_previews",
+        "surgeries",
+        "prompt_template"
+      ],
+      "title": "M5StageDetail",
+      "type": "object"
+    },
+    "ModelCallView": {
+      "additionalProperties": false,
+      "description": "One model call an M1 analyzer made: what it sent and what came back.",
+      "properties": {
+        "seq": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Seq"
+        },
+        "cycle": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cycle"
+        },
+        "method": {
+          "title": "Method",
+          "type": "string"
+        },
+        "case_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Case Id"
+        },
+        "batch_case_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Batch Case Ids",
+          "type": "array"
+        },
+        "duration_sec": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Duration Sec"
+        },
+        "prompt": {
+          "title": "Prompt",
+          "type": "string"
+        },
+        "output": {
+          "title": "Output",
+          "type": "string"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error"
+        }
+      },
+      "required": [
+        "seq",
+        "cycle",
+        "method",
+        "case_id",
+        "batch_case_ids",
+        "duration_sec",
+        "prompt",
+        "output",
+        "error"
+      ],
+      "title": "ModelCallView",
+      "type": "object"
+    },
+    "OperationExample": {
+      "additionalProperties": false,
+      "description": "The tool calls one case's agent trajectory actually made.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "case_id": {
+          "title": "Case Id",
+          "type": "string"
+        },
+        "input": {
+          "title": "Input",
+          "type": "string"
+        },
+        "expected": {
+          "title": "Expected"
+        },
+        "observed": {
+          "title": "Observed"
+        },
+        "outcome": {
+          "title": "Outcome",
+          "type": "string"
+        },
+        "media_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Media Ids",
+          "type": "array"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/OperationStep"
+          },
+          "title": "Steps",
+          "type": "array"
+        },
+        "plain_reading": {
+          "title": "Plain Reading",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "case_id",
+        "input",
+        "expected",
+        "observed",
+        "outcome",
+        "media_ids",
+        "steps",
+        "plain_reading"
+      ],
+      "title": "OperationExample",
+      "type": "object"
+    },
+    "OperationStep": {
+      "additionalProperties": false,
+      "description": "One tool call from an agent's recorded trajectory.",
+      "properties": {
+        "order": {
+          "title": "Order",
+          "type": "integer"
+        },
+        "action": {
+          "title": "Action",
+          "type": "string"
+        },
+        "raw_action": {
+          "title": "Raw Action",
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        },
+        "thought": {
+          "title": "Thought",
+          "type": "string"
+        }
+      },
+      "required": [
+        "order",
+        "action",
+        "raw_action",
+        "parameters",
+        "thought"
+      ],
+      "title": "OperationStep",
+      "type": "object"
+    },
+    "ProbeExample": {
+      "additionalProperties": true,
+      "description": "One case walked through an M1 check -- logged by the probe, or rebuilt\nfrom a per-case measurement on older runs.",
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kind"
+        },
+        "case_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Case Id"
+        },
+        "probe_title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Probe Title"
+        },
+        "probe_question": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Probe Question"
+        },
+        "input": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input"
+        },
+        "baseline_output": {
+          "default": null,
+          "title": "Baseline Output"
+        },
+        "expected": {
+          "default": null,
+          "title": "Expected"
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Outcome"
+        },
+        "media_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Media Ids"
+        },
+        "check_result": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Check Result"
+        },
+        "plain_reading": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plain Reading"
+        },
+        "evidence_scope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Scope"
+        }
+      },
+      "title": "ProbeExample",
+      "type": "object"
+    },
+    "ProbeMetric": {
+      "additionalProperties": false,
+      "description": "One headline number an analyzer reported, already formatted.",
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "label",
+        "value"
+      ],
+      "title": "ProbeMetric",
+      "type": "object"
+    },
+    "ProbeView": {
+      "additionalProperties": false,
+      "description": "One M1 check (analyzer) and what it measured.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "display_name": {
+          "title": "Display Name",
+          "type": "string"
+        },
+        "raw_name": {
+          "title": "Raw Name",
+          "type": "string"
+        },
+        "question": {
+          "title": "Question",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "n_cases": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "None when the analyzer reported no case count at all: unknown, not zero.",
+          "title": "N Cases"
+        },
+        "metrics": {
+          "items": {
+            "$ref": "#/$defs/ProbeMetric"
+          },
+          "title": "Metrics",
+          "type": "array"
+        },
+        "finding_summary": {
+          "additionalProperties": true,
+          "title": "Finding Summary",
+          "type": "object"
+        },
+        "raw_finding_summary": {
+          "additionalProperties": true,
+          "title": "Raw Finding Summary",
+          "type": "object"
+        },
+        "sample_rows": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Sample Rows",
+          "type": "array"
+        },
+        "n_sample_rows": {
+          "title": "N Sample Rows",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "display_name",
+        "raw_name",
+        "question",
+        "description",
+        "n_cases",
+        "metrics",
+        "finding_summary",
+        "raw_finding_summary",
+        "sample_rows",
+        "n_sample_rows"
+      ],
+      "title": "ProbeView",
+      "type": "object"
+    },
+    "RepairCandidateView": {
+      "additionalProperties": false,
+      "description": "One repair candidate and its paired comparison against the baseline.\nEvery field is null when the run recorded no such candidate.",
+      "properties": {
+        "tier": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tier"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A join key, not language; `ref` and `headline` are what a reader sees.",
+          "title": "Name"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Kind"
+        },
+        "ref": {
+          "title": "Ref",
+          "type": "string"
+        },
+        "headline": {
+          "title": "Headline",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source"
+        },
+        "verdict": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Verdict"
+        },
+        "n_pairs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "N Pairs"
+        },
+        "n_baseline_correct": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "N Baseline Correct"
+        },
+        "n_candidate_correct": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "N Candidate Correct"
+        },
+        "n_fixed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "N Fixed"
+        },
+        "n_broken": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "N Broken"
+        },
+        "effect": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Effect"
+        },
+        "e_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "E Value"
+        },
+        "e_threshold": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "E Threshold"
+        },
+        "coverage": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Coverage"
+        },
+        "reject": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reject"
+        },
+        "fixed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fixed"
+        },
+        "n_model_independent": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "N Model Independent"
+        },
+        "n_unstable": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "N Unstable"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Summary"
+        },
+        "payload": {
+          "additionalProperties": true,
+          "title": "Payload",
+          "type": "object"
+        },
+        "fixed_cases": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Fixed Cases",
+          "type": "array"
+        },
+        "broken_cases": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Broken Cases",
+          "type": "array"
+        }
+      },
+      "required": [
+        "tier",
+        "name",
+        "kind",
+        "ref",
+        "headline",
+        "source",
+        "verdict",
+        "n_pairs",
+        "n_baseline_correct",
+        "n_candidate_correct",
+        "n_fixed",
+        "n_broken",
+        "effect",
+        "e_value",
+        "e_threshold",
+        "coverage",
+        "reject",
+        "fixed",
+        "n_model_independent",
+        "n_unstable",
+        "summary",
+        "payload",
+        "fixed_cases",
+        "broken_cases"
+      ],
+      "title": "RepairCandidateView",
+      "type": "object"
+    },
+    "RepairExample": {
+      "additionalProperties": false,
+      "description": "One case before and after the strongest repair -- confirmed or not.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "case_id": {
+          "title": "Case Id",
+          "type": "string"
+        },
+        "kind": {
+          "description": "\"fixed\", or \"broken\" when the attempt flipped no case to correct.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "confirmed": {
+          "title": "Confirmed",
+          "type": "boolean"
+        },
+        "repair_name": {
+          "title": "Repair Name",
+          "type": "string"
+        },
+        "input": {
+          "title": "Input",
+          "type": "string"
+        },
+        "expected": {
+          "title": "Expected"
+        },
+        "baseline_output": {
+          "title": "Baseline Output"
+        },
+        "repaired_output": {
+          "title": "Repaired Output"
+        },
+        "media_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Media Ids",
+          "type": "array"
+        },
+        "plain_reading": {
+          "title": "Plain Reading",
+          "type": "string"
+        },
+        "baseline_available": {
+          "title": "Baseline Available",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "case_id",
+        "kind",
+        "confirmed",
+        "repair_name",
+        "input",
+        "expected",
+        "baseline_output",
+        "repaired_output",
+        "media_ids",
+        "plain_reading",
+        "baseline_available"
+      ],
+      "title": "RepairExample",
+      "type": "object"
+    },
+    "RepairOperation": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "title": "Action",
+          "type": "string"
+        },
+        "raw_action": {
+          "title": "Raw Action",
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        }
+      },
+      "required": [
+        "action",
+        "raw_action",
+        "parameters"
+      ],
+      "title": "RepairOperation",
+      "type": "object"
+    },
+    "RepairOperationPreview": {
+      "additionalProperties": false,
+      "description": "The image operations a repair declares, shown on a real case. A preview\nof the transform, not a recorded before/after.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "candidate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Candidate"
+        },
+        "case_id": {
+          "title": "Case Id",
+          "type": "string"
+        },
+        "input": {
+          "title": "Input",
+          "type": "string"
+        },
+        "expected": {
+          "title": "Expected"
+        },
+        "observed": {
+          "title": "Observed"
+        },
+        "media_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Media Ids",
+          "type": "array"
+        },
+        "executed": {
+          "title": "Executed",
+          "type": "boolean"
+        },
+        "operations": {
+          "items": {
+            "$ref": "#/$defs/RepairOperation"
+          },
+          "title": "Operations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "candidate",
+        "case_id",
+        "input",
+        "expected",
+        "observed",
+        "media_ids",
+        "executed",
+        "operations"
+      ],
+      "title": "RepairOperationPreview",
+      "type": "object"
+    },
+    "RepairRecommendation": {
+      "additionalProperties": true,
+      "description": "The fix agent's own verdict on the run, and the sentence behind it.",
+      "properties": {
+        "action": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Action"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        }
+      },
+      "title": "RepairRecommendation",
+      "type": "object"
+    },
+    "StatView": {
+      "additionalProperties": false,
+      "description": "One statistical screen from M2, labelled for a reader.",
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "raw_signal": {
+          "title": "Raw Signal",
+          "type": "string"
+        },
+        "groups": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Groups",
+          "type": "array"
+        },
+        "effect": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Effect"
+        },
+        "ci": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ci"
+        },
+        "reject": {
+          "title": "Reject",
+          "type": "boolean"
+        },
+        "underpowered": {
+          "title": "Underpowered",
+          "type": "boolean"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "p_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "P Value"
+        },
+        "tool": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tool"
+        },
+        "e_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "E Value"
+        },
+        "fail_rate_signal": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fail Rate Signal"
+        },
+        "fail_rate_control": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fail Rate Control"
+        }
+      },
+      "required": [
+        "label",
+        "raw_signal",
+        "groups",
+        "effect",
+        "ci",
+        "reject",
+        "underpowered",
+        "summary",
+        "p_value",
+        "tool",
+        "e_value",
+        "fail_rate_signal",
+        "fail_rate_control"
+      ],
+      "title": "StatView",
+      "type": "object"
+    },
+    "TakeawayView": {
+      "additionalProperties": false,
+      "description": "One ranked finding the explorer wrote, and the charts it cites.",
+      "properties": {
+        "plain_title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Plain Title"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Title"
+        },
+        "analysis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Analysis"
+        },
+        "caveat": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Caveat"
+        },
+        "chart_names": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Chart Names"
+        },
+        "table_names": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Table Names"
+        }
+      },
+      "required": [
+        "plain_title",
+        "title",
+        "analysis",
+        "caveat",
+        "chart_names",
+        "table_names"
+      ],
+      "title": "TakeawayView",
+      "type": "object"
+    },
+    "UnparsedProposal": {
+      "additionalProperties": false,
+      "description": "A proposal recovered from the judge's raw reply after the parser\nrejected it. Shown for audit only; it never reached M4.",
+      "properties": {
+        "statement": {
+          "title": "Statement",
+          "type": "string"
+        },
+        "plain_statement": {
+          "title": "Plain Statement",
+          "type": "string"
+        },
+        "failure_mode": {
+          "title": "Failure Mode",
+          "type": "string"
+        },
+        "test_design": {
+          "title": "Test Design",
+          "type": "string"
+        },
+        "expected_association": {
+          "title": "Expected Association",
+          "type": "string"
+        },
+        "accepted_by_pipeline": {
+          "title": "Accepted By Pipeline",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "statement",
+        "plain_statement",
+        "failure_mode",
+        "test_design",
+        "expected_association",
+        "accepted_by_pipeline"
+      ],
+      "title": "UnparsedProposal",
+      "type": "object"
+    },
+    "ValidationEventView": {
+      "additionalProperties": true,
+      "description": "M4's raw log record. Verdict cards fall back to it when a result\nlacks a field.",
+      "properties": {
+        "hypothesis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hypothesis"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        },
+        "confidence_score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence Score"
+        },
+        "evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ValidationEvidence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "ValidationEventView",
+      "type": "object"
+    },
+    "ValidationEvidence": {
+      "additionalProperties": true,
+      "description": "The statistics behind one held-out verdict, as the run recorded them.",
+      "properties": {
+        "ci": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ci"
+        },
+        "effect_size": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effect Size"
+        },
+        "evidence_grade": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Grade"
+        },
+        "m4_verdict": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "M4 Verdict"
+        },
+        "fdr": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fdr"
+        }
+      },
+      "title": "ValidationEvidence",
+      "type": "object"
+    },
+    "ValidationExample": {
+      "additionalProperties": true,
+      "description": "One held-out check made concrete: a logged validation case, or the\naggregate test itself when the run kept no case-level example.",
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kind"
+        },
+        "hypothesis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hypothesis"
+        },
+        "test": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Test"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        },
+        "effect": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effect"
+        },
+        "interval": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Interval"
+        },
+        "verdict": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verdict"
+        },
+        "case_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Case Id"
+        },
+        "input": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input"
+        },
+        "baseline_output": {
+          "default": null,
+          "title": "Baseline Output"
+        },
+        "expected": {
+          "default": null,
+          "title": "Expected"
+        },
+        "media_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Media Ids"
+        },
+        "plain_reading": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plain Reading"
+        },
+        "evidence_scope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Scope"
+        }
+      },
+      "title": "ValidationExample",
+      "type": "object"
+    },
+    "ValidationResultView": {
+      "additionalProperties": true,
+      "description": "One held-out verdict, as the run recorded it.",
+      "properties": {
+        "hypothesis_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hypothesis Id"
+        },
+        "hypothesis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hypothesis"
+        },
+        "statement": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Statement"
+        },
+        "plain_statement": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plain Statement"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        },
+        "verdict": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verdict"
+        },
+        "effect_size": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effect Size"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "ci": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ci"
+        },
+        "evidence_grade": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Grade"
+        },
+        "protocol_consistent": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Protocol Consistent"
+        },
+        "evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ValidationEvidence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "ValidationResultView",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "``ReportData.stage_detail``: the full record behind each stage.",
+  "properties": {
+    "m1": {
+      "$ref": "#/$defs/M1StageDetail"
+    },
+    "m2": {
+      "$ref": "#/$defs/M2StageDetail"
+    },
+    "m3": {
+      "$ref": "#/$defs/M3StageDetail"
+    },
+    "m4": {
+      "$ref": "#/$defs/M4StageDetail"
+    },
+    "m5": {
+      "$ref": "#/$defs/M5StageDetail"
+    }
+  },
+  "required": [
+    "m1",
+    "m2",
+    "m3",
+    "m4",
+    "m5"
+  ],
+  "title": "StageDetail",
+  "type": "object",
+  "$id": "https://evalrx.dev/contract/report.StageDetail.json",
+  "x-schema-version": 5
+}

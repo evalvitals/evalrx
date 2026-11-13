@@ -431,6 +431,9 @@ m1.selection.routed_on;      // ["audio", "text"] — what the run was actually 
 m1.results["mm_shap"];       // keyed by analyzer name
 ```
 
+The report's own per-stage view, `ReportData.stage_detail`, is declared the
+same way (`evalrx/contract/stage_detail.py`, exported as `StageDetail`).
+
 Regenerate with `python -m evalrx.contract.export --out docs/contract`;
 CI runs the same command with `--check` so the artifacts cannot go stale.
 A stage that failed validation writes `<stage>.invalid.json` carrying the error

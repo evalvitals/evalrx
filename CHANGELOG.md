@@ -6,6 +6,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — `ReportData.stage_detail` has a contract type
+
+The per-stage record the report UI's full-record views read is now declared
+in `evalrx.contract.stage_detail` (`StageDetail` and one model per stage),
+exported as `docs/contract/report.StageDetail.schema.json` and generated into
+`contract.d.ts`, so the UI reads it through typed views instead of `any`.
+The report compiler builds it as before, now one function per stage, and its
+output is unchanged; a test validates real and synthetic reports against the
+models, so a key the compiler adds without declaring it fails there.
+
 ### Fixed — the text-LLM benchmark tasks work from an installed package
 
 `evalrx.benchmark.tasks.llm` used to load its slice definitions at run time

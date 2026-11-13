@@ -3,6 +3,7 @@ import type {
   FixOutput,
   HypothesisTestOutput,
   ProbeOutput,
+  StageDetail,
   StatsReportWire,
 } from "./contract/contract";
 
@@ -10,11 +11,9 @@ import type {
  * Payloads the pipeline validated against the wire contract on the way out,
  * keyed by span id ("c0.m1", "c0.m2", ... / "m5_fix").
  *
- * These are typed; `stage_detail` below is not, and cannot be — it is compiled
- * from the run log by a chain of defensive lookups, so its shape is whatever
- * that run happened to write. Prefer these wherever a view can use them, and
- * treat a missing key as "this run emitted no contract payload for that stage",
- * never as "the stage did not run".
+ * Prefer these wherever a view can use them, and treat a missing key as "this
+ * run emitted no contract payload for that stage", never as "the stage did not
+ * run".
  */
 export type ContractPayloads = {
   [span: string]:
@@ -29,14 +28,50 @@ export type ContractPayloads = {
 
 export type {
   AnalyzerSelection,
+  FigureView,
   FixAttemptWire,
   DiagnosisOutput,
   FixOutput,
   HypothesisTestOutput,
+  HypothesisView,
+  M1StageDetail,
+  M2StageDetail,
+  M3StageDetail,
+  M4StageDetail,
+  M5StageDetail,
   Modality,
+  ModelCallView,
+  OperationExample,
+  ProbeExample,
   ProbeOutput,
+  ProbeView,
+  RepairCandidateView,
+  RepairExample,
+  RepairOperationPreview,
+  StageDetail,
+  StatView,
   StatsReportWire,
+  UnparsedProposal,
+  ValidationEventView,
+  ValidationEvidence,
+  ValidationExample,
+  ValidationResultView,
 } from "./contract/contract";
+
+/**
+ * What a hypothesis card reads. M3 shows its accepted hypotheses, or -- when
+ * the parser rejected them all -- the proposals recovered from the judge's
+ * reply, and the card reads the same fields from either.
+ */
+export type Proposal = {
+  statement?: string | null;
+  plain_statement?: string | null;
+  hypothesis?: string | null;
+  failure_mode?: string | null;
+  basis?: string | null;
+  test_design?: string | null;
+  expected_association?: string | null;
+};
 
 export type Stage = {
   id: string;
@@ -311,8 +346,9 @@ export type ReportData = {
     fixed_cases: number;
     broken_cases: number;
   }>;
-  /** Legacy hand-built per-stage view. Untyped by nature — see ContractPayloads. */
-  stage_detail?: Record<string, any>;
+  /** The full record behind each stage, compiled from the run's logs. Read it
+   *  through `stageDetail()`: older payloads can lack any block or key. */
+  stage_detail?: StageDetail;
   /** Contract-validated stage payloads. Absent on runs from before emission existed. */
   contract?: ContractPayloads;
   /** The run as one sheet. Null when it produced no probe or stats artifacts. */

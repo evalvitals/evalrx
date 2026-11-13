@@ -12,7 +12,8 @@
  * went in and what came out of it.
  */
 import { Check, Database, Lock, Search, Trophy, X } from "lucide-react";
-import type { CaseStudy, ReportData, Stage } from "./types";
+import type { CaseStudy, ProbeView, ReportData, Stage } from "./types";
+import { stageDetail } from "./reportAccess";
 import { Hypothesis, Verdict, humanise, pct, signed } from "./caseStudy";
 
 type Nav = (view: string) => void;
@@ -334,9 +335,7 @@ export function LoopFigureView({ data, navigate }: { data: ReportData; navigate:
   const repair = Array.isArray(data.repairs) ? data.repairs[0] : undefined;
   // The FixAgent's own verdict on the run: what to do next and why. This is
   // the sentence that makes the gate auditable ("only 4 failing cases…").
-  const m5Detail = (data.stage_detail?.m5 ?? {}) as {
-    recommendation?: { action?: string | null; reason?: string | null } | null;
-  };
+  const m5Detail = stageDetail(data, "m5");
   const recommendation =
     m5Detail.recommendation && (m5Detail.recommendation.action || m5Detail.recommendation.reason)
       ? m5Detail.recommendation
@@ -354,18 +353,8 @@ export function LoopFigureView({ data, navigate }: { data: ReportData; navigate:
   const flagged = usedProbes.filter((p) => p.confirmed).length;
   // Per-analyzer question + headline numbers, compiled by extract_run_data
   // (stage_detail.m1.probes) — the "what did it find" behind each phrase.
-  type ProbeDetail = {
-    raw_name?: string;
-    question?: string;
-    description?: string;
-    n_cases?: number | null;
-    metrics?: Array<{ label: string; value: string | number | null }>;
-  };
-  const probeDetail: Record<string, ProbeDetail> = Object.fromEntries(
-    (((data.stage_detail?.m1 ?? {}) as { probes?: ProbeDetail[] }).probes ?? []).map((item) => [
-      String(item.raw_name || ""),
-      item,
-    ]),
+  const probeDetail: Record<string, ProbeView> = Object.fromEntries(
+    (stageDetail(data, "m1").probes ?? []).map((item) => [String(item.raw_name || ""), item]),
   );
   const accepted = Boolean(
     repair?.fixed ||
