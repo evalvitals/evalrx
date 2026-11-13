@@ -662,6 +662,7 @@ and cross-service correlation only.
 | `experiment` | M5 | `cycle`, `module`, hypothesis, status/fixed; optional provider, metrics, exit/timing, code/output/workspace paths, record | generated verification execution detail; failure of one experiment need not fail the whole run |
 | `fix` | post-loop Fix | `cycle: -1`, `max_tier`, selection/final attempts, best, fixed, recommendation/refine signal, records | distinguish EXPLORE selection from held-out FINAL confirmation; see below |
 | `loop_end` | diagnosis loop | cycles, resolved/stopped reason, final and verified hypotheses, tokens/timings | diagnosis loop ended; **not necessarily the last event in the run** |
+| `run_end` | run | envelope only (schema 7) | the logger closed: the run-level completion signal, after everything else the run logged |
 | `agent_decision` | agentic loop | `step`, action/params/rationale, validity/repair/fallback, judge I/O | trajectory node; `valid: false` means host fallback, not automatically run failure |
 | `agent_tool` | agentic loop | `step`, tool, `ok`, summary/error, duration | dispatch result; stage-specific event remains the source for stage payload |
 | `tool_codegen` | support | cycle/module/tool/need/source/`ok`, error/code paths | one tool-generation attempt, not a stage verdict |
@@ -706,8 +707,9 @@ Recommended derivation rules:
 7. A hypothesis status of `inconclusive` is a valid abstention, not an exception.
 8. `loop_end` terminates M1→M4 orchestration, but M5 verification and Fix can be
    logged after it. Do not mark the entire run immutable merely because
-   `loop_end` appeared. A live transport/process terminal signal or a finalized
-   manifest is the run-level completion signal.
+   `loop_end` appeared. `run_end` (log schema 7, written when the logger
+   closes) is the run-level completion signal; for an older log, `loop_end` is
+   the best there is. The report carries the result as `setting.finished`.
 9. Missing events in an older/in-progress run mean “not observed”; do not invent
    a failure. Use `schema_version` and run configuration to decide skipped vs.
    not started.

@@ -173,6 +173,13 @@ evalrx serve --runs-root outputs/     # runs panel over every run under outputs/
 | `--trace-id` | — | Langfuse trace id (required with `--source langfuse`). |
 | `--runs-root` | `run_dir`'s parent | Where the in-page runs panel looks for other experiments. |
 
+A run still being written is followed live: the top bar reads "run in
+progress", and the page swaps in the new report each time the run logs
+something, on whatever view is open, until the run logs its end (`run_end`).
+A run that stops logging without ending reads as unfinished, with how long it
+has been quiet. Such a run is compiled in memory and published into its
+directory only once it ends.
+
 **Compare** in the top bar puts the run on screen beside another the runs
 panel lists (`#/compare/<id>`): their metrics and stage outcomes in one table,
 and the cases both evaluated that passed in one run and failed in the other,

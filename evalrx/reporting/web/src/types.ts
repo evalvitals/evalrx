@@ -329,6 +329,11 @@ export type ReportData = {
     /** `explore` when an explore step wrote the run on its own: no model was
      *  evaluated, only M2/M3 ran. */
     kind: "loop" | "explore";
+    /** Whether the run logged its end (`run_end`); false while it is still
+     *  being written. Absent on reports compiled before it existed. */
+    finished?: boolean;
+    /** When the run last logged anything (ISO time), or null. */
+    last_event_at?: string | null;
     diagnosed_by?: string;
     /** The cover figure the run shipped (`evalrx_main.*` at its root), as a data URI. */
     hero_image?: string;

@@ -15,6 +15,7 @@ export const api = {
   upload: "/api/upload",
   open: (runId: string) => `/api/runs/${part(runId)}/open`,
   report: (runId: string) => `/api/runs/${part(runId)}/report`,
+  live: (runId: string) => `/api/runs/${part(runId)}/live`,
   media: (runId: string, mediaId: string) => `/api/runs/${part(runId)}/media/${part(mediaId)}`,
   artifact: (runId: string, path: string) => `/api/runs/${part(runId)}/artifact?path=${part(path)}`,
 };

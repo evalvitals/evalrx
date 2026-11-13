@@ -6,6 +6,22 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — follow a run while it is written
+
+`evalrx serve` on a run still in progress follows it: the top bar says "run in
+progress" and the report on screen is replaced in place each time the run logs
+something (server-sent events on `/api/runs/{id}/live`), until the run ends.
+A run that goes quiet without ending says so, with how long it has been quiet,
+instead of "report complete". The report carries `setting.finished` and
+`setting.last_event_at`, so an export of an unfinished run says the same.
+
+### Changed — run log schema 7: `run_end`
+
+`RunLoggerV2.close()` writes a `run_end` event, the run-level completion
+signal. `loop_end` ends M1–M4 only (M5 and the fix step log after it), which
+is why it could not serve. A new event type bumps `RUN_LOG_SCHEMA_VERSION` to 7;
+logs from before it are read as finished at `loop_end`.
+
 ### Added — compare two runs in `evalrx serve`
 
 **Compare** in the report's top bar opens the run beside another one the

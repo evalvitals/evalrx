@@ -820,3 +820,75 @@ def test_serve_opens_an_explore_output_and_its_figures(tmp_path):
         figure = client.get(f"/api/runs/{run['id']}/artifact", params={"path": figures[0]["path"]})
         assert figure.status_code == 200
         assert figure.headers["content-type"] == "image/png"
+
+
+def test_a_run_is_finished_once_its_logger_closes(tmp_path):
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.reporting.dynamic import build_report_data
+    from evalrx.reporting.server import _compile_report
+
+    logger = RunLoggerV2(tmp_path, observability_mode="offline")
+    logger.log_run_start({"model": "demo-model", "protocol": {}, "n_cases": 1})
+    assert build_report_data(tmp_path)["setting"]["finished"] is False
+    logger._append_stage("M1", "probe", {"cycle": 0, "analyzers": ["a"]})
+    setting = build_report_data(tmp_path)["setting"]
+    assert setting["finished"] is False and setting["last_event_at"]
+    # A run still being written is compiled in memory, not published into it.
+    _, envelope = _compile_report(tmp_path)
+    assert envelope["generated_by"]["mode"] == "deterministic-live"
+    assert not (tmp_path / "report").exists()
+
+    logger.close()
+    assert build_report_data(tmp_path)["setting"]["finished"] is True
+    _compile_report(tmp_path)
+    assert (tmp_path / "report" / "report_data.json").exists()
+
+
+def test_a_log_from_before_run_end_is_finished_at_loop_end(tmp_path):
+    from pathlib import Path
+
+    from evalrx.reporting.dynamic import _run_finished
+
+    start = {"event": "run_start", "schema_version": 6}
+    here = Path(tmp_path)
+    assert _run_finished([start, {"event": "loop_end"}], here) is True
+    assert _run_finished([start], here) is False
+    assert _run_finished([{**start, "schema_version": 7}, {"event": "loop_end"}], here) is False
+    assert _run_finished([], here) is True  # an explore output: no run log
+
+
+def test_follow_run_streams_updates_until_the_run_ends(tmp_path):
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.reporting.server import RunRegistry, follow_run
+
+    logger = RunLoggerV2(tmp_path, observability_mode="offline")
+    logger.log_run_start({"model": "demo-model", "protocol": {}, "n_cases": 1})
+    runs = RunRegistry()
+    key = runs.register(tmp_path)
+    steps = iter([
+        lambda: None,  # nothing new: a keep-alive comment
+        lambda: logger._append_stage("M1", "probe", {"cycle": 0, "analyzers": ["a"]}),
+        logger.close,
+    ])
+    frames = list(follow_run(runs, key, sleep=lambda _sec: next(steps)()))
+
+    assert frames[0].startswith(": waiting")
+    assert [f.split("\n")[0] for f in frames[1:]] == ["event: update", "event: update", "event: done"]
+    assert runs.get(key).data["setting"]["finished"] is True
+
+
+def test_follow_run_ends_at_once_for_a_finished_run_and_yields_to_a_reconnect(tmp_path):
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.reporting.server import RunRegistry, follow_run
+
+    logger = RunLoggerV2(tmp_path / "done", observability_mode="offline")
+    logger.log_run_start({"model": "demo-model", "protocol": {}, "n_cases": 1})
+    logger.close()
+    runs = RunRegistry()
+    assert list(follow_run(runs, runs.register(tmp_path / "done"))) == ["event: done\ndata: {}\n\n"]
+
+    live = RunLoggerV2(tmp_path / "live", observability_mode="offline")
+    live.log_run_start({"model": "demo-model", "protocol": {}, "n_cases": 1})
+    frames = list(follow_run(runs, runs.register(tmp_path / "live"), max_sec=4, sleep=lambda _sec: None))
+    # No `done`: the stream just ends, and EventSource reconnects on its own.
+    assert frames == [": waiting\n\n", ": waiting\n\n"]

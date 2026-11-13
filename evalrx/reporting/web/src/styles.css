@@ -5792,3 +5792,12 @@ footer small {
   color: var(--muted);
   font-size: 12px;
 }
+.run-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.run-status-quiet .live-dot {
+  background: var(--muted);
+  box-shadow: none;
+}

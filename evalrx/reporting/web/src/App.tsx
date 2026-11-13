@@ -14,6 +14,7 @@ import { EvidenceView } from "./evidenceView";
 import { CompareView } from "./compareView";
 import { navigate, parseRoute, runFromHash, withRun, type Route } from "./route";
 import { api, RunIdContext } from "./api";
+import { runStatus } from "./runStatus";
 
 type Payload = { data: ReportData; layout: LayoutEnvelope };
 
@@ -49,6 +50,25 @@ export function App() {
   // model on one dataset apart.
   const [runLabel, setRunLabel] = useState("");
   useEffect(() => applyTheme(theme), [theme]);
+  // A run still being written is followed: the server streams an event each
+  // time its log grows, and the report on screen is swapped for the new one
+  // in place, on whatever view the reader is on.
+  const following = Boolean(runId && payload && payload.data.setting.finished === false);
+  useEffect(() => {
+    if (!following) return;
+    const source = new EventSource(api.live(runId));
+    const refresh = () =>
+      fetch(api.report(runId))
+        .then((res) => (res.ok ? res.json() : null))
+        .then((run) => run && setPayload({ data: run.data, layout: run.layout }))
+        .catch(() => undefined);
+    source.addEventListener("update", refresh);
+    source.addEventListener("done", () => {
+      source.close();
+      refresh();
+    });
+    return () => source.close();
+  }, [following, runId]);
   useEffect(() => {
     const follow = () => setRoute(parseRoute(window.location.hash));
     window.addEventListener("hashchange", follow);
@@ -222,9 +242,7 @@ function renderReport(
             {payload.data.setting.diagnosed_by}
           </div>
         )}
-        <div>
-          <span className="live-dot" /> report complete
-        </div>
+        <RunStatusBadge setting={payload.data.setting} />
         <code>{payload.data.trace_id.slice(0, 8)}</code>
       </div>
       <ReportProviders data={payload.data} navigate={navigate}>
@@ -238,5 +256,21 @@ function renderReport(
         <small>Layout: {payload.layout.generated_by.mode}</small>
       </footer>
     </>
+  );
+}
+
+/** The run's state in the top bar, re-read each minute so "quiet" can arrive. */
+function RunStatusBadge({ setting }: { setting: ReportData["setting"] }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (setting.finished !== false) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, [setting.finished]);
+  const status = runStatus(setting, now);
+  return (
+    <div className={`run-status run-status-${status.state}`}>
+      <span className={`live-dot${status.state === "live" ? " pulse" : ""}`} /> {status.label}
+    </div>
   );
 }

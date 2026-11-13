@@ -21,7 +21,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from evalrx.reporting.report_inputs import (
     _assign_partitions,
@@ -36,6 +36,8 @@ from evalrx.reporting.report_inputs import (
 from evalrx.reporting.report_summary import _charts, _explore_metrics, _findings, _metrics, _repairs
 from evalrx.reporting.stage_views import _stage_detail, _stages
 
+# 21: `setting.finished` / `setting.last_event_at`, for a run still being
+#     written (the log's `run_end`, schema 7).
 # 20: `setting.kind` (an explore output renders as its own report) and the
 #     explore agent's analysis on `stage_detail.m2.agent`.
 # 19: the M5 confirmation joins the winning candidate a v2 run recorded, and
@@ -52,7 +54,7 @@ from evalrx.reporting.stage_views import _stage_detail, _stages
 #     makes an already-published run pick the change up — `report_is_current`
 #     only tracks new EVENTS, so without the bump every existing run would
 #     keep serving the labels its old compiler produced.
-REPORT_DATA_VERSION = 20
+REPORT_DATA_VERSION = 21
 REPORT_SCHEMA_VERSION = 1
 JSON_RENDER_VERSION = "0.19.0"
 CATALOG_VERSION = "evalrx-report@2"
@@ -195,6 +197,10 @@ def build_report_data(
                 # Who drove the pipeline, as opposed to `model`, which is what
                 # it was pointed at. Empty when the run recorded neither.
                 "diagnosed_by": _diagnosed_by(root, run),
+                # Whether the run is over, and when it last logged anything:
+                # what the UI needs to say "in progress" without guessing.
+                "finished": _run_finished(events, root),
+                "last_event_at": max((str(e["ts"]) for e in events if e.get("ts")), default=None),
                 # The cover figure the run shipped, if any — see _hero_image.
                 "hero_image": _hero_image(root),
                 "n_cases": int(run.get("n_cases") or len(normalized_cases)),
@@ -525,6 +531,24 @@ def _hero_image(root: Path) -> str:
                 continue
             return f"data:{mime};base64,{payload}"
     return ""
+
+
+def _run_finished(events: Sequence[Mapping[str, Any]], root: Path) -> bool:
+    """Whether the run logged its completion signal.
+
+    ``run_end`` (log schema 7) is written when the logger closes. Logs from
+    before it have nothing better than ``loop_end``, which M5 and the fix step
+    can follow. An output with no run log at all (an explore step's report) is
+    finished as written; a run log with no readable events yet has just begun.
+    """
+    if not events:
+        return not any((where / "run.json").is_file() for where in (root, root / "logs"))
+    if any(e.get("event") == "run_end" for e in events):
+        return True
+    start = next((e for e in events if e.get("event") == "run_start"), {})
+    if int(start.get("schema_version") or 0) >= 7:
+        return False
+    return any(e.get("event") == "loop_end" for e in events)
 
 
 def _diagnosed_by(root: Path, run: Mapping[str, Any]) -> str:
