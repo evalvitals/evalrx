@@ -18,6 +18,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
+# 20: `setting.kind` (an explore output renders as its own report) and the
+#     explore agent's analysis on `stage_detail.m2.agent`.
+# 19: the M5 confirmation joins the winning candidate a v2 run recorded, and
+#     the "Cases repaired" tile reads it.
 # 18: `setting.partitions` + `case.split` — which band of the frozen batch
 #     each case sat in (explore / held-out / confirm), so the Case Studio can
 #     show the split the run was actually measured on.
