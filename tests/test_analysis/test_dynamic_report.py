@@ -589,6 +589,20 @@ def test_cases_repaired_metric_reads_the_m5_confirmation():
     assert {m["id"]: m["value"] for m in _metrics(run, raw, [{"status": "fail"}], idle)}["fixed"] == 0
 
 
+def test_the_repair_list_reports_the_same_m5_result_as_the_header_tile():
+    """The loop figure reads `repairs`; it said "0 fixed" beside a tile of 21."""
+    from evalrx.reporting.dynamic import _cases_repaired, _repairs
+
+    raw = {"m5_fix": {"ran": True, "fixed": False, "confirm": {}}}
+    unwon = {"ran": True, "fixed": False, "confirmation": {},
+             "candidates": [{"name": "read_off_marks", "n_fixed": 21, "n_broken": 6, "effect": 0.117}]}
+    [repair] = _repairs(raw, unwon)
+    assert (repair["title"], repair["fixed_cases"], repair["broken_cases"]) == ("read_off_marks", 21, 6)
+    assert repair["effect"] == 0.117
+    assert _cases_repaired([], unwon) == repair["fixed_cases"]
+    assert _repairs({"m5_fix": {"ran": False}}, unwon) == []
+
+
 def test_m5_confirmation_joins_the_winning_candidate_the_logger_recorded(tmp_path):
     from types import SimpleNamespace
 
@@ -618,8 +632,10 @@ def test_m5_confirmation_joins_the_winning_candidate_the_logger_recorded(tmp_pat
     assert (m5["confirmation"]["n_fixed"], m5["confirmation"]["n_broken"]) == (25, 0)
     assert m5["best"]["name"] == "malformed_choice_consensus"
     assert {m["id"]: m["value"] for m in data["metrics"]}["fixed"] == 25
-    # The repair list the loop figure reads, not the per-case repair outcomes.
+    # The repair list the loop figure reads, not the per-case repair outcomes;
+    # it counts the same 25 as the tile.
     assert data["repairs"] == [{
         "id": "repair-1", "fixed": True, "title": "malformed_choice_consensus",
-        "effect": 0.5, "fixed_cases": 0, "broken_cases": 0,
+        "effect": 0.5, "fixed_cases": 25, "broken_cases": 0,
     }]
+

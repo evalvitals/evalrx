@@ -152,7 +152,6 @@ def build_report_data(
     contract = _contract_payloads(root)
     findings = _findings(reader, raw)
     charts = _charts(run, raw, contract)
-    repairs = _repairs(raw)
     media = _media_index(cases)
     normalized_cases = [_normalise_case(case, media) for case in cases if isinstance(case, dict)]
     normalized_cases = _merge_recorded_case_evidence(normalized_cases, root)
@@ -173,7 +172,9 @@ def build_report_data(
         final_ids=set(repair_outcomes),
     )
     stage_detail = _stage_detail(raw, root, normalized_cases, events)
-    stages = _stages(raw, stage_detail.get("m5") if isinstance(stage_detail, dict) else None)
+    m5_detail = stage_detail.get("m5") if isinstance(stage_detail, dict) else None
+    stages = _stages(raw, m5_detail)
+    repairs = _repairs(raw, m5_detail)
     setting = {
         "model": _contract_model_name(contract) or run.get("model") or "Target model",
         "dataset": run.get("benchmark_name") or "Evaluation dataset",
@@ -216,10 +217,7 @@ def build_report_data(
                 "confidence": reader.get("confidence") or "unknown",
                 "stopped_by": run.get("stopped_by") or "completed",
             },
-            "metrics": _metrics(
-                run, raw, normalized_cases,
-                stage_detail.get("m5") if isinstance(stage_detail, dict) else None,
-            ),
+            "metrics": _metrics(run, raw, normalized_cases, m5_detail),
             "stages": stages,
             "findings": findings,
             "charts": charts,
@@ -1510,53 +1508,60 @@ def _charts(run: Mapping[str, Any], raw: Mapping[str, Any],
     return charts
 
 
-def _repairs(raw: Mapping[str, Any]) -> list[dict[str, Any]]:
+def _repairs(raw: Mapping[str, Any], m5_detail: Mapping[str, Any] | None) -> list[dict[str, Any]]:
     fix = raw.get("m5_fix") or {}
     if not fix.get("ran"):
         return []
     confirm = found if isinstance(found := fix.get("confirm"), Mapping) else {}
+    scored = _m5_scored(m5_detail)
     # Early runs recorded the winning candidate as its bare name; later ones
     # record the whole candidate. Both name the same repair.
     best_name = _repair_name(fix.get("best"))
     return [{
         "id": "repair-1", "fixed": bool(fix.get("fixed")),
-        "title": best_name or confirm.get("name") or "Targeted repair",
-        "effect": confirm.get("effect"),
-        "fixed_cases": len(confirm.get("fixed_cases") or []),
-        "broken_cases": len(confirm.get("broken_cases") or []),
+        "title": best_name or confirm.get("name") or (scored or {}).get("name") or "Targeted repair",
+        "effect": (scored or confirm).get("effect"),
+        "fixed_cases": int(scored["n_fixed"]) if scored else len(confirm.get("fixed_cases") or []),
+        "broken_cases": int(scored.get("n_broken") or 0) if scored else len(confirm.get("broken_cases") or []),
     }]
+
+
+def _m5_scored(m5_detail: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
+    """The repair M5 reports as its result, scored on the withheld cases.
+
+    The stage's own confirmation -- the best candidate re-scored on the
+    confirm pool -- is what M5 prints as "21 repaired, 6 broken", whether or
+    not that candidate cleared the certification bar. With no named winner
+    (it missed the bar, so the fix event names none) the stage still scored
+    its confirm-phase candidates, and the strongest of those is what it
+    prints. None when M5 scored nothing.
+    """
+    def _counted(item: Any) -> bool:
+        value = item.get("n_fixed") if isinstance(item, Mapping) else None
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+    detail = m5_detail if isinstance(m5_detail, Mapping) else {}
+    confirmation = detail.get("confirmation")
+    if isinstance(confirmation, Mapping) and confirmation.get("name") and _counted(confirmation):
+        return confirmation
+    scored = [item for item in detail.get("candidates") or [] if _counted(item)]
+    if scored:
+        return max(scored, key=lambda item: (float(item.get("effect") or 0.0), float(item["n_fixed"])))
+    return None
 
 
 def _cases_repaired(cases: list[dict[str, Any]], m5_detail: Mapping[str, Any] | None) -> int:
     """How many withheld cases the M5 repair turned from wrong to right.
 
-    The stage's own confirmation -- the best candidate re-scored on the
-    confirm pool -- is what M5 prints as "21 repaired, 6 broken", and the
-    header tile has to say the same 21 whether or not that candidate cleared
-    the certification bar. Case status never carries a "fixed" value (it is
-    pass / fail), so counting it left the tile at 0 on every run that repaired
-    anything. Runs that recorded no confirmation fall back to the per-case
-    repair outcomes, then to the old status count.
+    The header tile says what M5 printed (see :func:`_m5_scored`). Case status
+    never carries a "fixed" value (it is pass / fail), so counting it left the
+    tile at 0 on every run that repaired anything. Runs that scored no
+    candidate fall back to the per-case repair outcomes, then to the old
+    status count.
     """
-    def _count(value: Any) -> int | None:
-        return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
-
-    detail = m5_detail if isinstance(m5_detail, Mapping) else {}
-    confirmation = detail.get("confirmation")
-    if isinstance(confirmation, Mapping) and confirmation.get("name"):
-        n_fixed = _count(confirmation.get("n_fixed"))
-        if n_fixed is not None:
-            return n_fixed
-    # No named winner (the candidate missed the certification bar, so the fix
-    # event names none): the stage still scored its confirm-phase candidates on
-    # the withheld cases, and the strongest of those is the number it prints.
-    scored = [
-        item for item in detail.get("candidates") or []
-        if isinstance(item, Mapping) and _count(item.get("n_fixed")) is not None
-    ]
+    scored = _m5_scored(m5_detail)
     if scored:
-        top = max(scored, key=lambda item: (float(item.get("effect") or 0.0), float(item["n_fixed"])))
-        return int(top["n_fixed"])
+        return int(scored["n_fixed"])
     per_case = sum(
         1 for case in cases
         if isinstance(case.get("repair"), Mapping) and str(case["repair"].get("status")) == "fixed"

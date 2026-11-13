@@ -29,7 +29,10 @@ now `Label.UNKNOWN`, the field's own default.
 the report's `repairs` list (`[{id, fixed, title, effect, fixed_cases,
 broken_cases}]`) was replaced by a `case id → outcome` dict, and the loop
 figure, which reads `repairs[0]`, never showed the repair. The list is back;
-the per-case outcomes still reach each case as `case.repair`.
+the per-case outcomes still reach each case as `case.repair`. Its counts now
+come from the same M5 result as the "Cases repaired" tile (the confirmation,
+or the strongest scored candidate when none was certified); read from the fix
+event alone they said "0 fixed" beside a tile of 3.
 
 ### Fixed — delta-rule relevance on transformers 5.23
 
