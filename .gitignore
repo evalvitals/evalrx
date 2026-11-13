@@ -256,6 +256,9 @@ examples/diagnosis_loops/deco_hallu/outputs/m1_state.pkl
 # Dynamic report UI: source and lockfile are versioned; these are local/build outputs.
 evalrx/reporting/web/node_modules/
 evalrx/reporting/web_dist/
+evalrx/reporting/web/*.tsbuildinfo
+evalrx/reporting/web/test-results/
+evalrx/reporting/web/playwright-report/
 
 # Stray pre-rename package snapshot left by the 2026-09-03 evalvitals/ -> evalrx/
 # rename (196M of it is reporting/web node_modules); local only, safe to delete.

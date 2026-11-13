@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo } from "react";
+import { createContext, useContext } from "react";
 import { tc } from "./theme";
 import { defineCatalog } from "@json-render/core";
 import { defineRegistry } from "@json-render/react";

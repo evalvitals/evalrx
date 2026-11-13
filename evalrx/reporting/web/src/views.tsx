@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { tc } from "./theme";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import ReactECharts from "echarts-for-react";
-import { AlertTriangle, ArrowLeft, BarChart3, Beaker, Bot, CheckCircle2, ChevronRight, Microscope, Search, ShieldCheck, Wrench, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowLeft, BarChart3, Bot, CheckCircle2, ChevronRight, Search, ShieldCheck, Wrench, XCircle } from "lucide-react";
 import type { AnalyzerSelection, Case, DebugEvent, DiagnosisOutput, FixAttemptWire, Partition,
   FixOutput, HypothesisTestOutput, Modality, ProbeOutput, ReportData } from "./types";
 import { buildBrief, StageBrief } from "./brief";

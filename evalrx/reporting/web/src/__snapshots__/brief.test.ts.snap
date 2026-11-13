@@ -1,0 +1,185 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`buildBrief on a real run > summarises m1 1`] = `
+{
+  "caveat": undefined,
+  "checks": [
+    {
+      "n": 16,
+      "name": "Answer Extraction Audit",
+      "question": "Did the model actually answer wrong, or did our parser fail to extract its response?",
+    },
+    {
+      "n": 16,
+      "name": "Self-Contradiction Detection",
+      "question": "Does the model contradict its own claims across repeat samplings?",
+    },
+    {
+      "n": 16,
+      "name": "Pass@k Knowledge Blindspot (Coverage)",
+      "question": "Over 5 repeat attempts, does the model ever produce the right answer even once?",
+    },
+  ],
+  "figure": "<element>",
+  "figureNote": "How the evaluated cases came out. Everything later in the report is an attempt to explain the wrong ones.",
+  "kpis": [
+    {
+      "label": "Checks run",
+      "note": "all completed",
+      "value": 3,
+    },
+    {
+      "label": "Cases measured",
+      "note": "out of 16 evaluated",
+      "value": 16,
+    },
+    {
+      "label": "Got it wrong",
+      "note": "these are what the rest of the report is about",
+      "value": "5 of 16 (31%)",
+    },
+    {
+      "label": "Time taken",
+      "value": "92s",
+    },
+  ],
+  "lead": "This step only measures. It records what the model does differently on the cases it gets right and the ones it gets wrong — it does not yet claim to know why anything failed.",
+  "points": [
+    "Every check ran on all 16 cases.",
+  ],
+  "verdict": "3 behavioural checks ran, and the model got 5 of the 16 cases wrong.",
+}
+`;
+
+exports[`buildBrief on a real run > summarises m2 1`] = `
+{
+  "caveat": "These patterns were found on the same half of the data used to look for them, so any of them could be a coincidence that happens to fit. Nothing here is a verdict — the held-out check is the only step allowed to issue one.",
+  "figure": "<element>",
+  "figureNote": "Of the 16 evaluated cases, 11 (68.8%) passed and 5 (31.2%) failed.",
+  "kpis": [
+    {
+      "label": "Ranked findings",
+      "value": 5,
+    },
+    {
+      "label": "Patterns screened",
+      "note": "each one compares a measured behaviour against the errors",
+      "value": 20,
+    },
+    {
+      "label": "Still standing",
+      "note": "after discounting for how many were tried at once",
+      "value": 5,
+    },
+    {
+      "label": "Figures produced",
+      "value": 14,
+    },
+  ],
+  "lead": "Specifically, 3 of the 5 failing cases (60%) contained the exact gold target right inside the extracted answer region—such as writing "4.9 billion British pounds" or giving explanatory reasoning like "No (185% is not greater than 233%)"—which the strict normalization harness failed to parse.",
+  "points": [
+    "Cases with split consensus across repeated attempts failed four out of four times.",
+    "Answers longer than eight characters failed every time, while concise answers almost always passed.",
+    "Verification consensus and output length stand out as the top two signals separating passes from failures.",
+    "5 of the 20 patterns screened are still standing after discounting for how many were tried at once; the rest could be luck.",
+  ],
+  "verdict": "The evaluation harness is incorrectly marking correct model answers as failures because the model includes conversational context or explanatory units alongside its answers, while genuine model errors stem from a lack of visual coverage rather than selection mistakes.",
+}
+`;
+
+exports[`buildBrief on a real run > summarises m3 1`] = `
+{
+  "caveat": undefined,
+  "figure": "<element>",
+  "figureNote": "The pattern these explanations are trying to account for. It comes from the previous step, and motivates the ideas — it does not confirm them.",
+  "kpis": [
+    {
+      "label": "Explanations proposed",
+      "value": 3,
+    },
+    {
+      "label": "With a way to test them",
+      "note": "all of them",
+      "value": 3,
+    },
+  ],
+  "lead": "This step turns the patterns from the previous one into explanations that could be shown to be wrong. Everything on this screen is a proposal; whether any of it survives is decided one step later.",
+  "points": [
+    "H1 — The benchmark grader mistakenly marks answers as wrong because the model explains its reasoning or includes units like "billion British pounds" instead of printing just the raw number. Checked against: answer_extraction_audit.output_chars HIGHER on failing cases.",
+    "H2 — When the model is uncertain and generates multiple different answers across repeated tries, the final majority vote fails to pick the correct answer even though it was found during the attempts. Checked against: coverage_verification_gap.n_unique HIGHER on failing cases.",
+    "H3 — For true visual misses, the model completely fails to read the relevant data points or chart marks, never finding the right answer even after trying five separate times. Checked against: coverage_verification_gap.majority_share LOWER on failing cases.",
+  ],
+  "verdict": "3 possible explanations for the failures were put forward, and none of them is proven yet.",
+}
+`;
+
+exports[`buildBrief on a real run > summarises m4 1`] = `
+{
+  "caveat": undefined,
+  "figure": "<element>",
+  "figureNote": "How large a gap each explanation predicted, and whether it survived. Green held up, red pointed the other way, grey could not be decided.",
+  "kpis": [
+    {
+      "label": "Explanations checked",
+      "value": 3,
+    },
+    {
+      "label": "Held up",
+      "note": "survived the held-out test",
+      "value": 1,
+    },
+    {
+      "label": "Contradicted",
+      "value": 0,
+    },
+    {
+      "label": "Could not be decided",
+      "value": 2,
+    },
+  ],
+  "lead": "First an explanation is frozen. Then it is tested against cases the agent did not use to invent it. This is the only step in the report allowed to say whether an idea held up.",
+  "points": [
+    "Evaluation failures are predominantly caused by strict string normalization in the evaluation harness rejecting verbose responses that append units or parenthetical explanations to otherwise correct answers — the held-out cases could not settle it.",
+    "Model failures on visual queries with low consensus across repeated samples stem from candidate answer dispersion where majority voting drops the correct solution present in the candidate pool — the held-out cases agreed with it.",
+    "Genuine visual reasoning failures on fine-grained chart elements represent encoder coverage deficits where the model consistently fails to extract required numeric data across repeated sampling attempts — the held-out cases could not settle it.",
+  ],
+  "verdict": "Of the 3 explanations checked on cases the agent never saw while forming them, 1 held up, 2 could not be decided.",
+}
+`;
+
+exports[`buildBrief on a real run > summarises m5 1`] = `
+{
+  "caveat": undefined,
+  "figure": "<element>",
+  "figureNote": "The 16 cases the best repair was tested on: how many it turned from wrong to right, how many from right to wrong, and how many it left where they were. Both coloured slices matter — a repair that fixes ten and breaks nine has done almost nothing.",
+  "kpis": [
+    {
+      "label": "Repairs tested",
+      "note": "on cases held back from the search",
+      "value": 1,
+    },
+    {
+      "label": "Held up",
+      "note": "none cleared the 20 : 1 bar · best ran 2.0 : 1",
+      "value": 0,
+    },
+    {
+      "label": "Errors fixed",
+      "note": "out of 16 cases tested",
+      "value": 3,
+    },
+    {
+      "label": "New errors caused",
+      "note": "none",
+      "value": 0,
+    },
+  ],
+  "lead": "Every repair is run case by case against the unchanged model on cases held back from the search, so a repair that only looks good on the cases it was designed against does not get through.",
+  "points": [
+    "Across 16 cases it was tested on, the best repair fixed 3 and broke 0.",
+    "The evidence against that being luck runs only about 2.0 to 1, which is not strong enough to count.",
+    "It applied to every failure it was aimed at — none was out of its reach.",
+  ],
+  "verdict": "1 repair was tested against the unchanged model, and none earned its place.",
+}
+`;

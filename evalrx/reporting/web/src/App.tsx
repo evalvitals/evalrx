@@ -47,7 +47,7 @@ export function App() {
     fetch("/api/session").then((res) => res.ok ? res.json() : null)
       .then((session) => { if (session?.root) setActiveRoot(session.root); })
       .catch(() => undefined); // the runs panel just starts with nothing highlighted
-  }, []);
+  }, [embedded]);
   const load = (run: UploadedRun, root: string | null = null) => {
     setPayload({ data: run.data, layout: run.layout });
     setNeedsRun(false);
