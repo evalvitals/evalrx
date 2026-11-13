@@ -93,9 +93,9 @@ class AutoDiagnoseReport:
     #: this run: in-cycle testing is skipped when a confirm split is in play);
     #: ``"failed"`` — the confirm-split re-probe produced nothing, so no
     #: hypothesis could be verified (flagged loudly in the log);
-    #: ``None`` — no confirm split / holdout disabled / legacy loop.
+    #: ``None`` — no confirm split / holdout disabled.
     m4_holdout: "str | None" = None
-    # Internal — set by the loops for evolution/git integration
+    # Internal — the run id the loop ran under
     _run_id: str = field(default="", repr=False)
 
     def __post_init__(self) -> None:

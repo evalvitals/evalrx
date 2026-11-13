@@ -23,8 +23,6 @@ surfaces and planned interfaces.
 | Statistics | `compare()` (McNemar + e-value + clustered bootstrap CI), `compare_multiple()` (Friedman + Nemenyi), `ebh()`, `kendall_tau`, `stratified_subset`. |
 | **ExperimentWriter** | **6-phase CodeAgent: blueprint → sequential multi-file generation (CodeMem AST summaries) → hard-validate → exec-fix (targeted traceback repair) → tree-search → review.  CLI agent backends: `codex`, `claude_code`, `opencode`, `gemini_cli`, `kimi_cli`.** |
 | **ExperimentSandbox** | **`run_project()` for multi-file projects; path traversal protection; harness injection; cleanup-on-success; `SandboxProtocol` + `create_sandbox()` factory.** |
-| **ExperimentGitManager** | **Git-native run versioning: `eval/{run_id}` branches; commit on resolve; `git reset --hard` on discard.** |
-| **EvolutionStore** | **JSONL lesson accumulation with 30-day half-life time decay; `extract_lessons(report)`; `build_overlay()` for prompt injection.** |
 | **JsonlStore** | **Durable JSONL-backed `Store`; hypotheses serialized via `hypothesis_to_dict`/`from_dict`; survives process restart.** |
 | **VLM image-attention rule** | **M2 derives `image_token_attention_ratio` from `top_attended_tokens`; fires medium-severity finding when VLM ignores image tokens.** |
 | **RunContext** | **Single owner of a run's output directory (`report/`, `figures/`, `artifacts/`, `experiments/`, `fixes/`, `manifest.json`, auto-generated `README.txt`); per-trial folders (`new_trial()`) for fix candidates and M5 experiments.** |

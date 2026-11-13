@@ -15,6 +15,14 @@ from `key` and failed with a shape mismatch (generic attention relevance and
 the delta-rule tap on hybrid models); it is now sized from the value heads.
 Verified on transformers 4.57.3, 5.20.2 and 5.23.0.
 
+### Removed — the legacy loop's run-directory infrastructure (breaking)
+
+Only `AutoDiagnoseLoop` used these, and nothing else reaches them:
+`evalrx.eval_agent.checkpoint` (checkpoint/heartbeat files),
+`evalrx.eval_agent.evolution` (`EvolutionStore`, `LessonEntry`,
+`extract_lessons`) and `evalrx.eval_agent.git_manager`
+(`ExperimentGitManager`). A run's output directory is `RunContext`'s.
+
 ### Removed — the legacy `AutoDiagnoseLoop` / `SelfEvolveLoop` and the A/B orchestrator (breaking)
 
 `VLDiagnoseLoop` (and `AgenticDiagnoseLoop`) are the diagnosis loops. Removed,

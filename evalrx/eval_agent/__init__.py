@@ -18,8 +18,6 @@ Top-level (shared / orchestration):
   run_logger_v2.py     RunLoggerV2 — run.json + per-stage M<n>/log.json event log
   hypothesis.py        Hypothesis, HypothesisStatus, serialization helpers
   store.py             Store / InMemoryStore / JsonlStore — persistent memory
-  evolution.py         EvolutionStore — JSONL lesson store, 30-day half-life decay
-  git_manager.py       git-native experiment versioning (eval/{run_id} branches)
 
 evalrx.agent_runtime (shared CLI-agent runtime, imports neither analysis nor eval_agent):
   cli_types.py         CliAgentConfig / CliAgentResult
@@ -130,8 +128,6 @@ from evalrx.eval_agent.agentic import (
     ToolRegistry,
     ToolSpec,
 )
-from evalrx.eval_agent.evolution import EvolutionStore, LessonEntry, extract_lessons
-from evalrx.eval_agent.git_manager import ExperimentGitManager
 from evalrx.eval_agent.hypothesis import (
     Hypothesis,
     HypothesisGenerator,
@@ -306,12 +302,6 @@ __all__ = [
     "create_sandbox",
     # NL scaffold
     "scaffold_from_description",
-    # Git versioning
-    "ExperimentGitManager",
-    # Evolution store
-    "EvolutionStore",
-    "LessonEntry",
-    "extract_lessons",
     # CLI agents
     "CliAgentConfig",
     "CliAgentResult",

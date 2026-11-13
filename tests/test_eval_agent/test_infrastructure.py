@@ -1,11 +1,9 @@
 """Tests for the ARC-ported experiment infrastructure.
 
 Covers:
-  - ExperimentGitManager (no-repo path)
   - validate_entry_point / validate_entry_point_resolved
   - ExperimentSandbox.run_project (multi-file, harness injection, cleanup)
   - JsonlStore (roundtrip, summarize)
-  - EvolutionStore (append/load, time-decay, build_overlay, extract_lessons)
   - SandboxFactory (default backend)
   - ExperimentWriterResult (new fields backward compat)
 """
@@ -13,58 +11,10 @@ Covers:
 from __future__ import annotations
 
 import textwrap
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
-# ─────────────────────────────────────────────────────────────────────────────
-# ExperimentGitManager
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def test_git_manager_no_repo(tmp_path):
-    from evalrx.eval_agent.git_manager import ExperimentGitManager
-
-    gm = ExperimentGitManager(tmp_path)
-    assert gm.is_git_repo() is False
-    assert gm.get_current_branch() == ""
-    assert gm.get_experiment_history() == []
-    assert gm.discard_experiment("x", "test") is False
-
-
-def test_git_manager_commit_message_format():
-    from evalrx.eval_agent.git_manager import ExperimentGitManager
-
-    msg = ExperimentGitManager._format_commit_message(
-        run_id="20260604_123000",
-        cycle=2,
-        hypothesis_statuses={"Model repeats tokens": "supported"},
-        description="resolved",
-    )
-    assert "eval(20260604_123000)" in msg
-    assert "cycle 2" in msg
-    assert "resolved" in msg
-    assert "Model repeats tokens" in msg
-
-
-def test_git_manager_parse_log_line_valid():
-    from evalrx.eval_agent.git_manager import ExperimentGitManager
-
-    line = "abc1234 eval(20260604_120000) cycle 1: resolved"
-    parsed = ExperimentGitManager._parse_experiment_log_line(line)
-    assert parsed is not None
-    assert parsed["hash"] == "abc1234"
-    assert parsed["run_id"] == "20260604_120000"
-    assert parsed["cycle"] == "1"
-
-
-def test_git_manager_parse_log_line_invalid():
-    from evalrx.eval_agent.git_manager import ExperimentGitManager
-
-    assert ExperimentGitManager._parse_experiment_log_line("not a valid line") is None
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # validate_entry_point
@@ -341,118 +291,6 @@ def test_jsonl_store_query_filter_by_status(tmp_path):
     supported = store.query(kind="hypotheses", status=HypothesisStatus.SUPPORTED)
     assert len(supported) == 1
     assert supported[0].statement == "s1"
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# EvolutionStore
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def test_evolution_store_append_and_load(tmp_path):
-    from evalrx.eval_agent.evolution import EvolutionStore, LessonEntry
-
-    store = EvolutionStore(tmp_path / "evolution")
-    lesson = LessonEntry(
-        run_id="run-001",
-        cycle=1,
-        category="surgery",
-        severity="warning",
-        description="Hypothesis was inconclusive",
-        timestamp=datetime.now(timezone.utc).isoformat(timespec="seconds"),
-    )
-    store.append(lesson)
-
-    loaded = store.load_all()
-    assert len(loaded) == 1
-    assert loaded[0].description == "Hypothesis was inconclusive"
-    assert loaded[0].category == "surgery"
-    assert store.count() == 1
-
-
-def test_evolution_time_decay_today():
-    from evalrx.eval_agent.evolution import _time_weight
-
-    now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    weight = _time_weight(now_iso)
-    assert weight == pytest.approx(1.0, abs=0.01)
-
-
-def test_evolution_time_decay_old():
-    from evalrx.eval_agent.evolution import _time_weight
-
-    old = (datetime.now(timezone.utc) - timedelta(days=91)).isoformat(timespec="seconds")
-    assert _time_weight(old) == 0.0
-
-
-def test_evolution_time_decay_30_days():
-    from evalrx.eval_agent.evolution import _time_weight
-
-    thirty_days_ago = (
-        datetime.now(timezone.utc) - timedelta(days=30)
-    ).isoformat(timespec="seconds")
-    weight = _time_weight(thirty_days_ago)
-    assert 0.4 < weight < 0.6  # ~0.5 at 30 days (one half-life)
-
-
-def test_evolution_build_overlay_empty(tmp_path):
-    from evalrx.eval_agent.evolution import EvolutionStore
-
-    store = EvolutionStore(tmp_path / "evolution")
-    assert store.build_overlay("surgery") == ""
-
-
-def test_evolution_build_overlay_with_lessons(tmp_path):
-    from evalrx.eval_agent.evolution import EvolutionStore, LessonEntry
-
-    store = EvolutionStore(tmp_path / "evolution")
-    ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    store.append_many([
-        LessonEntry("r1", 0, "surgery", "warning", "First lesson", ts),
-        LessonEntry("r2", 1, "surgery", "error", "Second lesson", ts),
-    ])
-    overlay = store.build_overlay("surgery", max_lessons=5)
-    assert "Lessons from Prior Diagnosis Runs" in overlay
-    assert "First lesson" in overlay
-    assert "Second lesson" in overlay
-    assert "[WARN]" in overlay
-    assert "[ERROR]" in overlay
-
-
-def test_evolution_extract_lessons_inconclusive():
-    from evalrx.eval_agent.evolution import extract_lessons
-    from evalrx.eval_agent.hypothesis import Hypothesis, HypothesisStatus
-    from evalrx.eval_agent.loop_reports import AutoDiagnoseReport
-
-    h = Hypothesis("h", "m", "f", status=HypothesisStatus.INCONCLUSIVE)
-    report = AutoDiagnoseReport(
-        cycles=3,
-        resolved=False,
-        final_hypotheses=[h],
-    )
-    report._run_id = "run-test"
-    lessons = extract_lessons(report)
-    categories = {lesson.category for lesson in lessons}
-    severities = {lesson.severity for lesson in lessons}
-    assert "surgery" in categories
-    assert "diagnosis" in categories
-    assert "warning" in severities
-
-
-def test_evolution_extract_lessons_resolved_has_no_diagnosis_warning():
-    from evalrx.eval_agent.evolution import extract_lessons
-    from evalrx.eval_agent.hypothesis import Hypothesis, HypothesisStatus
-    from evalrx.eval_agent.loop_reports import AutoDiagnoseReport
-
-    h = Hypothesis("h", "m", "f", status=HypothesisStatus.SUPPORTED)
-    report = AutoDiagnoseReport(
-        cycles=1,
-        resolved=True,
-        final_hypotheses=[h],
-    )
-    report._run_id = "run-ok"
-    lessons = extract_lessons(report)
-    diag_warnings = [lesson for lesson in lessons if lesson.category == "diagnosis" and lesson.severity == "warning"]
-    assert len(diag_warnings) == 0, "Resolved run should not produce a diagnosis warning"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

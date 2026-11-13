@@ -218,7 +218,6 @@ eval_agent/
 ├── loop_fix.py           run_fix orchestration: fix targets, tier ladder, EXPLORE→CONFIRM
 ├── loop_reports.py       AutoDiagnoseReport (VLDiagnoseReport is an alias — all
 │                         both loops return this one unified report class)
-├── checkpoint.py         write_checkpoint / write_heartbeat / read_checkpoint
 ├── run_metadata.py       shared run-provenance + logging-wiring helpers
 ├── agentic/              AgenticDiagnoseLoop — judge-decided M1-M4 (see below)
 ├── run_context.py        RunContext, Trial — single owner of a run's output directory
@@ -226,8 +225,6 @@ eval_agent/
 ├── log_schema.py          published event JSON Schema
 ├── hypothesis.py         Hypothesis, HypothesisStatus — shared across M3/M4/M5
 ├── store.py              Store / InMemoryStore / JsonlStore
-├── evolution.py          EvolutionStore — cross-run lesson accumulation
-├── git_manager.py        ExperimentGitManager
 └── stages/               ← M1, M3, M4, M5 stage implementations (M2 lives in evalrx.analysis)
     ├── probe.py          M1  StrategyProbe
     ├── probe_agent.py    M1  ProbeAgent
@@ -424,26 +421,6 @@ Key properties:
 `SandboxProtocol` is a structural type allowing transparent substitution of subprocess,
 Docker, SSH, or other backends.  `create_sandbox(SandboxFactoryConfig, workdir)` selects
 the backend from a `mode` string (`"subprocess"` default, `"docker"` with graceful fallback).
-
-### EvolutionStore — cross-run lesson accumulation
-
-`EvolutionStore` accumulates lessons from every diagnosis run in an append-only JSONL
-file.  Lessons are weighted by a 30-day half-life exponential decay so recent findings
-rank higher.
-
-```python
-store = EvolutionStore(Path("runs/my_experiment/evolution"))
-
-# Lessons are appended automatically when run_dir is set.
-# Read them back for prompt injection:
-overlay = store.build_overlay("surgery", max_lessons=5)
-# → "## Lessons from Prior Diagnosis Runs\n1. [WARN] ..."
-```
-
-`extract_lessons(report)` auto-derives lessons from an `AutoDiagnoseReport`:
-- INCONCLUSIVE hypotheses → `surgery / warning`
-- Loop exhausted without resolution → `diagnosis / warning`
-- HIGH/CRITICAL analysis severity with no resolution → `analysis / info`
 
 ### Persistent store — `JsonlStore`
 
