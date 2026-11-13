@@ -282,7 +282,7 @@ def test_external_case_media_is_copied_into_durable_run(tmp_path):
 
 
 def test_unparsed_m3_response_is_recovered_for_audit_only():
-    from evalrx.reporting.dynamic import _recover_unparsed_hypotheses
+    from evalrx.reporting.stage_views import _recover_unparsed_hypotheses
 
     response = """HYPOTHESIS: Formatting causes the failure.
 PLAIN_STATEMENT: The answer changes when formatting changes.
@@ -319,7 +319,7 @@ def test_m1_examples_are_logged_and_reconstructed_from_case_evidence(tmp_path):
 
 
 def test_legacy_m4_example_is_labeled_as_an_aggregate_validation_test():
-    from evalrx.reporting.dynamic import _m4_examples
+    from evalrx.reporting.stage_examples import _m4_examples
 
     example = _m4_examples([{
         "hypothesis": "Formatting causes the failure.", "status": "refuted",
@@ -331,7 +331,7 @@ def test_legacy_m4_example_is_labeled_as_an_aggregate_validation_test():
 
 
 def test_report_uses_plain_language_for_internal_signal_names():
-    from evalrx.reporting.dynamic import _plain_signal
+    from evalrx.reporting.plain_labels import _plain_signal
 
     label = _plain_signal("format_sensitivity.format_flip_rate")
     assert "answer order" in label.lower()
@@ -387,7 +387,7 @@ def test_a_pre_ref_run_still_numbers_its_repairs_the_emitters_way():
     candidate is #1 on its card and whatever position it happened to occupy in
     the sweep — two numbers, one repair, nothing on screen connecting them.
     """
-    from evalrx.reporting.dynamic import _backfill_repair_identity
+    from evalrx.reporting.report_inputs import _backfill_repair_identity
 
     payload = {
         "selection": [
@@ -411,7 +411,7 @@ def test_a_pre_ref_run_still_numbers_its_repairs_the_emitters_way():
 
 
 def test_backfill_never_overwrites_what_the_producer_wrote():
-    from evalrx.reporting.dynamic import _backfill_repair_identity
+    from evalrx.reporting.report_inputs import _backfill_repair_identity
 
     payload = {
         "selection": [
@@ -564,7 +564,7 @@ def test_v2_explore_event_without_a_snapshot_report_still_renders_its_sentences(
 
 
 def test_cases_repaired_metric_reads_the_m5_confirmation():
-    from evalrx.reporting.dynamic import _metrics
+    from evalrx.reporting.report_summary import _metrics
 
     run = {"n_cases": 128, "label_distribution": {"fail": 38}}
     raw = {"m4": {"results": [{}, {}, {}]}}
@@ -591,7 +591,7 @@ def test_cases_repaired_metric_reads_the_m5_confirmation():
 
 def test_the_repair_list_reports_the_same_m5_result_as_the_header_tile():
     """The loop figure reads `repairs`; it said "0 fixed" beside a tile of 21."""
-    from evalrx.reporting.dynamic import _cases_repaired, _repairs
+    from evalrx.reporting.report_summary import _cases_repaired, _repairs
 
     raw = {"m5_fix": {"ran": True, "fixed": False, "confirm": {}}}
     unwon = {"ran": True, "fixed": False, "confirmation": {},

@@ -911,7 +911,8 @@ There is already a working viewer for this exact data: `evalrx serve
 <run-dir>` runs it as a local dynamic UI, and `evalrx report <run-dir>`
 exports the same UI as one portable `report.html` — see the
 [CLI reference](cli.md) for the full command set. The source of truth is
-`evalrx/reporting/dynamic.py` (compiles `ReportData` + layout),
+`evalrx/reporting/dynamic.py` (compiles `ReportData` + layout, from the
+`report_inputs` / `stage_views` / `report_summary` modules beside it),
 `evalrx/reporting/server.py` (the `serve` FastAPI app) and
 `evalrx/reporting/static_export.py` (the `report` exporter); all three share
 the same React/json-render renderer, which also renders an `evalrx explore` /
