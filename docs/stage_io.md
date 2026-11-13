@@ -2,8 +2,8 @@
 
 A single reference for what goes into and comes out of each stage of the
 M1→M5 diagnosis pipeline. [Architecture](architecture.md#eval_agent-automated-diagnosis-pipeline)
-covers *why* the pipeline is shaped this way and how the three loops
-(`AutoDiagnoseLoop`, `VLDiagnoseLoop`, `AgenticDiagnoseLoop`) orchestrate these
+covers *why* the pipeline is shaped this way and how the two loops
+(`VLDiagnoseLoop`, `AgenticDiagnoseLoop`) orchestrate these
 same stages differently; [Exploratory Analysis (M2/M3)](m2_analysis.md) and
 [Intervention & Verification (M4/M5)](intervention.md) cover usage. This page
 covers the shape of the data crossing each boundary, and — since that shape
@@ -49,8 +49,8 @@ M5  FixAgent.propose_and_validate(...) → FixOutcome
 ```
 
 `VLDiagnoseLoop` runs M1→M2→M3→M4 in a cycle and calls M5 (`SurgeryAgent` then
-`FixAgent`) once, post-loop, on the best verified hypothesis. `AutoDiagnoseLoop`
-runs M1→M2→M3→M5 (`SurgeryAgent`) every cycle instead of M4. Both consume and
+`FixAgent`) once, post-loop, on the best verified hypothesis.
+`AgenticDiagnoseLoop` lets a judge choose the next stage instead. Both consume and
 produce the same per-stage types described below — only the wiring differs.
 
 **Pre-M1 (optional):** `ProbeSearchAgent.run(model, seed_pool)` synthesizes
@@ -73,7 +73,7 @@ then probes. See [m2_analysis.md](m2_analysis.md#probe-search-hierarchical-mcts-
 | M5 (verify) | `SurgeryAgent` | `operate(hypothesis, model, results, data)` | one `Hypothesis` + `dict[str, Result]` + `CaseBatch` | `InterventionResult` |
 | M5 (fix) | `FixAgent` | `propose_and_validate(model, data, hypotheses, prior_attempts=)` | `Model` + `CaseBatch` + `list[Hypothesis]` | `FixOutcome` |
 | M4 | `HypothesisTester` | `test(hypotheses, stats_report, data, protocol=)` | `list[Hypothesis]` + `StatsAnalysisReport` + `CaseBatch` | `list[HypothesisTestResult]` |
-| Loop | `AutoDiagnoseLoop` / `VLDiagnoseLoop` / `AgenticDiagnoseLoop` | `run(cases)` | `CaseBatch` | `AutoDiagnoseReport` (all three loops return this one class — see below) |
+| Loop | `VLDiagnoseLoop` / `AgenticDiagnoseLoop` | `run(cases)` | `CaseBatch` | `AutoDiagnoseReport` (both loops return this one class — see below) |
 
 ## Shared input type — `CaseBatch`
 
@@ -387,8 +387,8 @@ attached to a specific claim.
 
 ## Loop-level output
 
-All three loops — `AutoDiagnoseLoop`, `VLDiagnoseLoop`, `AgenticDiagnoseLoop`
-— return the **same class**: `AutoDiagnoseReport` (`VLDiagnoseReport` is a
+Both loops — `VLDiagnoseLoop` and `AgenticDiagnoseLoop` — return the **same
+class**: `AutoDiagnoseReport` (`VLDiagnoseReport` is a
 back-compat alias for the identical class, so `isinstance` checks against
 either name succeed for a report from any loop). Each loop populates the
 subset of fields relevant to what it ran; fields the loop has no equivalent
@@ -397,12 +397,12 @@ concept for stay at their default (`None` / empty):
 | Field | Populated by | Meaning |
 |---|---|---|
 | `cycles` | all | M1→M4/M5 cycles executed (or agentic decision steps). |
-| `resolved: bool` | all | Diagnosis considered closed — M5 confirmed a fix (legacy loop), or `bool(verified_hypotheses)` (current/agentic loops). |
-| `stopped_by: str \| None` | VL / agentic | Why the loop stopped: `"criteria_met"` / `"max_cycles"` / `"budget"` / `"no_hypotheses"` / `"no_probe_results"` / `"analysis_complete"`, or agentic's `"agent_stop"` / `"max_actions"` / `"time_budget"` / `"invalid_actions"`. `None` for the legacy loop. |
+| `resolved: bool` | all | Diagnosis considered closed: `bool(verified_hypotheses)`. |
+| `stopped_by: str \| None` | VL / agentic | Why the loop stopped: `"criteria_met"` / `"max_cycles"` / `"budget"` / `"no_hypotheses"` / `"no_probe_results"` / `"analysis_complete"`, or agentic's `"agent_stop"` / `"max_actions"` / `"time_budget"` / `"invalid_actions"`. |
 | `final_hypotheses: list[Hypothesis]` | all | All M3 proposals across every cycle. (`all_hypotheses` is a read-only alias, kept for existing callers.) |
 | `verified_hypotheses: list[HypothesisTestResult]` | VL / agentic (M4) | SUPPORTED + protocol-consistent, highest confidence first — feed into `run_m5`. |
 | `all_test_results: list[HypothesisTestResult]` | VL / agentic (M4) | All M4 test results across every cycle. |
-| `final_results: dict[str, Result]` | legacy | Raw analyzer results from the last M1 probe. |
+| `final_results: dict[str, Result]` | — | Left empty by both loops (it was the removed `AutoDiagnoseLoop`'s); M1's results are in the run log and `final_analysis`. |
 | `final_analysis: AnalysisReport \| None` | all | Last M2 report. Auto-populated from `final_stats_report` when only that was set (`StatsAnalysisReport` is an `AnalysisReport` subclass), so this field works regardless of which loop produced the report. |
 | `final_stats_report: StatsAnalysisReport \| None` | VL / agentic | Last M2 report (same object as `final_analysis` when set). |
 | `fix_proposal` / `fix_outcome` | post-loop | Populated by `run_m5` / `run_fix` after `run()` returns. |

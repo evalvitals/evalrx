@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class FixCandidate:
-    """One proposed repair, compiled later to an ab_runner-style strategy.
+    """One proposed repair, compiled later to a per-case success function.
 
     Attributes:
         tier:        Intervention space the candidate lives in.

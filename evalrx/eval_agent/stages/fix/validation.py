@@ -259,7 +259,7 @@ class CandidateValidator:
     def strategy(
         self, candidate: FixCandidate
     ) -> "Callable[[Model, FailureCase], Optional[bool]]":
-        """Compile a candidate to a per-case success function (ab_runner shape)."""
+        """Compile a candidate to a per-case success function."""
         build = {
             "registered_repair": self._registered_repair_strategy,
             "visual_search": self._visual_search_strategy,

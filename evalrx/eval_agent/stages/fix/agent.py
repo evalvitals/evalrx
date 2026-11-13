@@ -3,8 +3,7 @@
 Design (intervention-space tiers, see :mod:`.tiers`): the allowed tier is
 an **input** (default L2).  The agent proposes candidate fixes inside the
 allowed tiers, compiles every candidate to the same shape — a per-case success
-function, exactly :mod:`~evalrx.eval_agent.ab_runner`'s *strategy*
-contract — and validates each against the unmodified baseline with the paired
+function ``(model, case) -> bool | None`` — and validates each against the unmodified baseline with the paired
 machinery from :mod:`evalrx.stats` (McNemar + e-value, never a bare p).
 
 There is **no automatic tier escalation**: when no candidate within the allowed

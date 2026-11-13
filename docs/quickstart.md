@@ -495,9 +495,9 @@ print(mr.significant_pairs)  # [("A", "B"), ...] — pairs that pass Nemenyi CD
 
 ## VLDiagnoseLoop — Automated Failure Attribution (Current)
 
-Two diagnosis loops are available. `VLDiagnoseLoop` is the current
-architecture for VL and LLM tasks (`AutoDiagnoseLoop`, below, is kept for
-backward compatibility):
+`VLDiagnoseLoop` is the diagnosis loop for VL and LLM tasks
+([`AgenticDiagnoseLoop`](#agentic-diagnosis-loop) drives the same stages from a
+judge-decided action loop):
 
 ```text
 M1  ProbeAgent         protocol-guided analyzer selection + execute
@@ -675,56 +675,7 @@ The generated scaffold contains `run.py` (diagnosis script with
 `.gitignore`. In template mode, edit the `CASES` list in `run.py` to add your
 own failure examples before running `docker compose up`.
 
-## AutoDiagnoseLoop — Legacy M1→M5 Pipeline
-
-`AutoDiagnoseLoop` closes the analysis→diagnosis→intervention cycle automatically.
-It needs a **judge model** (any instruction-following model with `GENERATE`) and
-the model under evaluation.
-
-```python
-from evalrx import Capability
-from evalrx.eval_agent import AutoDiagnoseLoop, DiagnosisAgent
-from evalrx.models import compose
-from evalrx.models.backends.base import RuntimeConfig
-
-# 1. The model under evaluation (local VLM with white-box access)
-model = compose("qwen3-vl-8b-instruct", "hf_local", want={Capability.ATTENTION})
-
-# 2. A capable judge (API model — needs only GENERATE)
-judge = compose("qwen3-8b", "api", RuntimeConfig(generate_fn=my_generate_fn))
-
-# 3. Build the loop
-loop = AutoDiagnoseLoop(
-    model=model,
-    diagnosis_agent=DiagnosisAgent(judge=judge),
-    max_cycles=3,     # max M1→M5 iterations
-    max_analyzers=4,  # analyzers per cycle (ranked by diagnostic priority)
-)
-
-# 4. Run on your failure cases
-report = loop.run(failure_cases)
-
-print(report.resolved)                        # True if an intervention fixed it
-for h in report.final_hypotheses:
-    print(h.statement, "→", h.status)        # SUPPORTED / REFUTED / INCONCLUSIVE
-print(report.final_results.keys())            # analyzers run in the last cycle
-```
-
-To persist the run (event log, figures, report files, fix/experiment trial
-folders), wrap the loop in a `RunContext` — see "Log and persist a diagnosis
-run" in [Extending](extending.md).
-
-### Analysis-only mode
-
-Omit `diagnosis_agent` to run M1+M2 only — useful when you want the probe's
-ranked analysis without automated hypothesis generation:
-
-```python
-loop = AutoDiagnoseLoop(model=model, max_analyzers=5)
-report = loop.run(cases)
-for name, result in report.final_results.items():
-    print(name, result.summary())
-```
+## Diagnosis stages — selection and intervention
 
 ### Controlling analyzer selection
 
@@ -746,7 +697,8 @@ it declares image.
 
 ### Custom intervention (SurgeryAgent)
 
-Override the default label-correlation verification with your own logic:
+M5 (`loop.run_m5()`) hands the best verified hypothesis to a `SurgeryAgent`.
+Override its default label-correlation verification with your own logic:
 
 ```python
 from evalrx.eval_agent import SurgeryAgent, InterventionResult, HypothesisStatus
@@ -761,52 +713,20 @@ def my_verify(hypothesis, model, results, data):
         evidence={"custom": True},
     )
 
-loop = AutoDiagnoseLoop(
-    model=model,
-    diagnosis_agent=DiagnosisAgent(judge=judge),
-    surgery_agent=SurgeryAgent(verify_fn=my_verify),
-)
+loop = VLDiagnoseLoop(..., surgery_agent=SurgeryAgent(verify_fn=my_verify))
+fix = loop.run_m5(report, failure_cases)   # M5 runs after the loop
 ```
 
 Or trigger a **param sweep** — re-run analyzers with modified settings to compare
 before/after findings:
 
 ```python
-loop = AutoDiagnoseLoop(
-    model=model,
-    diagnosis_agent=DiagnosisAgent(judge=judge),
-    surgery_agent=SurgeryAgent(analyzer_params={"attention": {"top_k": 20}}),
-)
+loop = VLDiagnoseLoop(..., surgery_agent=SurgeryAgent(analyzer_params={"attention": {"top_k": 20}}))
 ```
 
 ---
 
-## Eval Agent — Pre-Registered A/B Loop
-
-`EvalOrchestrator` enforces selective-inference safety: mine on `explore`,
-pre-register a falsifiable hypothesis (hash + timestamp) **before** unblinding,
-test once on `validate`, lock `confirm` for the final report.
-
-```python
-from evalrx.eval_agent import EvalOrchestrator, PreregisteredHypothesis, DataSplit
-
-hyp = PreregisteredHypothesis(
-    predicate="cluttered scenes",
-    statement="chain-of-thought prompt improves accuracy on multi-step questions",
-    direction="B>A",
-    min_effect=0.03,
-    alpha=0.05,
-    split="validate",
-)
-
-orch = EvalOrchestrator(split=DataSplit(explore_frac=0.5, validate_frac=0.3))
-report = orch.run(cases, hyp, strategy_a, strategy_b)
-
-# report keys: prereg_hash, decision, effect, ci, e_value, split, hypothesis
-print(report["prereg_hash"])   # proves hypothesis was fixed before unblinding
-print(report["decision"])      # "REJECT H0" or "inconclusive"
-print(report["effect"])        # float
-```
+## Agent trajectories — CounterfactualReplay
 
 **CounterfactualReplay** ranks agent trajectory steps by causal influence (flip-rate):
 
@@ -827,7 +747,5 @@ result = analyzer._run(model, CaseBatch([case_with_trajectory]))
 # High flip_rate ⇒ that step was causally influential.
 ```
 
-The former `examples/preregistered_ab_demo/eval_agent/` Docker example has
-been retired. The Python snippets above illustrate the API; use the current
-[full-loop quickstart](#diagnosis-loop)
-for the supported diagnosis workflow.
+For the supported diagnosis workflow, see the
+[full-loop quickstart](#diagnosis-loop).

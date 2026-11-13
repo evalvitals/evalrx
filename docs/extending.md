@@ -214,12 +214,14 @@ def load_cases(path) -> CaseBatch:
 The simplest swap is an API model:
 
 ```python
-from evalrx.eval_agent import DiagnosisAgent, AutoDiagnoseLoop
+from evalrx.eval_agent import DiagnosisAgent, VLDiagnoseLoop
 from evalrx.models import compose
 from evalrx.models.backends.base import RuntimeConfig
 
 judge = compose("qwen3-8b", "api", RuntimeConfig(generate_fn=my_generate))
-loop  = AutoDiagnoseLoop(model=my_model, diagnosis_agent=DiagnosisAgent(judge=judge))
+# protocol: an ExperimentProtocol saying what the run investigates (see the Quickstart)
+loop  = VLDiagnoseLoop(model=my_model, protocol=protocol,
+                       diagnosis_agent=DiagnosisAgent(judge=judge))
 ```
 
 The judge receives a JSON dump of all analyzer findings and must reply with lines
@@ -267,12 +269,15 @@ def domain_verify(hypothesis, model, results, data):
         evidence={"ablation_result": improved},
     )
 
-from evalrx.eval_agent import AutoDiagnoseLoop, DiagnosisAgent
-loop = AutoDiagnoseLoop(
+from evalrx.eval_agent import DiagnosisAgent, VLDiagnoseLoop
+loop = VLDiagnoseLoop(
     model=my_model,
+    protocol=protocol,
     diagnosis_agent=DiagnosisAgent(judge=judge),
     surgery_agent=SurgeryAgent(verify_fn=domain_verify),
 )
+report = loop.run(cases)
+fix = loop.run_m5(report, cases)   # the SurgeryAgent runs here, after the loop
 ```
 
 ## Extend StrategyProbe for a new model kind
@@ -281,14 +286,14 @@ If you add a new capability type (e.g. `Capability.AUDIO`), you can teach
 `StrategyProbe` about it by passing a `priority_override`:
 
 ```python
-from evalrx.eval_agent import StrategyProbe, ModelKind
+from evalrx.eval_agent import ModelKind, ProbeAgent, StrategyProbe, VLDiagnoseLoop
 
 probe = StrategyProbe(priority_override={
     ModelKind.LLM:   ["attention", "logit_lens", "token_entropy"],
     ModelKind.VLM:   ["pope", "chair", "attention"],
     ModelKind.AGENT: ["loop_detect", "ignored_obs"],
 })
-loop = AutoDiagnoseLoop(model=my_model, probe=probe, ...)
+loop = VLDiagnoseLoop(model=my_model, protocol=protocol, probe_agent=ProbeAgent(probe=probe))
 ```
 
 An override is looked up by `ModelKind` and replaces composition entirely — it
@@ -317,11 +322,12 @@ per stage. See [Architecture](architecture.md)'s "RunContext" section for the
 full layout.
 
 ```python
-from evalrx.eval_agent import AutoDiagnoseLoop, DiagnosisAgent, RunContext
+from evalrx.eval_agent import DiagnosisAgent, RunContext, VLDiagnoseLoop
 
 with RunContext("runs/exp_01") as ctx:
-    loop = AutoDiagnoseLoop(
+    loop = VLDiagnoseLoop(
         model=model,
+        protocol=protocol,
         diagnosis_agent=DiagnosisAgent(),
         run_logger=ctx.logger,
     )
@@ -334,10 +340,11 @@ If you only want the event log and artifact sink — without `RunContext`'s
 figures/contract/per-trial layout — construct `RunLoggerV2` standalone:
 
 ```python
-from evalrx.eval_agent import AutoDiagnoseLoop, DiagnosisAgent, RunLoggerV2
+from evalrx.eval_agent import DiagnosisAgent, RunLoggerV2, VLDiagnoseLoop
 
-loop = AutoDiagnoseLoop(
+loop = VLDiagnoseLoop(
     model=model,
+    protocol=protocol,
     diagnosis_agent=DiagnosisAgent(),
     run_logger=RunLoggerV2("runs/exp_01"),   # explicit path
     # run_logger=RunLoggerV2()              # auto: runs/<YYYYMMDD_HHMMSS>/
@@ -388,7 +395,7 @@ closed even if the loop raises:
 
 ```python
 with RunLoggerV2("runs/exp_01") as logger:
-    loop = AutoDiagnoseLoop(model=model, run_logger=logger)
+    loop = VLDiagnoseLoop(model=model, protocol=protocol, run_logger=logger)
     loop.run(cases)
 ```
 

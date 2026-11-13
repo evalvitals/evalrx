@@ -1,8 +1,7 @@
 """Stage implementations for the M1–M4 diagnostic pipeline.
 
-Each module is a self-contained stage that can be injected into either loop:
+Each module is a self-contained stage that the loops inject:
 
-  AutoDiagnoseLoop  uses M1 → M2 → M3 → M5
   VLDiagnoseLoop    uses M1 → M2 → M3 → M4 (inner), M5 called post-loop
 
 M1 — Probe (analyzer selection + execution)

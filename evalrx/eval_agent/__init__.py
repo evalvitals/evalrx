@@ -2,10 +2,10 @@
 
 Two loops are available:
 
-  AutoDiagnoseLoop   M1 → M2 → M3 → M5 (legacy, four-stage sweep)
-  VLDiagnoseLoop     M1 → M2 → M3 → M4 inner loop, M5 called post-loop (Plan A)
-                     Stops when M4 finds a statistically supported,
-                     protocol-consistent hypothesis.
+  VLDiagnoseLoop       M1 → M2 → M3 → M4 inner loop, M5 called post-loop (Plan A)
+                       Stops when M4 finds a statistically supported,
+                       protocol-consistent hypothesis.
+  AgenticDiagnoseLoop  the same stages, driven by a judge-decided action loop.
 
 Stage modules live in ``stages/``; shared infrastructure stays at the top level.
 The CLI-agent runtime (sandboxing, code generation, providers, judge models,
@@ -18,11 +18,7 @@ Top-level (shared / orchestration):
   run_logger_v2.py     RunLoggerV2 — run.json + per-stage M<n>/log.json event log
   hypothesis.py        Hypothesis, HypothesisStatus, serialization helpers
   store.py             Store / InMemoryStore / JsonlStore — persistent memory
-  orchestrator.py      thin facade over the loop (pre-registered A/B)
-  ab_runner.py         A/B execution across prompting strategies
-  report.py            DiagnosticReport — final diagnostic conclusions
   evolution.py         EvolutionStore — JSONL lesson store, 30-day half-life decay
-  preregister.py       pre-registration helpers (DataSplit, PreregisteredHypothesis)
   git_manager.py       git-native experiment versioning (eval/{run_id} branches)
 
 evalrx.agent_runtime (shared CLI-agent runtime, imports neither analysis nor eval_agent):
@@ -128,7 +124,6 @@ from evalrx.analysis.stats_tools import (
     fdr_correct,
     run_stats_tool,
 )
-from evalrx.eval_agent.ab_runner import ABResult, ABRunner
 from evalrx.eval_agent.agentic import (
     AgenticDiagnoseLoop,
     ToolOutcome,
@@ -145,7 +140,6 @@ from evalrx.eval_agent.hypothesis import (
     hypothesis_from_dict,
     hypothesis_to_dict,
 )
-from evalrx.eval_agent.legacy import AutoDiagnoseLoop, SelfEvolveLoop
 from evalrx.eval_agent.log_schema import (
     RUN_LOG_SCHEMA_VERSION,
     SCHEMA_PATH,
@@ -157,14 +151,6 @@ from evalrx.eval_agent.log_schema import (
 from evalrx.eval_agent.loop import VLDiagnoseLoop
 from evalrx.eval_agent.loop_reports import AutoDiagnoseReport, VLDiagnoseReport
 from evalrx.eval_agent.nl_runner import scaffold_from_description
-from evalrx.eval_agent.orchestrator import EvalOrchestrator
-from evalrx.eval_agent.preregister import (
-    DataSplit,
-    PreregisteredHypothesis,
-    PreregistrationLog,
-    Split,
-)
-from evalrx.eval_agent.report import DiagnosticReport
 from evalrx.eval_agent.run_context import RunContext
 from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
 from evalrx.eval_agent.stages.case_discovery import (
@@ -244,9 +230,7 @@ __all__ = [
     "SurgeryAgent",
     "InterventionResult",
     # Loop
-    "AutoDiagnoseLoop",
     "AutoDiagnoseReport",
-    "SelfEvolveLoop",
     "VLDiagnoseLoop",
     "VLDiagnoseReport",
     # Agentic loop (judge-decided M1-M4, alternative to VLDiagnoseLoop's fixed cycle)
@@ -286,7 +270,6 @@ __all__ = [
     "HypothesisTester",
     "HypothesisTestResult",
     # Shared
-    "EvalOrchestrator",
     "Hypothesis",
     "HypothesisGenerator",
     "ManualHypothesisGenerator",
@@ -296,13 +279,6 @@ __all__ = [
     "Store",
     "InMemoryStore",
     "JsonlStore",
-    "ABRunner",
-    "ABResult",
-    "DataSplit",
-    "Split",
-    "PreregisteredHypothesis",
-    "PreregistrationLog",
-    "DiagnosticReport",
     "RunContext",
     "RunLoggerV2",
     # Published event schema

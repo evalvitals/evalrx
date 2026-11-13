@@ -506,12 +506,12 @@ class SurgeryAgent:
         data: CaseBatch,
     ) -> InterventionResult:
         """Re-run specified analyzers with modified parameters."""
-        from evalrx.eval_agent._tools import run_analysis
+        from evalrx.core.registry import registry
 
         sweep: dict[str, Any] = {}
         for analyzer_name, params in self.analyzer_params.items():
             try:
-                result = run_analysis(model, analyzer_name, data, **params)
+                result = registry.analyzers.get(analyzer_name)(**params).run(model, data)
                 sweep[analyzer_name] = result.findings
             except Exception as exc:
                 sweep[analyzer_name] = {"error": str(exc)}

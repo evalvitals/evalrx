@@ -15,6 +15,29 @@ from `key` and failed with a shape mismatch (generic attention relevance and
 the delta-rule tap on hybrid models); it is now sized from the value heads.
 Verified on transformers 4.57.3, 5.20.2 and 5.23.0.
 
+### Removed — the legacy `AutoDiagnoseLoop` / `SelfEvolveLoop` and the A/B orchestrator (breaking)
+
+`VLDiagnoseLoop` (and `AgenticDiagnoseLoop`) are the diagnosis loops. Removed,
+with everything only they used:
+
+- `evalrx.eval_agent.legacy`: `AutoDiagnoseLoop` (the pre-2026-06 M1→M2→M3→M5
+  sweep) and `SelfEvolveLoop`. Lost with `AutoDiagnoseLoop`: `run_dir`
+  checkpoints, heartbeat and `AutoDiagnoseLoop.resume()`, automatic lesson
+  recording, and the per-run git branch. Use `VLDiagnoseLoop(model, protocol,
+  ...)`; inject a `SurgeryAgent` with `surgery_agent=` and run it after the
+  loop with `loop.run_m5(report, cases)`.
+- `evalrx.eval_agent.orchestrator` (`EvalOrchestrator`) and what only it used:
+  `ab_runner` (`ABRunner`, `ABResult`), `preregister` (`DataSplit`, `Split`,
+  `PreregisteredHypothesis`, `PreregistrationLog`) and `report`
+  (`DiagnosticReport` — `evalrx.reporting.DiagnosticReport` is a different,
+  kept class). For a paired comparison use `evalrx.stats.compare`.
+- `evalrx.eval_agent._tools`, whose one live function `SurgeryAgent`'s
+  parameter sweep now calls directly.
+
+`AutoDiagnoseReport` stays: both loops return it. Its `final_results` field is
+now always empty (only `AutoDiagnoseLoop` filled it). The docs' examples use
+`VLDiagnoseLoop`, and the quickstart's pre-registered A/B section is gone.
+
 ### Removed — `evalrx.eval_agent.cli_agent` and `.cli_skills` (breaking)
 
 The two modules only re-exported `evalrx.agent_runtime`. Import from there:

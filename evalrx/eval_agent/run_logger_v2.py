@@ -19,7 +19,7 @@ layout, and trade-offs; the four rules that shaped it:
 Every ``log_*`` method keeps the same name, signature, and call-site
 behavior for return values (e.g. ``log_probe``'s ``list[Path]``) the flat
 JSONL logger it replaced had, so ``VLDiagnoseLoop(run_logger=...)`` /
-``ProbeAgent(run_logger=...)`` / ``AutoDiagnoseLoop(run_logger=...)`` never
+``ProbeAgent(run_logger=...)`` never
 needed to change in ``loop.py``, ``probe_agent.py``, or any ``stages/*.py``
 across the switch.
 

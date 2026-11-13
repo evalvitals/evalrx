@@ -17,9 +17,6 @@ See also:
   - :class:`~evalrx.eval_agent.agentic.AgenticDiagnoseLoop` — the same
     M1-M4 stages driven by a judge-decided action loop instead of a fixed
     cycle.
-  - :mod:`~evalrx.eval_agent.legacy` — ``SelfEvolveLoop`` and
-    ``AutoDiagnoseLoop`` (the pre-2026-06-05 M1→M2→M3→M5 architecture), kept
-    for existing callers.
 
 Usage::
 
@@ -554,8 +551,7 @@ class VLDiagnoseLoop:
     # ──────────────────────────────────────────────────────────────────
 
     def _get_diagnosis_agent(self) -> "Any":
-        """Resolve M3 lazily so the default Gemini fallback matches
-        AutoDiagnoseLoop — a DiagnosisAgent() built eagerly would raise if
+        """Resolve M3 lazily: a DiagnosisAgent() built eagerly would raise if
         GEMINI_API_KEY is absent even when the caller passed diagnosis_agent=None."""
         if self.diagnosis_agent is not None:
             return self.diagnosis_agent
