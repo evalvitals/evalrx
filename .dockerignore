@@ -10,3 +10,4 @@ examples/**/outputs
 examples/**/outputs.*
 examples/**/*.zip
 **/.env
+**/node_modules

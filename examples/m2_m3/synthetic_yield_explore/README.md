@@ -15,7 +15,7 @@ cd examples/m2_m3/synthetic_yield_explore && docker compose up
 Or directly (needs a local coding-agent CLI, e.g. `claude`):
 
 ```bash
-pip install -e ".[dashboard,viz]"
+pip install -e ".[viz]"
 bash run.sh
 ```
 
@@ -47,7 +47,8 @@ From an actual run (temperature r=0.86 with yield, the strongest association):
      mass-transfer/gas-solubility limited across the operating window
      tested — pressure's true effect, if any, lies outside the range sampled.
 
-Open the dashboard to see the charts and hypothesis cards:
+Open the report to see the charts and hypothesis cards (`outputs/report.html`
+also opens straight from disk):
 
 ```bash
 evalrx serve outputs

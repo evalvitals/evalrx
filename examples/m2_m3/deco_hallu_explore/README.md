@@ -22,7 +22,7 @@ cd examples/m2_m3/deco_hallu_explore && docker compose up
 Or directly (needs a local coding-agent CLI, e.g. `claude`):
 
 ```bash
-pip install -e ".[dashboard,viz]"
+pip install -e ".[viz]"
 bash run.sh
 ```
 
@@ -52,7 +52,8 @@ M3 hypotheses proposed from these findings (not validated):
    affirmative answers) between checkpoints, rather than a genuine capability
    regression with scale.
 
-Open the dashboard to see the charts and hypothesis cards:
+Open the report to see the charts and hypothesis cards (`outputs/report.html`
+also opens straight from disk):
 
 ```bash
 evalrx serve outputs
@@ -100,7 +101,7 @@ full propose → held-out-test → repair arc, ending in one five-tab web report
 
 **Prerequisites**
 
-- `pip install -e ".[dashboard,viz,stats]"` (`stats` powers the
+- `pip install -e ".[viz,stats]"` (`stats` powers the
   outcome-driver-analysis skill's regression path);
 - a local `claude` CLI on PATH (phase 1 explorer, phase 2 judge, phase 3
   codegen all run through it);

@@ -3,7 +3,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 COPY . /evalrx
-RUN pip install --no-cache-dir "/evalrx[dashboard,data]"
+RUN pip install --no-cache-dir "/evalrx[data]"
 
 WORKDIR /app/example
 COPY examples/paper_diagnosis_benchmark/ .
