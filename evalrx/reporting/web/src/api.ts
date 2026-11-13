@@ -19,6 +19,21 @@ export const api = {
   artifact: (runId: string, path: string) => `/api/runs/${part(runId)}/artifact?path=${part(path)}`,
 };
 
+/** POST to the report server and return its JSON; a failure throws the server's `detail`. */
+export async function postJson<T>(url: string, body?: BodyInit): Promise<T> {
+  const res = await fetch(url, { method: "POST", body });
+  const text = await res.text();
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    /* an error page, not JSON */
+  }
+  if (!res.ok)
+    throw new Error((parsed as { detail?: string } | null)?.detail || `HTTP ${res.status}`);
+  return parsed as T;
+}
+
 /**
  * The server-side id of the run on screen. Empty for a report with no server
  * behind it (a portable export, or an archive read in the static build): its

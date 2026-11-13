@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { FolderClock, RefreshCw, X } from "lucide-react";
 import type { UploadedRun } from "./upload";
-import { api } from "./api";
+import { api, postJson } from "./api";
 
 export type RunListItem = {
   id: string;
@@ -32,17 +32,8 @@ async function fetchRuns(): Promise<{ root: string; items: RunListItem[]; trunca
   return res.json();
 }
 
-async function openRun(id: string): Promise<UploadedRun> {
-  const res = await fetch(api.open(id), { method: "POST" });
-  const text = await res.text();
-  let parsed: any = null;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    /* an error page, not JSON */
-  }
-  if (!res.ok) throw new Error(parsed?.detail || `HTTP ${res.status}`);
-  return parsed as UploadedRun;
+function openRun(id: string): Promise<UploadedRun> {
+  return postJson<UploadedRun>(api.open(id));
 }
 
 function relativeTime(iso: string | null): string {

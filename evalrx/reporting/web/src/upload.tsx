@@ -9,10 +9,11 @@
 import { useRef, useState } from "react";
 import { FolderUp, Upload } from "lucide-react";
 import { readRunArchive } from "./staticRun";
-import { api } from "./api";
+import { api, postJson } from "./api";
+import type { LayoutEnvelope, ReportData } from "./types";
 
 /** A run handed to the page. `id` is the server's id for it; absent for an archive read in the browser. */
-export type UploadedRun = { id?: string; label?: string; data: any; layout: any };
+export type UploadedRun = { id?: string; label?: string; data: ReportData; layout: LayoutEnvelope };
 
 /** The GitHub Pages build: no server, archives are read in the browser (staticRun.ts). */
 export const STATIC_MODE = import.meta.env.VITE_STATIC === "1";
@@ -20,16 +21,7 @@ export const STATIC_MODE = import.meta.env.VITE_STATIC === "1";
 async function postRun(file: File): Promise<UploadedRun> {
   const body = new FormData();
   body.append("file", file);
-  const res = await fetch(api.upload, { method: "POST", body });
-  const text = await res.text();
-  let parsed: any = null;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    /* an error page, not JSON */
-  }
-  if (!res.ok) throw new Error(parsed?.detail || `HTTP ${res.status}`);
-  return parsed as UploadedRun;
+  return postJson<UploadedRun>(api.upload, body);
 }
 
 function useRunUpload(onLoaded: (run: UploadedRun) => void) {

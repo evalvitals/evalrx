@@ -61,7 +61,7 @@ export async function readRunArchive(file: File): Promise<UploadedRun> {
   // simple catalog elements (mirrors dynamic.load_published_report).
   const elements = layout?.spec?.elements;
   if (elements && typeof elements === "object") {
-    for (const element of Object.values(elements) as any[]) {
+    for (const element of Object.values(elements) as Array<Record<string, unknown> | null>) {
       if (element && typeof element === "object" && !("props" in element)) element.props = {};
     }
   }
@@ -106,12 +106,13 @@ export async function readRunArchive(file: File): Promise<UploadedRun> {
       if (url) item.data_uri = url;
     }
   }
-  const attachFigures = async (node: any): Promise<void> => {
-    if (Array.isArray(node)) {
-      for (const value of node) await attachFigures(value);
+  const attachFigures = async (value: unknown): Promise<void> => {
+    if (Array.isArray(value)) {
+      for (const item of value) await attachFigures(item);
       return;
     }
-    if (!node || typeof node !== "object") return;
+    if (!value || typeof value !== "object") return;
+    const node = value as Record<string, unknown>;
     const raw = node.path;
     if (
       typeof raw === "string" &&
@@ -121,7 +122,7 @@ export async function readRunArchive(file: File): Promise<UploadedRun> {
       const url = await resolve(raw);
       if (url) node.data_uri = url;
     }
-    for (const value of Object.values(node)) await attachFigures(value);
+    for (const child of Object.values(node)) await attachFigures(child);
   };
   // Figures are cited from several trees (stage briefs, findings, charts);
   // cases/media/debug are large and carry none, so they are skipped.

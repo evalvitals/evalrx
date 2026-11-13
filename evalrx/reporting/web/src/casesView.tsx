@@ -325,18 +325,25 @@ function CaseDetail({ item, data }: { item?: Case; data: ReportData }) {
   );
 }
 
-function TrajectoryPanel({ trajectory }: { trajectory: any }) {
-  const steps = Array.isArray(trajectory?.steps) ? trajectory.steps : [];
-  const calls = steps.filter((step: any) => step?.tool_call);
+/** One recorded step of an agent trajectory, as far as the panel reads it. */
+type TrajectoryStep = {
+  tool_call?: { name?: string; args?: unknown } | null;
+  observation?: unknown;
+};
+
+function TrajectoryPanel({ trajectory }: { trajectory: unknown }) {
+  const recorded = (trajectory as { steps?: unknown } | null)?.steps;
+  const steps: TrajectoryStep[] = Array.isArray(recorded) ? recorded : [];
+  const calls = steps.filter((step) => step?.tool_call);
   if (!calls.length) return null;
   return (
     <details className="case-trajectory">
       <summary>Recorded intermediate agent actions ({calls.length})</summary>
-      {calls.map((step: any, index: number) => (
+      {calls.map((step, index) => (
         <div className="trajectory-row" key={index}>
           <b>{plainOperation(step.tool_call?.name)}</b>
           <small>{formatCompact(step.tool_call?.args)}</small>
-          {step.observation && <p>{formatCompact(step.observation)}</p>}
+          {Boolean(step.observation) && <p>{formatCompact(step.observation)}</p>}
         </div>
       ))}
     </details>

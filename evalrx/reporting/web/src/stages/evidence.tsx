@@ -1,5 +1,6 @@
 /** M2's evidence — its figures and its statistical screens — which M3 shows again as its starting point. */
 import ReactECharts from "echarts-for-react";
+import type { ECharts, ElementEvent, TooltipComponentFormatterCallbackParams } from "echarts";
 import { tc } from "../theme";
 import { ZoomableImage } from "../lightbox";
 import { useFigureSource } from "../api";
@@ -128,13 +129,14 @@ function escapeHtml(text: string): string {
  * hovered dataIndex reads straight out of it.
  */
 function namedTooltip(names: string[], format: (value: unknown) => string) {
-  return (params: any) => {
+  return (params: TooltipComponentFormatterCallbackParams) => {
     const series = Array.isArray(params) ? params : [params];
-    const first = series[0] || {};
-    const head = escapeHtml(String(names[first.dataIndex] ?? first.name ?? ""));
+    const first: Partial<(typeof series)[number]> & { axisValue?: unknown } = series[0] || {};
+    const named = first.dataIndex === undefined ? undefined : names[first.dataIndex];
+    const head = escapeHtml(String(named ?? first.name ?? ""));
     const lines = series
       .map(
-        (row: any) =>
+        (row) =>
           `<div style="display:flex;gap:18px;justify-content:space-between;align-items:baseline">` +
           `<span>${row.marker} ${escapeHtml(String(row.seriesName || ""))}</span>` +
           `<b>${escapeHtml(format(row.value))}</b></div>`,
@@ -149,7 +151,7 @@ function namedTooltip(names: string[], format: (value: unknown) => string) {
 
 /** Hovering a label opens its row's tooltip — the axis alone no longer names it. */
 function labelHoverTooltip(rowCount: number) {
-  return (chart: any) => {
+  return (chart: ECharts) => {
     const zr = chart.getZr?.();
     if (!zr) return;
     let shown = -1;
@@ -174,7 +176,7 @@ function labelHoverTooltip(rowCount: number) {
       }
       return NaN;
     };
-    zr.on("mousemove", (event: any) => {
+    zr.on("mousemove", (event: ElementEvent) => {
       if (event.offsetX >= AXIS_GUTTER) return hide();
       const index = rowAt(event.offsetX, event.offsetY);
       if (!Number.isFinite(index) || index < 0 || index >= rowCount) return hide();
