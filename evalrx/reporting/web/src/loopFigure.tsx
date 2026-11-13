@@ -12,11 +12,10 @@
  * went in and what came out of it.
  */
 import { Check, Database, Lock, Search, Trophy, X } from "lucide-react";
+import type { Navigate } from "./route";
 import type { CaseStudy, ProbeView, ReportData, Stage } from "./types";
 import { stageDetail } from "./reportAccess";
 import { Hypothesis, Verdict, humanise, pct, signed } from "./caseStudy";
-
-type Nav = (view: string) => void;
 
 const STATUS_WORD: Record<string, string> = {
   completed: "completed",
@@ -261,7 +260,7 @@ function SignalRows({ stats }: { stats: NonNullable<CaseStudy["m2"]>[string] }) 
   );
 }
 
-export function LoopFigureView({ data, navigate }: { data: ReportData; navigate: Nav }) {
+export function LoopFigureView({ data, navigate }: { data: ReportData; navigate: Navigate }) {
   const cs = data.case_study ?? null;
   const stage = Object.fromEntries(data.stages.map((item) => [item.code, item])) as Record<
     string,
@@ -366,7 +365,7 @@ export function LoopFigureView({ data, navigate }: { data: ReportData; navigate:
   const ladder = m5?.ladder ?? [];
   const tried = m5?.candidates.length ?? 0;
   const best = m5?.candidates.find((c) => c.selected) ?? null;
-  const go = (id: string) => () => navigate(`evidence:${id}`);
+  const go = (id: string) => () => navigate({ view: "evidence", stage: id });
   const casesLabel = (n: number | null, what: string) => (n === null ? what : `${n} ${what}`);
 
   return (
@@ -386,7 +385,12 @@ export function LoopFigureView({ data, navigate }: { data: ReportData; navigate:
 
       <div className="lf">
         {/* ── INPUTS ─────────────────────────────────────────────────────── */}
-        <aside className="lf-inputs" onClick={() => navigate("cases")} role="button" tabIndex={0}>
+        <aside
+          className="lf-inputs"
+          onClick={() => navigate({ view: "cases" })}
+          role="button"
+          tabIndex={0}
+        >
           <span className="lf-lane-kicker">INPUTS</span>
           <div className="lf-box">
             <small>TARGET MODEL</small>
@@ -411,7 +415,10 @@ export function LoopFigureView({ data, navigate }: { data: ReportData; navigate:
               caption={data.setting.dataset}
               onBand={
                 partitions.length
-                  ? (band) => navigate(band.split ? `cases:split=${band.split}` : "cases")
+                  ? (band) =>
+                      navigate(
+                        band.split ? { view: "cases", split: band.split } : { view: "cases" },
+                      )
                   : undefined
               }
             />
@@ -789,7 +796,7 @@ export function LoopFigureView({ data, navigate }: { data: ReportData; navigate:
             <li>
               <button
                 type="button"
-                onClick={() => navigate("cases")}
+                onClick={() => navigate({ view: "cases" })}
                 title={
                   example
                     ? `${example.case_id} · ${String(example.question || "")

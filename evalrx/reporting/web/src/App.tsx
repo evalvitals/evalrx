@@ -11,6 +11,7 @@ import { RunsPanel } from "./runsPanel";
 import { CasesView } from "./casesView";
 import { DebugView } from "./debugView";
 import { EvidenceView } from "./evidenceView";
+import { navigate, parseRoute, type Route } from "./route";
 
 type Payload = { data: ReportData; layout: LayoutEnvelope };
 
@@ -27,7 +28,8 @@ export function App() {
   const [payload, setPayload] = useState<Payload | null>(window.__EVALRX_REPORT__ || null);
   const [error, setError] = useState("");
   const [needsRun, setNeedsRun] = useState(false);
-  const [view, setView] = useState("overview");
+  // The view on screen is the URL hash, so a refresh or a shared link lands on it.
+  const [route, setRoute] = useState<Route>(() => parseRoute(window.location.hash));
   // Charts read their colors through theme.tc at render time, so a switch
   // remounts the view tree (key={theme}) rather than restyling in place.
   const [theme, setTheme] = useState<Theme>(initialTheme);
@@ -38,6 +40,11 @@ export function App() {
   // experiments, so nothing in the list should read as "this one".
   const [activeRoot, setActiveRoot] = useState<string | null>(null);
   useEffect(() => applyTheme(theme), [theme]);
+  useEffect(() => {
+    const follow = () => setRoute(parseRoute(window.location.hash));
+    window.addEventListener("hashchange", follow);
+    return () => window.removeEventListener("hashchange", follow);
+  }, []);
   useEffect(() => {
     if (embedded) return;
     // The static build has no server: it opens on the landing page and reads archives itself.
@@ -67,7 +74,7 @@ export function App() {
     setPayload({ data: run.data, layout: run.layout });
     setNeedsRun(false);
     setError("");
-    setView("overview");
+    navigate({ view: "overview" });
     setRunsOpen(false);
     setActiveRoot(root);
   };
@@ -94,7 +101,7 @@ export function App() {
     // opens the same way whether it was found on the overview, a stage
     // brief or the full record, and the detail views all return past the
     // topbar below.
-    renderReport(payload, view, setView, embedded, load)
+    renderReport(payload, route, embedded, load)
   );
   return (
     <>
@@ -133,40 +140,21 @@ export function App() {
 
 function renderReport(
   payload: Payload,
-  view: string,
-  setView: (view: string) => void,
+  route: Route,
   embedded: boolean,
   load: (run: UploadedRun, root?: string | null) => void,
 ) {
-  const back = () => setView("overview");
-  if (view === "evidence" || view.startsWith("evidence:")) {
-    return (
-      <EvidenceView
-        data={payload.data}
-        back={back}
-        navigate={setView}
-        initialStage={view.split(":")[1]}
-      />
-    );
+  const back = () => navigate({ view: "overview" });
+  if (route.view === "evidence") {
+    return <EvidenceView data={payload.data} route={route} back={back} navigate={navigate} />;
   }
-  // "cases:<id>" opens the studio focused on one case, which is how M5's
-  // repaired/broken chips link into it; "cases:split=<partition>" opens it
-  // filtered to one band of the batch cylinder.
-  if (view === "cases" || view.startsWith("cases:")) {
-    return (
-      <CasesView
-        data={payload.data}
-        back={back}
-        initialCaseId={view.split(":")[1]?.startsWith("split=") ? undefined : view.split(":")[1]}
-        initialSplit={
-          view.split(":")[1]?.startsWith("split=")
-            ? view.split(":")[1].slice("split=".length)
-            : undefined
-        }
-      />
-    );
+  // A case id opens the studio focused on one case, which is how M5's
+  // repaired/broken chips link into it; a split opens it filtered to one band
+  // of the batch cylinder.
+  if (route.view === "cases") {
+    return <CasesView data={payload.data} route={route} back={back} navigate={navigate} />;
   }
-  if (view === "debug") return <DebugView data={payload.data} back={back} />;
+  if (route.view === "debug") return <DebugView data={payload.data} back={back} />;
   return (
     <>
       <div className="topbar">
@@ -186,7 +174,7 @@ function renderReport(
         </div>
         <code>{payload.data.trace_id.slice(0, 8)}</code>
       </div>
-      <ReportProviders data={payload.data} navigate={setView}>
+      <ReportProviders data={payload.data} navigate={navigate}>
         <JSONUIProvider registry={registry} initialState={{}}>
           <Renderer spec={payload.layout.spec} registry={registry} />
         </JSONUIProvider>

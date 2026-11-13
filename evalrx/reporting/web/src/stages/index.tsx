@@ -1,6 +1,7 @@
 /** One stage at either depth: its full record (L3) or its brief (L2). */
 import { stageDetail } from "../reportAccess";
 import type { ReportData } from "../types";
+import type { Navigate } from "../route";
 import { type Brief } from "../brief";
 import { EmptyStage } from "../detail";
 import { M1Detail, briefM1 } from "./m1";
@@ -16,7 +17,7 @@ export function StageArtifact({
 }: {
   stage: string;
   report: ReportData;
-  navigate?: (view: string) => void;
+  navigate?: Navigate;
 }) {
   if (stage === "m1") return <M1Detail data={stageDetail(report, "m1")} report={report} />;
   if (stage === "m2") return <M2Detail data={stageDetail(report, "m2")} />;

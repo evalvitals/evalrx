@@ -6,6 +6,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed — the report UI keeps its place in the URL
+
+The view on screen is now the URL hash (`#/evidence/m3`, `#/evidence/m3/full`,
+`#/cases/<id>?split=…`, `#/debug`), so a refresh keeps the reader on the same
+stage or case, a copied link opens it, and Back returns to the previous view.
+This works the same in a portable export opened from disk. Moving between
+stages, cases or partitions within a view replaces the history entry rather
+than adding one.
+
 ### Added — `ReportData.stage_detail` has a contract type
 
 The per-stage record the report UI's full-record views read is now declared

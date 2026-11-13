@@ -16,6 +16,7 @@ import {
 import ReactECharts from "echarts-for-react";
 import { ArrowUpRight, CircleDot, Database } from "lucide-react";
 import { z } from "zod";
+import type { Navigate } from "./route";
 import type { Chart, ReportData, Stage } from "./types";
 import { ZoomableImage } from "./lightbox";
 import { CaseStudySheet as CaseStudySection } from "./caseStudy";
@@ -51,7 +52,7 @@ export const reportCatalog = defineCatalog(schema, {
 });
 
 const DataContext = createContext<ReportData | null>(null);
-const NavContext = createContext<(view: string) => void>(() => undefined);
+const NavContext = createContext<Navigate>(() => undefined);
 
 export function ReportProviders({
   data,
@@ -59,7 +60,7 @@ export function ReportProviders({
   children,
 }: {
   data: ReportData;
-  navigate: (view: string) => void;
+  navigate: Navigate;
   children: React.ReactNode;
 }) {
   return (
@@ -264,7 +265,7 @@ export const { registry } = defineRegistry(reportCatalog, {
               nodesDraggable={false}
               nodesConnectable={false}
               panOnScroll={false}
-              onNodeClick={(_, node) => navigate(`evidence:${node.id}`)}
+              onNodeClick={(_, node) => navigate({ view: "evidence", stage: node.id })}
             >
               <Background color={tc("#24332f")} gap={22} size={1} />
               <Controls showInteractive={false} />
@@ -331,7 +332,7 @@ export const { registry } = defineRegistry(reportCatalog, {
               <span className="section-kicker">REAL MODEL I/O</span>
               <h2>Representative cases</h2>
             </div>
-            <button className="text-button" onClick={() => navigate("cases")}>
+            <button className="text-button" onClick={() => navigate({ view: "cases" })}>
               Open Case Studio <ArrowUpRight size={15} />
             </button>
           </header>
@@ -369,8 +370,8 @@ export const { registry } = defineRegistry(reportCatalog, {
             <h3>Need to audit the conclusion?</h3>
             <p>Move from stage evidence to individual model I/O, then to raw agent events.</p>
           </div>
-          {["evidence", "cases", "debug"].map((view, i) => (
-            <button key={view} onClick={() => navigate(view)}>
+          {(["evidence", "cases", "debug"] as const).map((view, i) => (
+            <button key={view} onClick={() => navigate({ view })}>
               <span>0{i + 2}</span>
               {view}
             </button>

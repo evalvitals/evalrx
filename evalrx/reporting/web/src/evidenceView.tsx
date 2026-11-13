@@ -1,8 +1,9 @@
 /** A stage's evidence: the stage list beside the selected stage's brief or full record. */
-import { useState } from "react";
+
 import { stageCode } from "./reportAccess";
 import { ChevronRight } from "lucide-react";
 import type { ReportData } from "./types";
+import type { Navigate, Route } from "./route";
 import { StageBrief } from "./brief";
 import { DetailShell } from "./detail";
 import { StageArtifact, buildBrief } from "./stages";
@@ -22,23 +23,22 @@ import { StageArtifact, buildBrief } from "./stages";
  */
 export function EvidenceView({
   data,
+  route,
   back,
   navigate,
-  initialStage,
 }: {
   data: ReportData;
+  route: Extract<Route, { view: "evidence" }>;
   back: () => void;
-  navigate?: (view: string) => void;
-  initialStage?: string;
+  navigate: Navigate;
 }) {
-  const [selected, setSelected] = useState(initialStage || data.stages[0]?.id);
-  const [full, setFull] = useState(false);
+  const selected = route.stage || data.stages[0]?.id;
+  const full = Boolean(route.full);
   const stage = data.stages.find((item) => item.id === selected);
   const brief = selected ? buildBrief(selected, data) : null;
-  const show = (id: string) => {
-    setSelected(id);
-    setFull(false);
-  };
+  const setFull = (value: boolean) =>
+    navigate({ view: "evidence", stage: selected, full: value }, { replace: true });
+  const show = (id: string) => navigate({ view: "evidence", stage: id }, { replace: true });
   return (
     <DetailShell
       title={full ? "Everything this step recorded" : "What this step found"}

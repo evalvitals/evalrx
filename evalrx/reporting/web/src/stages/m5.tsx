@@ -8,6 +8,7 @@ import ReactECharts from "echarts-for-react";
 import { tc } from "../theme";
 import { chartValue, findContract, oddsPhrase, oddsValue, plural } from "../reportAccess";
 import { Wrench } from "lucide-react";
+import type { Navigate } from "../route";
 import type {
   FixAttemptWire,
   FixOutput,
@@ -188,7 +189,7 @@ function CaseLinks({
   ids?: string[];
   kind: "fixed" | "broken";
   report: ReportData;
-  navigate?: (view: string) => void;
+  navigate?: Navigate;
 }) {
   if (!ids?.length) return null;
   const known = new Set(report.cases.map((c) => c.id));
@@ -204,7 +205,7 @@ function CaseLinks({
             <button
               className={`case-chip ${kind}`}
               key={id}
-              onClick={() => navigate?.(`cases:${id}`)}
+              onClick={() => navigate?.({ view: "cases", caseId: id })}
             >
               {id}
             </button>
@@ -237,7 +238,7 @@ export function M5Detail({
 }: {
   data: Partial<M5StageDetail>;
   report: ReportData;
-  navigate?: (view: string) => void;
+  navigate?: Navigate;
 }) {
   const candidates = data.candidates || [];
   if (!data.ran || !candidates.length)

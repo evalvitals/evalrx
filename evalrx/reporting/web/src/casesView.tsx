@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronRight, Search } from "lucide-react";
 import type { Case, Partition, ReportData } from "./types";
+import type { Navigate, Route } from "./route";
 import { DetailShell, DetailBlock, MediaPreview } from "./detail";
 import { plainOperation, formatCompact, displayValue, format } from "./format";
 
@@ -30,14 +31,14 @@ function SplitChip({ partition, title }: { partition?: Partition; title?: boolea
 
 export function CasesView({
   data,
+  route,
   back,
-  initialCaseId,
-  initialSplit,
+  navigate,
 }: {
   data: ReportData;
+  route: Extract<Route, { view: "cases" }>;
   back: () => void;
-  initialCaseId?: string;
-  initialSplit?: string;
+  navigate: Navigate;
 }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
@@ -45,12 +46,20 @@ export function CasesView({
   // Which band of the batch cylinder the list shows. "all" keeps every case
   // and draws the bands as headed groups instead — the batch was split before
   // anything ran, and a flat list hid that.
-  const [split, setSplit] = useState(
-    initialSplit && partitions.some((p) => p.split === initialSplit) ? initialSplit : "all",
-  );
-  const [selected, setSelected] = useState<Case | null>(
-    initialCaseId ? data.cases.find((c) => c.id === initialCaseId) || null : null,
-  );
+  const split =
+    route.split !== undefined && partitions.some((p) => p.split === route.split)
+      ? route.split
+      : "all";
+  const selected = (route.caseId && data.cases.find((c) => c.id === route.caseId)) || null;
+  // The case and the band are the reader's place in the studio, so they live
+  // in the URL; moving between them replaces the entry rather than adding one.
+  const show = (caseId: string | undefined, band: string) =>
+    navigate(
+      { view: "cases", ...(caseId ? { caseId } : {}), ...(band === "all" ? {} : { split: band }) },
+      { replace: true },
+    );
+  const setSplit = (band: string) => show(selected?.id, band);
+  const setSelected = (item: Case) => show(item.id, split);
   // fixed / broken / unchanged describe what the REPAIR did; pass / fail
   // describe the original run. Filtering on the wrong one silently returns
   // nothing, so each button reads the field it names.
