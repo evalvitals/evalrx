@@ -17,6 +17,7 @@ import ReactECharts from "echarts-for-react";
 import { ArrowUpRight, CircleDot, Database } from "lucide-react";
 import { z } from "zod";
 import type { Navigate } from "./route";
+import { api, RunIdContext } from "./api";
 import type { Chart, ReportData, Stage } from "./types";
 import { ZoomableImage } from "./lightbox";
 import { CaseStudySheet as CaseStudySection } from "./caseStudy";
@@ -383,12 +384,13 @@ export const { registry } = defineRegistry(reportCatalog, {
 });
 
 function PreviewMedia({ item, data }: { item: ReportData["cases"][number]; data: ReportData }) {
+  const runId = useContext(RunIdContext);
   const media = item.media_ids
     .map((id) => data.media.find((entry) => entry.id === id))
     .filter(Boolean);
   const first = media[0];
   if (!first) return null;
-  const source = first.data_uri || `/api/media/${encodeURIComponent(first.id)}`;
+  const source = first.data_uri || api.media(runId, first.id);
   if (first.kind === "image")
     return (
       <ZoomableImage

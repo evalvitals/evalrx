@@ -1,4 +1,5 @@
 /** The detail pages' shell and the generic record renderers they share. */
+import { useMediaSource } from "./api";
 import { ZoomableImage } from "./lightbox";
 import { ArrowLeft, Bot, ShieldCheck } from "lucide-react";
 import type { ReportData } from "./types";
@@ -115,7 +116,7 @@ export function MediaPreview({
   media: ReportData["media"][number];
   caseId: string;
 }) {
-  const source = media.data_uri || `/api/media/${encodeURIComponent(media.id)}`;
+  const source = useMediaSource(media);
   if (media.kind === "image")
     return (
       <ZoomableImage

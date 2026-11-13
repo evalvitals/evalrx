@@ -2,6 +2,7 @@
 import ReactECharts from "echarts-for-react";
 import { tc } from "../theme";
 import { ZoomableImage } from "../lightbox";
+import { useFigureSource } from "../api";
 import { chartPercent, chartValue } from "../reportAccess";
 import { BarChart3 } from "lucide-react";
 import type { FigureView, StatView } from "../types";
@@ -66,7 +67,7 @@ export function labelledFigures(figures: FigureView[], stats: StatView[]): Label
 }
 
 export function EvidenceFigure({ figure }: { figure: LabelledFigure }) {
-  const source = figure.data_uri || `/api/artifact?path=${encodeURIComponent(figure.path)}`;
+  const source = useFigureSource(figure);
   return (
     <figure>
       <ZoomableImage src={source} alt={figure.title} caption={figure.title} />

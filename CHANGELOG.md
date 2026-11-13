@@ -15,6 +15,21 @@ from `key` and failed with a shape mismatch (generic attention relevance and
 the delta-rule tap on hybrid models); it is now sized from the value heads.
 Verified on transformers 4.57.3, 5.20.2 and 5.23.0.
 
+### Changed — the report server's API is scoped by run (breaking)
+
+`evalrx serve` kept one global "current run": opening another run from the
+runs panel or an upload replaced it for every tab. The server now keeps no
+current run; every report request names one:
+`/api/runs/{run_id}/report`, `/stages/{stage_id}`, `/cases`,
+`/cases/{case_id}`, `/debug`, `/media/{media_id}` and `/artifact?path=…`.
+`/api/report`, `/api/stages/…`, `/api/cases…`, `/api/debug`, `/api/media/…`
+and `/api/artifact` are removed. `/api/session` now returns
+`{"run": {"id", "label", "root"} | null, "accepts_upload"}` (the run the
+server was started on), and `POST /api/runs/{run_id}/open` and
+`POST /api/upload` return the run's `id` beside its report. Run ids are
+issued only by the server itself (its start-up run, a runs listing, an
+upload), as before. `ReportSession` is replaced by `RunRegistry`.
+
 ### Changed — the report UI keeps its place in the URL
 
 The view on screen is now the URL hash (`#/evidence/m3`, `#/evidence/m3/full`,

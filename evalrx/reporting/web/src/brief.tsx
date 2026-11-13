@@ -27,6 +27,7 @@
 import ReactECharts from "echarts-for-react";
 import { tc } from "./theme";
 import { ZoomableImage } from "./lightbox";
+import { useFigureSource } from "./api";
 import { chartValue, outcomeColors } from "./reportAccess";
 import { AlertTriangle, ArrowRight, BarChart3 } from "lucide-react";
 import type { Chart, FigureView, ReportData } from "./types";
@@ -216,7 +217,7 @@ export function BriefChart({ chart }: { chart: Chart }) {
 
 /** A saved PNG a stage produced. `data_uri` on an exported report, path on a served one. */
 export function BriefImage({ figure }: { figure: FigureView }) {
-  const source = figure.data_uri || `/api/artifact?path=${encodeURIComponent(figure.path)}`;
+  const source = useFigureSource(figure);
   return (
     <ZoomableImage
       className="brief-image"

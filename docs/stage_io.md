@@ -519,8 +519,9 @@ UI is serving an extracted/copy-mounted run elsewhere. Therefore:
    unambiguous suffix against `manifest.files`.
 5. If no in-run match exists, show “artifact unavailable” and the recorded path
    as text. Never let a client-provided path escape `runRoot`.
-6. Serve artifacts through a backend route such as
-   `/api/runs/:runId/artifacts/:relativePath`; do not expose host paths in URLs.
+6. Serve artifacts through a run-scoped backend route — `evalrx serve` uses
+   `/api/runs/{run_id}/artifact?path=<relative path>` — and do not expose host
+   paths in URLs.
 
 ### 2. Shared serialized objects
 

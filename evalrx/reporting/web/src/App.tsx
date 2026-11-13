@@ -12,6 +12,7 @@ import { CasesView } from "./casesView";
 import { DebugView } from "./debugView";
 import { EvidenceView } from "./evidenceView";
 import { navigate, parseRoute, type Route } from "./route";
+import { api, RunIdContext } from "./api";
 
 type Payload = { data: ReportData; layout: LayoutEnvelope };
 
@@ -39,6 +40,10 @@ export function App() {
   // path). Null for an uploaded/embedded run: it isn't one of the scanned
   // experiments, so nothing in the list should read as "this one".
   const [activeRoot, setActiveRoot] = useState<string | null>(null);
+  // The server's id for the run on screen: every report request names it.
+  // Empty when no server holds the run (an export, or an archive read in the
+  // static build).
+  const [runId, setRunId] = useState("");
   useEffect(() => applyTheme(theme), [theme]);
   useEffect(() => {
     const follow = () => setRoute(parseRoute(window.location.hash));
@@ -52,26 +57,27 @@ export function App() {
       setNeedsRun(true);
       return;
     }
-    fetch("/api/report")
-      .then(async (res) => {
-        // The server starts empty when `evalrx serve` was given no run.
-        if (res.status === 404) {
-          setNeedsRun(true);
-          return;
-        }
+    const open = async () => {
+      const session = await fetch(api.session).then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        setPayload(await res.json());
-      })
-      .catch((err) => setError(String(err)));
-    fetch("/api/session")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((session) => {
-        if (session?.root) setActiveRoot(session.root);
-      })
-      .catch(() => undefined); // the runs panel just starts with nothing highlighted
+        return res.json();
+      });
+      // The server starts empty when `evalrx serve` was given no run.
+      if (!session.run) {
+        setNeedsRun(true);
+        return;
+      }
+      const res = await fetch(api.report(session.run.id));
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setPayload(await res.json());
+      setRunId(session.run.id);
+      setActiveRoot(session.run.root);
+    };
+    open().catch((err) => setError(String(err)));
   }, [embedded]);
   const load = (run: UploadedRun, root: string | null = null) => {
     setPayload({ data: run.data, layout: run.layout });
+    setRunId(run.id || "");
     setNeedsRun(false);
     setError("");
     navigate({ view: "overview" });
@@ -105,7 +111,9 @@ export function App() {
   );
   return (
     <>
-      <div key={theme}>{body}</div>
+      <RunIdContext value={runId}>
+        <div key={theme}>{body}</div>
+      </RunIdContext>
       {!embedded && !STATIC_MODE && (
         <>
           <button

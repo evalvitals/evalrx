@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { FolderClock, RefreshCw, X } from "lucide-react";
 import type { UploadedRun } from "./upload";
+import { api } from "./api";
 
 export type RunListItem = {
   id: string;
@@ -25,14 +26,14 @@ export type RunListItem = {
 };
 
 async function fetchRuns(): Promise<{ root: string; items: RunListItem[]; truncated: boolean }> {
-  const res = await fetch("/api/runs");
+  const res = await fetch(api.runs);
   if (!res.ok)
     throw new Error((await res.json().catch(() => null))?.detail || `HTTP ${res.status}`);
   return res.json();
 }
 
 async function openRun(id: string): Promise<UploadedRun> {
-  const res = await fetch(`/api/runs/${encodeURIComponent(id)}/open`, { method: "POST" });
+  const res = await fetch(api.open(id), { method: "POST" });
   const text = await res.text();
   let parsed: any = null;
   try {
