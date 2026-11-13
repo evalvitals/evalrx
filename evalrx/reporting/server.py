@@ -318,7 +318,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="Unknown run id; refresh the runs list and try again") from None
         except Exception as exc:  # a run mid-write or otherwise unreadable
             raise HTTPException(status_code=422, detail=f"could not open this run: {exc}") from exc
-        return {"id": key, "label": run.label, **run.payload}
+        return {"id": key, "label": run.label, "root": str(run.root), **run.payload}
 
     @app.get("/api/session")
     def get_session() -> dict[str, Any]:
@@ -363,7 +363,8 @@ def create_app(
 
     @app.get("/api/runs/{run_id}/report")
     def get_report(run_id: str) -> dict[str, Any]:
-        return loaded(run_id).payload
+        run = loaded(run_id)
+        return {"id": run_id, "label": run.label, "root": str(run.root), **run.payload}
 
     @app.get("/api/runs/{run_id}/stages/{stage_id}")
     def get_stage(run_id: str, stage_id: str) -> dict[str, Any]:

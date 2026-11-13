@@ -149,6 +149,15 @@ def test_runs_panel_lists_and_opens_sibling_experiments(tmp_path):
         assert client.post("/api/runs/not-a-real-id/open").status_code == 404
         assert client.get("/api/runs/not-a-real-id/report").status_code == 404
 
+        # Every report route answers for the run it names.
+        report_b = client.get(f"/api/runs/{unpublished['id']}/report").json()
+        assert (report_b["id"], report_b["root"]) == (unpublished["id"], unpublished["root"])
+        stage = client.get(f"/api/runs/{unpublished['id']}/stages/m1")
+        assert stage.status_code == 200 and stage.json()["stage"]["id"] == "m1"
+        assert client.get(f"/api/runs/{unpublished['id']}/stages/m9").status_code == 404
+        debug = client.get(f"/api/runs/{unpublished['id']}/debug", params={"limit": 1}).json()
+        assert debug["total"] >= 1 and len(debug["items"]) == 1
+
 
 def test_an_uploaded_run_gets_its_own_id_and_an_empty_server_names_no_run(tmp_path):
     import io

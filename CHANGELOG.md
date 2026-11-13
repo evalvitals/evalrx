@@ -93,9 +93,13 @@ current run; every report request names one:
 and `/api/artifact` are removed. `/api/session` now returns
 `{"run": {"id", "label", "root"} | null, "accepts_upload"}` (the run the
 server was started on), and `POST /api/runs/{run_id}/open` and
-`POST /api/upload` return the run's `id` beside its report. Run ids are
-issued only by the server itself (its start-up run, a runs listing, an
-upload), as before. `ReportSession` is replaced by `RunRegistry`.
+`POST /api/upload` return the run's `id`, `label` and `root` beside its
+report, as does `GET /api/runs/{run_id}/report`. Run ids are issued only by
+the server itself (its start-up run, a runs listing, an upload), as before.
+`ReportSession` is replaced by `RunRegistry`. The UI keeps the id of the run
+on screen in the URL hash (`?run=<id>`), so a reload or a shared link reopens
+that run; an id the server does not know (after a restart) falls back to its
+start-up run.
 
 ### Changed — the report UI keeps its place in the URL
 

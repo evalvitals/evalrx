@@ -10,6 +10,9 @@
  *   #/evidence/m3           a stage's brief;  #/evidence/m3/full  its full record
  *   #/cases/<id>?split=E    the case studio, on one case and/or one partition
  *   #/debug                 the raw event log
+ *
+ * On a served report the hash also names the run (`?run=<id>`), so a reload
+ * or a link reopens the run that was on screen, not the server's start-up run.
  */
 export type Route =
   | { view: "overview" }
@@ -17,7 +20,7 @@ export type Route =
   | { view: "cases"; caseId?: string; split?: string }
   | { view: "debug" };
 
-export type Navigate = (route: Route, options?: { replace?: boolean }) => void;
+export type Navigate = (route: Route, options?: { replace?: boolean; run?: string | null }) => void;
 
 export function parseRoute(hash: string): Route {
   const [path, query = ""] = hash.replace(/^#\/?/, "").split("?");
@@ -54,13 +57,32 @@ export function routeHash(route: Route): string {
   }
 }
 
+/** The server-side run id a hash names, or null. */
+export function runFromHash(hash: string): string | null {
+  return new URLSearchParams(hash.split("?")[1] ?? "").get("run") || null;
+}
+
+/** *hash* naming run *runId* (or no run, for null). */
+export function withRun(hash: string, runId: string | null): string {
+  const [path, query = ""] = hash.split("?");
+  const params = new URLSearchParams(query);
+  params.delete("run");
+  if (runId) params.set("run", runId);
+  const rest = params.toString();
+  return rest ? `${path}?${rest}` : path;
+}
+
 /**
  * Move to `route`. A move between views adds a history entry, so Back returns
  * to the previous view; `replace` is for a selection within a view (another
  * stage, case or partition), which should not leave a trail of entries.
+ * The run the hash names is kept unless `run` says otherwise.
  */
-export const navigate: Navigate = (route, { replace = false } = {}) => {
-  const hash = routeHash(route);
+export const navigate: Navigate = (route, { replace = false, run } = {}) => {
+  const hash = withRun(
+    routeHash(route),
+    run === undefined ? runFromHash(window.location.hash) : run,
+  );
   if (replace) window.location.replace(hash);
   else window.location.hash = hash;
 };

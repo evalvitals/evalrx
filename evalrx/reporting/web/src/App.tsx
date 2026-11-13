@@ -11,7 +11,7 @@ import { RunsPanel } from "./runsPanel";
 import { CasesView } from "./casesView";
 import { DebugView } from "./debugView";
 import { EvidenceView } from "./evidenceView";
-import { navigate, parseRoute, type Route } from "./route";
+import { navigate, parseRoute, runFromHash, withRun, type Route } from "./route";
 import { api, RunIdContext } from "./api";
 
 type Payload = { data: ReportData; layout: LayoutEnvelope };
@@ -62,16 +62,32 @@ export function App() {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
       });
-      // The server starts empty when `evalrx serve` was given no run.
-      if (!session.run) {
-        setNeedsRun(true);
+      // A reload or a shared link names the run that was on screen; the
+      // server's start-up run is the fallback — and the only choice after a
+      // restart, since a server knows only the run ids it handed out itself.
+      const named = runFromHash(window.location.hash);
+      for (const id of [named, session.run?.id]) {
+        if (!id) continue;
+        const res = await fetch(api.report(id));
+        if (res.status === 404) continue;
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const run = await res.json();
+        setPayload({ data: run.data, layout: run.layout });
+        setRunId(id);
+        setActiveRoot(run.root ?? null);
+        if (id !== named) {
+          // Another run than the hash named: its view of that run means nothing here.
+          const here = named
+            ? "#/"
+            : window.location.hash.startsWith("#/")
+              ? window.location.hash
+              : "#/";
+          window.location.replace(withRun(here, id));
+        }
         return;
       }
-      const res = await fetch(api.report(session.run.id));
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setPayload(await res.json());
-      setRunId(session.run.id);
-      setActiveRoot(session.run.root);
+      // The server starts empty when `evalrx serve` was given no run.
+      setNeedsRun(true);
     };
     open().catch((err) => setError(String(err)));
   }, [embedded]);
@@ -80,7 +96,7 @@ export function App() {
     setRunId(run.id || "");
     setNeedsRun(false);
     setError("");
-    navigate({ view: "overview" });
+    navigate({ view: "overview" }, { run: run.id ?? null });
     setRunsOpen(false);
     setActiveRoot(root);
   };
@@ -166,7 +182,7 @@ function renderReport(
   return (
     <>
       <div className="topbar">
-        <a href="#">
+        <a href={withRun("#/", runFromHash(window.location.hash))}>
           <span className="logo-mark">EV</span>
           <strong>EvalRX</strong>
         </a>
