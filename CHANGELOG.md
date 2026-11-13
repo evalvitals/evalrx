@@ -6,6 +6,8 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-11-13
+
 ### Added — follow a run while it is written
 
 `evalrx serve` on a run still in progress follows it: the top bar says "run in
