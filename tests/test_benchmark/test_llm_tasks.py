@@ -37,8 +37,10 @@ def test_unknown_dataset_is_a_key_error_naming_the_choices():
 def test_the_task_registry_imports_without_requests():
     """``requests`` is in the ``data`` extra; the registry must not need it."""
     code = (
-        "import sys; sys.modules['requests'] = None\n"
-        "from evalrx.benchmark import tasks\n"
+        "import sys\n"
+        "import evalrx\n"
+        "assert 'evalrx.benchmark.tasks' not in sys.modules\n"
+        "sys.modules['requests'] = None\n"
         "from evalrx.benchmark.tasks import llm\n"
         "assert llm.grade('bbh_causal_judgement', 'Answer: Yes', 'Yes')\n"
     )

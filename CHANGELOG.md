@@ -45,7 +45,7 @@ is the reader behind the dynamic report, the Langfuse bundle export and the
 legacy static page, and no longer lives inside the legacy renderer.
 `html_report` keeps the static page (`build_html_report`,
 `generate_html_report`, `embed_figures`, `embed_media`). Import
-`extract_run_data` from `evalrx.reporting.run_data`; no alias is kept.
+`extract_run_data` from `evalrx.reporting.run_data`.
 
 ### Changed — FixAgent split into the `stages/fix/` package
 
