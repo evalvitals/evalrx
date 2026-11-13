@@ -27,6 +27,28 @@ def test_a_real_runs_stage_detail_conforms():
     StageDetail.model_validate(data["stage_detail"])
 
 
+@pytest.mark.parametrize("example", ["synthetic_yield_explore", "deco_hallu_explore"])
+def test_an_explore_output_conforms(example):
+    from evalrx.reporting.dynamic import build_report_data
+
+    root = Path(__file__).resolve().parents[2] / "examples/m2_m3" / example / "reference_output"
+    StageDetail.model_validate(build_report_data(root)["stage_detail"])
+
+
+def test_a_fused_output_conforms(tmp_path):
+    from evalrx.analysis.fused_pipeline import FusedReport, FusedSignal
+    from evalrx.reporting.dynamic import build_report_data
+
+    report = FusedReport(
+        question="q", ok=True, observations=["o"], caveats=["c"],
+        candidate_signals=[FusedSignal(name="s", source="explorer", reject=True, effect=0.3,
+                                       ci=(0.1, 0.5), p_value=0.01)],
+        recommended_confirmatory_tests=["t"], conclusion="c",
+    )
+    (tmp_path / "fused_report.json").write_text(json.dumps(report.to_dict()), encoding="utf-8")
+    StageDetail.model_validate(build_report_data(tmp_path)["stage_detail"])
+
+
 def test_a_full_m1_to_m5_run_conforms(tmp_path):
     from evalrx.reporting.dynamic import build_report_data
     from tests.test_analysis.test_case_study_sheet import make_run
