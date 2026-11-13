@@ -51,8 +51,8 @@ PKG_ROOT = next(p for p in HERE.resolve().parents if (p / "pyproject.toml").exis
 sys.path.insert(0, str(PKG_ROOT))
 
 import band_locate as B  # noqa: E402
-import datasets as CATALOG  # noqa: E402
 
+from evalrx.benchmark.tasks.llm import catalog  # noqa: E402
 from evalrx.core.model import Model  # noqa: E402
 
 CFG = yaml.safe_load((HERE / "config.yaml").read_text())
@@ -414,7 +414,7 @@ def build_protocol(dataset: str):
     """
     from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
-    entry = CATALOG.get(dataset)
+    entry = catalog.get(dataset)
     return ExperimentProtocol(
         description=(
             f"A text-only LLM answers items from {entry.source}. "
@@ -817,7 +817,7 @@ def main() -> None:
 
     # Same budget Stage 0 used, or M1's probes truncate where the batch did not
     # and the two halves of the run stop being comparable.
-    max_tokens = CATALOG.get(args.dataset).max_tokens or int(CFG["max_tokens"])
+    max_tokens = catalog.get(args.dataset).max_tokens or int(CFG["max_tokens"])
     # Thinking is a property of the whole run (Stage 0 baselines, M1 probes, M5
     # experiments, fix candidates, logprobs all go through band_locate.generate
     # or EndpointModel.logprobs): one switch, read by both.

@@ -388,7 +388,7 @@ TASK = Task(
 
 `pinned_m1` is the static M1 analyzer set. Start from a sibling task of the
 same kind and modality (vlm short answers: `chartqa.py`; yes-no: `pope.py`;
-letters: `mmau.py`; sampled text: `llm.py`'s eight-analyzer `PINNED_M1`). Names
+letters: `mmau.py`; sampled text: `llm/`'s eight-analyzer `PINNED_M1`). Names
 are the analyzer classes' `name` attributes under `evalrx/analyzers/`;
 `--m1-selection judge` lets the judge pick from the catalog instead, useful
 once to see what it would choose. `max_new_tokens` is the per-call cap;
@@ -413,10 +413,10 @@ DATASET=mytask EXTRA_ARGS="--baseline-only --limit 8" docker compose run --rm ge
 set, a known kind, a download and a protocol. Add a test like
 `test_gsm8k_is_registered` and a download test that monkeypatches the hub call
 (`test_gsm8k_download_samples_in_test_order_with_numeric_golds` is the pattern)
-so the slice stays reproducible without network. A text dataset built from
-`examples/dataset_selection` goes through `llm.py`'s `DATASETS` tuple instead
-of a new module; `test_llm_task_names_match_the_dataset_selection_catalog`
-keeps the two lists equal.
+so the slice stays reproducible without network. A band-located text slice goes into `evalrx/benchmark/tasks/llm/` instead of
+a new module: its spec in `specs.py`, its provenance in `catalog.py`, its name
+in `DATASETS`; `test_every_task_has_a_catalog_entry_and_a_spec` keeps the three
+equal.
 
 ### 3.2 A new model
 

@@ -74,9 +74,8 @@ interp = [
 data = [
     "datasets>=2.0",
     "pillow>=9.0",
-    # The text-LLM benchmark tasks (evalrx.benchmark.tasks.llm) load
-    # examples/dataset_selection/llm_band_probe/band_locate.py, which imports
-    # requests at module level to page through the HF datasets-server.
+    # The text-LLM benchmark tasks (evalrx.benchmark.tasks.llm.fetch) page
+    # through the HF datasets-server with requests.
     "requests>=2.28",
 ]
 # Machine-readable M1-M5 stage contract (evalrx.contract): runtime validation

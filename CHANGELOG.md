@@ -6,6 +6,30 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed — the text-LLM benchmark tasks work from an installed package
+
+`evalrx.benchmark.tasks.llm` used to load its slice definitions at run time
+from `examples/dataset_selection` (by file path, or
+`EVALRX_DATASET_SELECTION_DIR`), so the nine LLM tasks failed with
+`FileNotFoundError` outside a repo checkout. The definitions now ship in the
+package, as `evalrx.benchmark.tasks.llm`:
+
+- `specs` — `Spec`, the nine slice specs (`SPECS`, keyed by task name), and
+  the adapters/graders they use (`plain_adapter`, `mc_adapter`,
+  `bbh_adapter`, `cruxeval_adapter`, `grade_latex`, ...).
+- `catalog` — `Entry`, `CATALOG`, `BY_NAME`, `get`, `acquisition`. `get`
+  raises `KeyError` for an unknown name (it used to raise `SystemExit`).
+- `fetch` — `fetch_rows`, `fetch_rows_hub`, `parse_where`. `requests` and HF
+  `datasets` are imported on use, so importing the task registry needs
+  neither.
+
+`llm.catalog()`, `llm.dataset_selection_dir()` and
+`EVALRX_DATASET_SELECTION_DIR` are removed. Manifests, grades and protocols
+are unchanged. In `examples/dataset_selection`, `band_locate.py` keeps the
+survey's other candidates and reuses the library specs; `datasets.py` is now
+only the catalog CLI plus the 2B probe records; the benchmark image no longer
+copies `examples/dataset_selection`.
+
 ### Changed — FixAgent split into the `stages/fix/` package
 
 `stages/fix_agent.py` (3,952 lines, one 3,200-line class) is now an

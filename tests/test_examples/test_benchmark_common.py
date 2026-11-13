@@ -252,8 +252,7 @@ def test_llm_task_names_match_the_dataset_selection_catalog(common):
     _, tasks, _, _ = common
     from _common.tasks import llm
 
-    mod, band = llm.catalog()
-    assert set(llm.DATASETS) == {e.name for e in mod.CATALOG}
+    assert set(llm.DATASETS) == {e.name for e in llm.catalog.CATALOG}
     assert {t.name for t in llm.TASKS} == set(llm.DATASETS)
     # the dataset's own grader on the extracted answer — not a verbatim-substring check
     assert llm.grade("bbh_causal_judgement", "Reasoning...\nAnswer: Yes", "Yes")
@@ -467,8 +466,6 @@ def test_llm_download_freezes_from_the_hub_when_the_datasets_server_is_down(comm
 
     from _common.tasks import llm
 
-    _, band = llm.catalog()
-
     def _down(spec, want, seed=0, **kw):
         raise RuntimeError(f"datasets-server unavailable for {spec.dataset}")
 
@@ -480,8 +477,8 @@ def test_llm_download_freezes_from_the_hub_when_the_datasets_server_is_down(comm
         hub_calls.append((spec.name, want, seed))
         return list(rows)
 
-    monkeypatch.setattr(band, "fetch_rows", _down)
-    monkeypatch.setattr(band, "fetch_rows_hub", _hub)
+    monkeypatch.setattr(llm.fetch, "fetch_rows", _down)
+    monkeypatch.setattr(llm.fetch, "fetch_rows_hub", _hub)
 
     summary = llm.download(tmp_path, limit=20, seed=7, dataset="supergpqa_law")
 
@@ -493,28 +490,6 @@ def test_llm_download_freezes_from_the_hub_when_the_datasets_server_is_down(comm
     out = capsys.readouterr().out
     assert "datasets-server unavailable for m-a-p/SuperGPQA" in out and "hub files" in out
 
-
-def test_llm_catalog_does_not_cache_a_failed_import(tmp_path, monkeypatch):
-    """A catalog import that fails must fail the same way on the next call.
-
-    Caching the half-initialised module turned a missing dependency into
-    ``AttributeError: ... has no attribute 'B'`` for every later caller.
-    """
-    from evalrx.benchmark.tasks import llm
-
-    (tmp_path / "llm_benchmark").mkdir()
-    (tmp_path / "llm_band_probe").mkdir()
-    (tmp_path / "llm_benchmark" / "datasets.py").write_text(
-        "raise ImportError('missing optional dependency')\n")
-    (tmp_path / "llm_band_probe" / "band_locate.py").write_text("")
-    monkeypatch.setenv("EVALRX_DATASET_SELECTION_DIR", str(tmp_path))
-    monkeypatch.setattr(sys, "path", list(sys.path))
-    monkeypatch.delitem(sys.modules, llm._MODULE_NAME, raising=False)
-
-    for _ in range(2):
-        with pytest.raises(ImportError, match="missing optional dependency"):
-            llm.catalog()
-        assert llm._MODULE_NAME not in sys.modules
 
 
 # ----------------------------------------------------------------------

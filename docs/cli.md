@@ -49,9 +49,8 @@ use `--no-allow-codegen --no-explore --no-m2-codegen --skip-surgery`.
 
 Use `evalrx run --help` for all controls, `--list` for model support, and
 `--download-only` to prepare data. EXPLORE selects a candidate; CONFIRM tests it
-once. `--run-dir` and `--data-dir` control runtime files. Some legacy text-band
-datasets still require `examples/dataset_selection` from a checkout (or
-`EVALRX_DATASET_SELECTION_DIR`); ChartQA is bundled with the package.
+once. `--run-dir` and `--data-dir` control runtime files. The text-LLM slices
+and ChartQA are bundled with the package.
 
 `explore` and `run-codebase` retain their narrower result-analysis workflows
 (M2/M3 and optional held-out confirmation); they do not run the full M1–M5 loop.

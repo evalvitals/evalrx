@@ -75,7 +75,7 @@ for the 3.x models), so `calibration` runs on its verbalized channel only,
 | vlm | `chartqa` (default) | ChartQA test, human-authored | normalised exact match, 5 % numeric tolerance | 256 (+128 val) |
 | vlm | `spatial457` | Spatial457 L5_6d_spatial | normalised exact match | 256 (+128 val) |
 | vlm | `pope_random` / `pope_popular` / `pope_adversarial` | POPE COCO object hallucination, 1 present + 1 absent question per image (split = how the absent object is sampled) | Yes/No | 1000 |
-| llm | `bbh_causal_judgement` (default), `bbh_word_sorting`, `bbh_tracking7`, `cruxeval_output`, `bamboogle`, `minervamath`, `supergpqa_law`, `supergpqa_economics`, `supergpqa_medicine_hard` | the band-located slices of [`dataset_selection`](../dataset_selection/llm_benchmark/datasets.py) | each slice's own grader on the extracted answer | 256 |
+| llm | `bbh_causal_judgement` (default), `bbh_word_sorting`, `bbh_tracking7`, `cruxeval_output`, `bamboogle`, `minervamath`, `supergpqa_law`, `supergpqa_economics`, `supergpqa_medicine_hard` | the band-located slices in [`evalrx/benchmark/tasks/llm/catalog.py`](../../evalrx/benchmark/tasks/llm/catalog.py) | each slice's own grader on the extracted answer | 256 |
 | llm | `hotpotqa_gepa` | the GEPA test split of HotpotQA (fullwiki/train, seed-1 sample, arXiv:2507.19457) with the dataset's own 10 candidate paragraphs in-prompt; val = the disjoint GEPA train pool | SQuAD-normalised exact match | 300 (+150 val) |
 | llm | `gsm8k` | a seeded 500-of-1,319 sample of the GSM8K test split (grade-school multi-step word problems) | numeric exact match on the `Answer:` line | 500 (+250 val) |
 | alm | `mmau` (default) | MMAU test-mini, 4-way MC | option letter | 256 (+128 val) |

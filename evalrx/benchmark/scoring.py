@@ -5,7 +5,7 @@
 extraction, normalisation, relaxed numeric tolerance);
 ``multiple_choice_letter`` and ``yes_no`` are the MMAU / AudioCaps parsers from
 the ``m1_m5`` audio examples. ``llm_graded`` delegates to the dataset's own
-grader in ``examples/dataset_selection`` (see ``tasks/llm.py``);
+grader (see ``tasks/llm/specs.py``);
 ``short_answer_em`` is SQuAD's normalisation (HotpotQA's official metric and
 dspy's ``answer_exact_match``) on the extracted answer — unlike
 ``normalize_answer`` it REMOVES punctuation, so ``"Paris."`` == ``"Paris"``.

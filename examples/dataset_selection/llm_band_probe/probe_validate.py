@@ -39,6 +39,8 @@ from evalrx.analyzers.reasoning.self_repair import SelfRepairAnalyzer  # noqa: E
 from evalrx.analyzers.reasoning.termination_audit import TerminationAudit  # noqa: E402
 from evalrx.analyzers.uncertainty.coverage_gap import CoverageVerificationGap  # noqa: E402
 from evalrx.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer  # noqa: E402
+from evalrx.benchmark.tasks.llm.fetch import fetch_rows  # noqa: E402
+from evalrx.benchmark.tasks.llm.specs import Spec, plain_adapter  # noqa: E402
 from evalrx.core.capability import Capability  # noqa: E402
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label  # noqa: E402
 from evalrx.core.model import Model  # noqa: E402
@@ -87,10 +89,10 @@ class EndpointModel(Model):
         return f"EndpointModel({B.MODEL_ID})"
 
 
-def collect_baseline(spec: B.Spec, n: int, concurrency: int, max_tokens: int) -> CaseBatch:
+def collect_baseline(spec: Spec, n: int, concurrency: int, max_tokens: int) -> CaseBatch:
     """Run the model once per item and build a LABELLED batch from the outcome."""
-    rows = B.fetch_rows(spec, n)
-    adapter = spec.adapter or B._adapter_plain(spec.question_field, spec.answer_field)
+    rows = fetch_rows(spec, n)
+    adapter = spec.adapter or plain_adapter(spec.question_field, spec.answer_field)
     items = []
     for row in rows:
         pair = adapter(row)
