@@ -5710,3 +5710,85 @@ footer small {
 .landing-drop .load-state {
   min-height: 0;
 }
+
+/* Compare runs (#/compare/<id>) */
+.topbar a.compare-toggle {
+  margin-right: 0;
+  gap: 6px;
+  color: var(--green);
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.compare-head {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 28px 0 16px;
+}
+.compare-head > div {
+  display: grid;
+  gap: 6px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  background: var(--card);
+}
+.compare-head span,
+.compare-note {
+  color: var(--muted);
+  font-size: 13px;
+}
+.compare-head button,
+.compare-picker button {
+  justify-self: start;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--green);
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.compare-picker ul {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.compare-picker button {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+}
+.compare-picker button span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.compare-cases {
+  margin-top: 28px;
+}
+.compare-case-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.compare-case-list h3 {
+  flex-basis: 100%;
+  margin: 8px 0 0;
+  font-size: 14px;
+}
+.compare-case-list a {
+  color: var(--green);
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+@media (max-width: 720px) {
+  .compare-head {
+    grid-template-columns: 1fr;
+  }
+}
+.compare-head code {
+  color: var(--muted);
+  font-size: 12px;
+}

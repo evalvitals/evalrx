@@ -6,6 +6,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — compare two runs in `evalrx serve`
+
+**Compare** in the report's top bar opens the run beside another one the
+server lists (`#/compare/<id>`): metrics and stage outcomes side by side, and
+the shared cases (joined by id) that passed in one run and failed in the
+other, each linking into the case studio.
+
 ### Changed — the package type-checks, and CI enforces it
 
 `mypy evalrx` reports no errors (it reported 672) and now runs in CI. Most of

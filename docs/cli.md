@@ -173,6 +173,13 @@ evalrx serve --runs-root outputs/     # runs panel over every run under outputs/
 | `--trace-id` | — | Langfuse trace id (required with `--source langfuse`). |
 | `--runs-root` | `run_dir`'s parent | Where the in-page runs panel looks for other experiments. |
 
+**Compare** in the top bar puts the run on screen beside another the runs
+panel lists (`#/compare/<id>`): their metrics and stage outcomes in one table,
+and the cases both evaluated that passed in one run and failed in the other,
+each a link into the case studio. Runs are joined by case id, and the page
+says when they used different datasets or one is an explore output. A portable
+`report.html` holds a single run, so it has no Compare.
+
 ## `evalrx report`
 
 Exports the same UI `serve` shows, as one portable HTML file — no server

@@ -12,6 +12,8 @@ describe("routes", () => {
     [{ view: "cases", split: "heldout" }, "#/cases?split=heldout"],
     [{ view: "cases", caseId: "a/b c", split: "" }, "#/cases/a%2Fb%20c?split="],
     [{ view: "debug" }, "#/debug"],
+    [{ view: "compare" }, "#/compare"],
+    [{ view: "compare", with: "run 2" }, "#/compare/run%202"],
   ];
 
   it.each(cases)("round-trips %j", (route, hash) => {

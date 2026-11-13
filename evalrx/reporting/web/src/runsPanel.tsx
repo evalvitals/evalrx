@@ -25,14 +25,18 @@ export type RunListItem = {
   modified_at: string | null;
 };
 
-async function fetchRuns(): Promise<{ root: string; items: RunListItem[]; truncated: boolean }> {
+export async function fetchRuns(): Promise<{
+  root: string;
+  items: RunListItem[];
+  truncated: boolean;
+}> {
   const res = await fetch(api.runs);
   if (!res.ok)
     throw new Error((await res.json().catch(() => null))?.detail || `HTTP ${res.status}`);
   return res.json();
 }
 
-function openRun(id: string): Promise<UploadedRun> {
+export function openRun(id: string): Promise<UploadedRun> {
   return postJson<UploadedRun>(api.open(id));
 }
 
