@@ -1,7 +1,8 @@
 import { isValidElement, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import fixture from "../fixtures/chartqa-gemini.json";
-import { buildBrief, type Brief } from "./brief";
+import type { Brief } from "./brief";
+import { buildBrief } from "./stages";
 import type { ReportData } from "./types";
 
 // Chart options resolve theme colours from the stylesheet (theme.tc). There is

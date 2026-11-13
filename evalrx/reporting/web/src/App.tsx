@@ -8,7 +8,9 @@ import { Lightbox } from "./lightbox";
 import { RunDrop, RunSwitch, STATIC_MODE, type UploadedRun } from "./upload";
 import { StaticLanding } from "./landing";
 import { RunsPanel } from "./runsPanel";
-import { CasesView, DebugView, EvidenceView } from "./views";
+import { CasesView } from "./casesView";
+import { DebugView } from "./debugView";
+import { EvidenceView } from "./evidenceView";
 
 type Payload = { data: ReportData; layout: LayoutEnvelope };
 
