@@ -38,6 +38,7 @@ from __future__ import annotations
 import logging
 import random
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -79,6 +80,35 @@ _STOPPED_BY_NO_PROBE  = "no_probe_results"
 # run_analysis() ran M1->M2->M3 and proposed hypotheses without confirming them
 # (M4 deferred to run_confirm()). Not a failure — the analysis report is ready.
 _STOPPED_BY_ANALYSIS  = "analysis_complete"
+
+
+@dataclass
+class _LoopState:
+    """What :meth:`VLDiagnoseLoop.run` accumulates across cycles."""
+
+    hypotheses: list = field(default_factory=list)
+    test_results: list = field(default_factory=list)
+    #: Each finished cycle's summary, M3's context for the next one.
+    prior_cycles: list = field(default_factory=list)
+    stats_report: Any = None
+    #: The last M1's analyzers — what the held-out M4 pass re-runs.
+    analyzer_names: list = field(default_factory=list)
+
+
+def _cycle_summary(cycle: int, stats_report: Any, hypotheses: list) -> dict[str, Any]:
+    """One finished cycle as the next M3 call sees it."""
+    return {
+        "cycle": cycle,
+        "severity": stats_report.severity,
+        "hypotheses": [
+            {
+                "statement": h.statement,
+                "failure_mode": h.predicted_failure_mode,
+                "status": h.status.value if h.status else "pending",
+            }
+            for h in hypotheses
+        ],
+    }
 
 
 def _exact_size(picked: "list", pool: "list", n: int, seed: int) -> "list":
@@ -1024,14 +1054,7 @@ class VLDiagnoseLoop:
             :class:`VLDiagnoseReport` with the final state.
             Call :meth:`run_m5` on this to get a fix proposal (Plan A).
         """
-        all_hypotheses: list[Any] = []
-        all_test_results: list[Any] = []
-        final_stats_report = None
-        stopped_by = _STOPPED_BY_MAX
-        prior_cycles: list[dict[str, Any]] = []
-        last_analyzer_names: list[str] = []
         self._tokens_used = 0
-
         # Per-stage wall-clock totals (seconds) for the loop_end cost profile.
         timings: dict[str, float] = {}
 
@@ -1044,172 +1067,167 @@ class VLDiagnoseLoop:
         # gate in run_fix.
         explore, confirm, test = self._split_partitions(data)
         if confirm is not None:
-            if test is not None:
-                logger.info(
-                    "train/val/test split: train=%d, val=%d, test=%d "
-                    "(frac=%.2f/%.2f)",
-                    len(list(explore)), len(list(confirm)), len(list(test)),
-                    self.confirm_split, self.test_split,
-                )
-            elif self.val_data is not None:
-                logger.info(
-                    "explore/confirm split: explore=%d, confirm=%d (frac=%.2f) "
-                    "+ external validation set: %d cases",
-                    len(list(explore)), len(list(confirm)), self.confirm_split,
-                    len(list(self.val_data)),
-                )
-            else:
-                logger.info(
-                    "confirm split: explore=%d cases, confirm=%d held out (frac=%.2f)",
-                    len(list(explore)), len(list(confirm)), self.confirm_split,
-                )
+            self._log_partitions(explore, confirm, test)
             data = explore
 
-        # With a confirm split (and m4_holdout on), M4 runs ONCE after the
-        # loop, on held-out data — the cycles only mine (M1→M3). The holdout
-        # target is the external validation set when one was supplied (the
-        # confirm partition then stays reserved for the frozen fix winner),
-        # else the confirm partition itself. Without any held-out data M4
-        # stays in-cycle as before.
-        holdout_target = self.val_data if self.val_data is not None else confirm
-        holdout_mode = holdout_target is not None and self.m4_holdout
+        # With held-out data (and m4_holdout on), M4 runs ONCE after the loop,
+        # on that data — the cycles only mine (M1→M3). Without any, M4 stays
+        # in-cycle.
+        holdout_target = self._holdout_target(confirm)
+        self._start_run_log(data, "VLDiagnoseLoop", confirm=confirm, test=test, val=self.val_data)
 
-        # Forward the RunLogger into the agents so the probe / stats tool
-        # generators record their tool-synthesis attempts ("tool_codegen" events).
-        _attach_run_logger(self.run_logger, self.probe_agent, self.stats_agent)
-        if self.run_logger is not None:
-            self.run_logger.log_run_start(
-                _run_config(self, data, loop_name="VLDiagnoseLoop")
-            )
-            # Each partition is logged under its own name: the records are the
-            # only place a reader can learn which cases M1-M3 mined and which
-            # were withheld for M4 / M5, so the tag has to be on the record.
-            self.run_logger.log_cases(
-                data, split="explore" if confirm is not None else None,
-            )
-            if confirm is not None:
-                # `data` is the explore split by now, so logging only it left the
-                # held-out cases unrecorded — and those are the ones M4's verdict
-                # and M5's repair are measured on. A report then cannot show a
-                # single case behind its strongest evidence: the repair's own
-                # per-case outputs joined to nothing.
-                self.run_logger.log_cases(confirm, split="confirm")
-            if test is not None:
-                self.run_logger.log_cases(test, split="test")
-            if self.val_data is not None:
-                self.run_logger.log_cases(self.val_data, split="val")
-
+        state = _LoopState()
+        stopped_by = _STOPPED_BY_MAX
         for cycle in range(self.max_cycles):
-            if self.token_budget > 0 and self._tokens_used >= self.token_budget:
-                logger.warning(
-                    "Token budget %d exhausted after %d cycles", self.token_budget, cycle
-                )
-                stopped_by = _STOPPED_BY_BUDGET
+            stop = self._run_cycle(cycle, data, state, timings, holdout=holdout_target is not None)
+            if stop is not None:
+                stopped_by = stop
                 break
-
-            if self.run_logger is not None:
-                self.run_logger.current_cycle = cycle
-
-            # ── M1: protocol-guided probing (+ signal bridge) ─────────
-            probe_results, artifact_pngs = self._do_m1(
-                cycle, data, all_hypotheses, timings
-            )
-            if not probe_results:
-                logger.info("M1 produced no probe results — stopping.")
-                stopped_by = _STOPPED_BY_NO_PROBE
-                break
-            last_analyzer_names = list(probe_results)
-
-            # ── explore (optional): free-form EDA on M1's table → M3 notes ──
-            self._do_explore(cycle, probe_results, data, timings)
-
-            # ── M2: protocol-aware stats analysis ────────────────────
-            stats_report = self._do_m2(
-                cycle, probe_results, data, artifact_pngs, timings
-            )
-            final_stats_report = stats_report
-
-            if self.analysis_only:
-                stopped_by = _STOPPED_BY_NO_HYPS
-                break
-
-            # ── M3: hypothesis generation ("AI scientist") ────────────
-            diag = self._do_m3(cycle, stats_report, prior_cycles, timings, cases=data)
-            if diag is None:
-                stopped_by = _STOPPED_BY_DIAG_ERROR
-                break
-            if not diag.hypotheses:
-                if diag is not None:
-                    logger.info("M3 produced no hypotheses at cycle %d.", cycle)
-                stopped_by = _STOPPED_BY_NO_HYPS
-                break
-
-            for h in diag.hypotheses:
-                self.store.add_hypothesis(h)
-            all_hypotheses.extend(diag.hypotheses)
-
-            # ── M4: hypothesis testing (stats + protocol consistency) ─
-            # In holdout mode M4 is deferred to the single held-out pass
-            # after the loop: testing here would re-use the explore data
-            # the hypotheses were mined from, and its verdict must not
-            # steer the loop (no early stop / no extra cycles keyed on
-            # SUPPORTED-or-not).
-            if not holdout_mode:
-                test_results = self._do_m4(
-                    cycle, diag.hypotheses, stats_report, data, timings
-                )
-                all_test_results.extend(test_results)
-
-                # ── Stopping criteria ────────────────────────────────────
-                if self.hypothesis_tester.stopping_criteria_met(test_results, self.protocol):
-                    logger.info(
-                        "Stopping criteria met at cycle %d: verified, protocol-consistent "
-                        "hypothesis found.",
-                        cycle,
-                    )
-                    stopped_by = _STOPPED_BY_CRITERIA
-                    break
-
-            # Build prior-cycles context for next M3 call
-            prior_cycles.append({
-                "cycle": cycle,
-                "severity": stats_report.severity,
-                "hypotheses": [
-                    {
-                        "statement": h.statement,
-                        "failure_mode": h.predicted_failure_mode,
-                        "status": h.status.value if h.status else "pending",
-                    }
-                    for h in diag.hypotheses
-                ],
-            })
 
         # The M4 pass: with a confirm split in play the hypotheses are tested
         # ONCE, on the held-out split — the same discipline run_fix already
         # applies to candidates. Without one, the in-cycle results stand.
         m4_holdout_status: "str | None" = None
-        if holdout_mode and all_hypotheses:
-            all_test_results, m4_holdout_status = self._m4_holdout_pass(
-                all_hypotheses, holdout_target, last_analyzer_names, timings,
+        if holdout_target is not None and state.hypotheses:
+            state.test_results, m4_holdout_status = self._m4_holdout_pass(
+                state.hypotheses, holdout_target, state.analyzer_names, timings,
             )
-        verified = self.hypothesis_tester.best_hypotheses(all_test_results)
+        verified = self.hypothesis_tester.best_hypotheses(state.test_results)
 
         report = VLDiagnoseReport(
             cycles=cycle + 1 if self.max_cycles > 0 else 0,  # type: ignore[possibly-undefined]
             resolved=bool(verified),
             stopped_by=stopped_by,
             verified_hypotheses=verified,
-            final_hypotheses=all_hypotheses,
-            all_test_results=all_test_results,
-            final_stats_report=final_stats_report,
+            final_hypotheses=state.hypotheses,
+            all_test_results=state.test_results,
+            final_stats_report=state.stats_report,
             store=self.store,
             m4_holdout=m4_holdout_status,
             _run_id=self._run_id,
         )
-        if self.run_logger:
-            self.run_logger.log_loop_end(
-                report, tokens_used=self._tokens_used, timings=timings
+        return self._end_run(report, timings)
+
+    def _run_cycle(
+        self, cycle: int, data: "CaseBatch", state: _LoopState,
+        timings: dict[str, float], *, holdout: bool,
+    ) -> "str | None":
+        """One M1→M2→M3(→M4) cycle. Returns why the loop stops, or None to go on.
+
+        With *holdout*, M4 is deferred to the single held-out pass after the
+        loop: testing here would re-use the explore data the hypotheses were
+        mined from, and its verdict must not steer the loop (no early stop /
+        no extra cycles keyed on SUPPORTED-or-not).
+        """
+        if self.token_budget > 0 and self._tokens_used >= self.token_budget:
+            logger.warning("Token budget %d exhausted after %d cycles", self.token_budget, cycle)
+            return _STOPPED_BY_BUDGET
+        if self.run_logger is not None:
+            self.run_logger.current_cycle = cycle
+
+        # ── M1: protocol-guided probing (+ signal bridge) ─────────
+        probe_results, artifact_pngs = self._do_m1(cycle, data, state.hypotheses, timings)
+        if not probe_results:
+            logger.info("M1 produced no probe results — stopping.")
+            return _STOPPED_BY_NO_PROBE
+        state.analyzer_names = list(probe_results)
+
+        # ── explore (optional): free-form EDA on M1's table → M3 notes ──
+        self._do_explore(cycle, probe_results, data, timings)
+
+        # ── M2: protocol-aware stats analysis ────────────────────
+        stats_report = self._do_m2(cycle, probe_results, data, artifact_pngs, timings)
+        state.stats_report = stats_report
+        if self.analysis_only:
+            return _STOPPED_BY_NO_HYPS
+
+        # ── M3: hypothesis generation ("AI scientist") ────────────
+        diag = self._do_m3(cycle, stats_report, state.prior_cycles, timings, cases=data)
+        if diag is None:
+            return _STOPPED_BY_DIAG_ERROR
+        if not diag.hypotheses:
+            logger.info("M3 produced no hypotheses at cycle %d.", cycle)
+            return _STOPPED_BY_NO_HYPS
+        for h in diag.hypotheses:
+            self.store.add_hypothesis(h)
+        state.hypotheses.extend(diag.hypotheses)
+
+        # ── M4: hypothesis testing (stats + protocol consistency) ─
+        if not holdout:
+            test_results = self._do_m4(cycle, diag.hypotheses, stats_report, data, timings)
+            state.test_results.extend(test_results)
+            if self.hypothesis_tester.stopping_criteria_met(test_results, self.protocol):
+                logger.info(
+                    "Stopping criteria met at cycle %d: verified, protocol-consistent "
+                    "hypothesis found.",
+                    cycle,
+                )
+                return _STOPPED_BY_CRITERIA
+
+        state.prior_cycles.append(_cycle_summary(cycle, stats_report, diag.hypotheses))
+        return None
+
+    def _log_partitions(self, explore: "CaseBatch", confirm: "CaseBatch", test: "CaseBatch | None") -> None:
+        if test is not None:
+            logger.info(
+                "train/val/test split: train=%d, val=%d, test=%d "
+                "(frac=%.2f/%.2f)",
+                len(list(explore)), len(list(confirm)), len(list(test)),
+                self.confirm_split, self.test_split,
             )
+        elif self.val_data is not None:
+            logger.info(
+                "explore/confirm split: explore=%d, confirm=%d (frac=%.2f) "
+                "+ external validation set: %d cases",
+                len(list(explore)), len(list(confirm)), self.confirm_split,
+                len(list(self.val_data)),
+            )
+        else:
+            logger.info(
+                "confirm split: explore=%d cases, confirm=%d held out (frac=%.2f)",
+                len(list(explore)), len(list(confirm)), self.confirm_split,
+            )
+
+    def _holdout_target(self, confirm: "CaseBatch | None") -> "CaseBatch | None":
+        """The data M4's single held-out pass tests on, or None to test in-cycle.
+
+        The external validation set when one was supplied (the confirm
+        partition then stays reserved for the frozen fix winner), else the
+        confirm partition itself; None with neither, or with m4_holdout off.
+        """
+        target = self.val_data if self.val_data is not None else confirm
+        return target if target is not None and self.m4_holdout else None
+
+    def _start_run_log(
+        self, data: "CaseBatch", loop_name: str, *, cycle: "int | None" = None,
+        confirm: "CaseBatch | None" = None, test: "CaseBatch | None" = None,
+        val: "CaseBatch | None" = None, extra: "dict[str, Any] | None" = None,
+    ) -> None:
+        """Wire the run logger into the agents, then log run_start and the cases.
+
+        Each partition is logged under its own name: the records are the only
+        place a reader can learn which cases M1-M3 mined and which were
+        withheld for M4 / M5 — the held-out ones are what M4's verdict and
+        M5's repair are measured on, so a report needs them too.
+        """
+        # The probe / stats tool generators record their tool-synthesis
+        # attempts ("tool_codegen" events) through it.
+        _attach_run_logger(self.run_logger, self.probe_agent, self.stats_agent)
+        if self.run_logger is None:
+            return
+        if cycle is not None:
+            self.run_logger.current_cycle = cycle
+        config = _run_config(self, data, loop_name=loop_name)
+        config.update(extra or {})
+        self.run_logger.log_run_start(config)
+        self.run_logger.log_cases(data, split="explore" if confirm is not None else None)
+        for batch, split in ((confirm, "confirm"), (test, "test"), (val, "val")):
+            if batch is not None:
+                self.run_logger.log_cases(batch, split=split)
+
+    def _end_run(self, report: VLDiagnoseReport, timings: dict[str, float]) -> VLDiagnoseReport:
+        if self.run_logger:
+            self.run_logger.log_loop_end(report, tokens_used=self._tokens_used, timings=timings)
         return report
 
     def run_analysis(self, data: "CaseBatch") -> VLDiagnoseReport:
@@ -1247,17 +1265,7 @@ class VLDiagnoseLoop:
             )
             data = explore
 
-        _attach_run_logger(self.run_logger, self.probe_agent, self.stats_agent)
-        if self.run_logger is not None:
-            self.run_logger.current_cycle = 0
-            self.run_logger.log_run_start(
-                _run_config(self, data, loop_name="VLDiagnoseLoop.analysis")
-            )
-            self.run_logger.log_cases(
-                data, split="explore" if confirm is not None else None,
-            )
-            if confirm is not None:
-                self.run_logger.log_cases(confirm, split="confirm")
+        self._start_run_log(data, "VLDiagnoseLoop.analysis", cycle=0, confirm=confirm)
 
         all_hypotheses: list[Any] = []
         final_stats_report = None
@@ -1297,11 +1305,7 @@ class VLDiagnoseLoop:
             store=self.store,
             _run_id=self._run_id,
         )
-        if self.run_logger:
-            self.run_logger.log_loop_end(
-                report, tokens_used=self._tokens_used, timings=timings
-            )
-        return report
+        return self._end_run(report, timings)
 
     def run_confirm(
         self,
@@ -1340,42 +1344,16 @@ class VLDiagnoseLoop:
         if confirm is not None:
             data = explore
 
-        _attach_run_logger(self.run_logger, self.probe_agent, self.stats_agent)
-        if self.run_logger is not None:
-            self.run_logger.current_cycle = 0
-            self.run_logger.log_run_start(
-                _run_config(self, data, loop_name="VLDiagnoseLoop.confirm")
-            )
-            self.run_logger.log_cases(
-                data, split="explore" if confirm is not None else None,
-            )
-            if confirm is not None:
-                self.run_logger.log_cases(confirm, split="confirm")
+        self._start_run_log(data, "VLDiagnoseLoop.confirm", cycle=0, confirm=confirm)
 
-        # Regenerate the stats the tester needs only when not supplied. The M1/M2
-        # events are NOT logged here — they were recorded in the analysis phase,
-        # and re-logging them would double up the report's analysis story.
         if stats_report is None:
-            probe_results, artifact_pngs = self._do_m1(
-                0, data, hypotheses, timings, log=False
-            )
-            if not probe_results:
-                logger.warning(
-                    "run_confirm: probe produced no results and no stats_report "
-                    "was supplied — cannot confirm."
-                )
+            stats_report = self._confirm_stats(data, hypotheses, timings)
+            if stats_report is None:
                 report = VLDiagnoseReport(
                     cycles=1, stopped_by=_STOPPED_BY_NO_PROBE,
                     final_hypotheses=hypotheses, store=self.store, _run_id=self._run_id,
                 )
-                if self.run_logger:
-                    self.run_logger.log_loop_end(
-                        report, tokens_used=self._tokens_used, timings=timings
-                    )
-                return report
-            stats_report = self._do_m2(
-                0, probe_results, data, artifact_pngs, timings, log=False
-            )
+                return self._end_run(report, timings)
 
         # The confirm phase OWNS the validity verdict: if the reused report came
         # from the descriptive analysis phase (e-BH deferred), compute e-BH now,
@@ -1385,28 +1363,9 @@ class VLDiagnoseLoop:
         if self.run_logger and stats_report is not None:
             self.run_logger.log_analysis(0, stats_report)
 
-        test_results: list[Any] = []
-        m4_holdout_status: "str | None" = None
-        if hypotheses:
-            for h in hypotheses:
-                self.store.add_hypothesis(h)
-            holdout_target = self.val_data if self.val_data is not None else confirm
-            if holdout_target is not None and self.m4_holdout:
-                # The one M4 pass, on held-out data (never the explore stats
-                # the hypotheses were mined from): the external validation set
-                # when one was supplied, else the confirm split. The analyzer
-                # set to re-run there is recovered from the supplied/
-                # regenerated stats report's signal keys; with none
-                # recoverable the probe agent selects on the holdout itself.
-                analyzer_names = _analyzer_names_from_stats(stats_report)
-                test_results, m4_holdout_status = self._m4_holdout_pass(
-                    hypotheses, holdout_target, analyzer_names, timings,
-                )
-            else:
-                test_results = self._do_m4(0, hypotheses, stats_report, data, timings)
-        else:
-            logger.info("run_confirm: no hypotheses to confirm.")
-
+        test_results, m4_holdout_status = self._m4_verdicts(
+            hypotheses, stats_report, data, confirm, timings,
+        )
         verified = self.hypothesis_tester.best_hypotheses(test_results)
         stopped_by = _STOPPED_BY_CRITERIA if verified else _STOPPED_BY_MAX
 
@@ -1422,11 +1381,46 @@ class VLDiagnoseLoop:
             m4_holdout=m4_holdout_status,
             _run_id=self._run_id,
         )
-        if self.run_logger:
-            self.run_logger.log_loop_end(
-                report, tokens_used=self._tokens_used, timings=timings
+        return self._end_run(report, timings)
+
+    def _confirm_stats(
+        self, data: "CaseBatch", hypotheses: "list[Any]", timings: dict[str, float],
+    ) -> "Any | None":
+        """Regenerate the M2 report run_confirm's tester reads; None if M1 found nothing.
+
+        The M1/M2 events are NOT logged here — they were recorded in the
+        analysis phase, and re-logging them would double up the report's
+        analysis story.
+        """
+        probe_results, artifact_pngs = self._do_m1(0, data, hypotheses, timings, log=False)
+        if not probe_results:
+            logger.warning(
+                "run_confirm: probe produced no results and no stats_report "
+                "was supplied — cannot confirm."
             )
-        return report
+            return None
+        return self._do_m2(0, probe_results, data, artifact_pngs, timings, log=False)
+
+    def _m4_verdicts(
+        self, hypotheses: "list[Any]", stats_report: "Any", data: "CaseBatch",
+        confirm: "CaseBatch | None", timings: dict[str, float],
+    ) -> "tuple[list[Any], str | None]":
+        """run_confirm's M4: the held-out pass when there is held-out data, else in-sample."""
+        if not hypotheses:
+            logger.info("run_confirm: no hypotheses to confirm.")
+            return [], None
+        for h in hypotheses:
+            self.store.add_hypothesis(h)
+        holdout_target = self._holdout_target(confirm)
+        if holdout_target is None:
+            return self._do_m4(0, hypotheses, stats_report, data, timings), None
+        # The one M4 pass, on held-out data (never the explore stats the
+        # hypotheses were mined from). The analyzer set to re-run there is
+        # recovered from the supplied/regenerated stats report's signal keys;
+        # with none recoverable the probe agent selects on the holdout itself.
+        return self._m4_holdout_pass(
+            hypotheses, holdout_target, _analyzer_names_from_stats(stats_report), timings,
+        )
 
     def run_m5(
         self,
