@@ -369,7 +369,7 @@ def test_val_data_run_m5_surgery_stays_on_explore():
 def test_confirm_with_no_explore_lead_routes_the_next_supported_tier():
     """With nothing to freeze, the recommendation comes from the agent's own tier
     router (unsupported L3a/L3b skipped), not a flat "stay at the ceiling"."""
-    from evalrx.eval_agent.loop import _confirm_from_explore
+    from evalrx.eval_agent.loop_fix import _confirm_from_explore
     from evalrx.eval_agent.stages.fix.agent import FixAgent
 
     confirm = CaseBatch([
@@ -387,7 +387,7 @@ def test_confirm_with_no_explore_lead_routes_the_next_supported_tier():
 def test_confirm_routes_from_the_given_ceiling_not_the_agents():
     """The loop passes the run's ceiling explicitly: an agent configured at L1
     confirming under an L2 ceiling recommends past L2, not past L1."""
-    from evalrx.eval_agent.loop import _confirm_from_explore
+    from evalrx.eval_agent.loop_fix import _confirm_from_explore
     from evalrx.eval_agent.stages.fix.agent import FixAgent
 
     confirm = CaseBatch([

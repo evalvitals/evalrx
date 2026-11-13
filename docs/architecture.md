@@ -221,6 +221,7 @@ the full field table.
 ```text
 eval_agent/
 ├── loop.py               VLDiagnoseLoop (current)
+├── loop_fix.py           run_fix orchestration: fix targets, tier ladder, EXPLORE→CONFIRM
 ├── legacy.py             AutoDiagnoseLoop, SelfEvolveLoop (kept for existing callers)
 ├── loop_reports.py       AutoDiagnoseReport (VLDiagnoseReport is an alias — all
 │                         three loops return this one unified report class)

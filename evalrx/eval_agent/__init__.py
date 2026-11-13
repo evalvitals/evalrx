@@ -14,7 +14,8 @@ so neither package depends on the other. ``cli_agent.py`` / ``cli_skills.py``
 remain here as compatibility facades over that runtime.
 
 Top-level (shared / orchestration):
-  loop.py              AutoDiagnoseLoop, VLDiagnoseLoop, SelfEvolveLoop
+  loop.py              VLDiagnoseLoop
+  loop_fix.py          run_fix orchestration: fix targets, tier ladder, EXPLORE→CONFIRM
   run_logger_v2.py     RunLoggerV2 — run.json + per-stage M<n>/log.json event log
   hypothesis.py        Hypothesis, HypothesisStatus, serialization helpers
   cli_agent.py         compatibility facade over agent_runtime CLI providers/judges

@@ -30,6 +30,13 @@ survey's other candidates and reuses the library specs; `datasets.py` is now
 only the catalog CLI plus the 2B probe records; the benchmark image no longer
 copies `examples/dataset_selection`.
 
+### Changed — `run_fix` orchestration moved to `evalrx.eval_agent.loop_fix`
+
+The fix-stage helpers behind `VLDiagnoseLoop.run_fix` / `run_m5` (target
+selection, tier ladder, EXPLORE→CONFIRM) moved from `loop.py` to
+`loop_fix.py`, unchanged. `VLDiagnoseLoop`'s methods are unchanged. Their
+log lines now come from the `evalrx.eval_agent.loop_fix` logger.
+
 ### Changed — the run reader moved to `evalrx.reporting.run_data`
 
 `extract_run_data` (and the run-layout helpers and analyzer glossary it uses)
