@@ -30,6 +30,16 @@ survey's other candidates and reuses the library specs; `datasets.py` is now
 only the catalog CLI plus the 2B probe records; the benchmark image no longer
 copies `examples/dataset_selection`.
 
+### Changed — the run reader moved to `evalrx.reporting.run_data`
+
+`extract_run_data` (and the run-layout helpers and analyzer glossary it uses)
+moved from `evalrx.reporting.html_report` to `evalrx.reporting.run_data`. It
+is the reader behind the dynamic report, the Langfuse bundle export and the
+legacy static page, and no longer lives inside the legacy renderer.
+`html_report` keeps the static page (`build_html_report`,
+`generate_html_report`, `embed_figures`, `embed_media`). Import
+`extract_run_data` from `evalrx.reporting.run_data`; no alias is kept.
+
 ### Changed — FixAgent split into the `stages/fix/` package
 
 `stages/fix_agent.py` (3,952 lines, one 3,200-line class) is now an

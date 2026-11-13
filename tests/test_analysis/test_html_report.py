@@ -3,8 +3,9 @@
 import json
 from pathlib import Path
 
-from evalrx.reporting.html_report import build_html_report, embed_figures, extract_run_data
+from evalrx.reporting.html_report import build_html_report, embed_figures
 from evalrx.reporting.langfuse_exporter import export_to_langfuse_bundle
+from evalrx.reporting.run_data import extract_run_data
 
 
 def _png(path: Path) -> None:

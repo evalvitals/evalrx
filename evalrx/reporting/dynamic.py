@@ -116,7 +116,7 @@ def build_report_data(
     """Build the renderer-neutral data model for any completed EvalRX run."""
     root = Path(run_dir).resolve()
     from evalrx.reporting.case_study import build_case_study
-    from evalrx.reporting.html_report import extract_run_data
+    from evalrx.reporting.run_data import extract_run_data
 
     resolved_example = Path(example_dir).resolve() if example_dir else _infer_example_dir(root)
     raw = extract_run_data(root, resolved_example)
@@ -671,7 +671,7 @@ def _stage_detail(
     m4_event = dict(m4.get("event") or {})
 
     m5 = dict(raw.get("m5_fix") or {})
-    # html_report may see an older sibling log when an example contains
+    # extract_run_data may see an older sibling log when an example contains
     # multiple attempts.  The event stream is trace-filtered and is the source
     # of truth for the run currently being rendered.
     fix_event = next((event for event in reversed(events) if event.get("event") == "fix"), {})

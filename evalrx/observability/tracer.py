@@ -484,7 +484,7 @@ def _resolve_trace_id(run_dir: Path, fingerprint: str) -> str:
 
 def export_to_langfuse_bundle(run_dir: str | Path, out_json: str | Path | None = None) -> dict[str, Any]:
     """Convert an EvalRX run artifacts directory into a rich Langfuse bundle."""
-    from evalrx.reporting.html_report import extract_run_data
+    from evalrx.reporting.run_data import extract_run_data
 
     run_dir = Path(run_dir).resolve()
     data = extract_run_data(run_dir)
