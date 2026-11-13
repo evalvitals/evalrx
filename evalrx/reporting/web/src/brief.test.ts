@@ -46,7 +46,10 @@ describe("buildBrief on a sparse run", () => {
   });
 
   it("says a skipped stage did not run", () => {
-    const skipped = { ...empty, stages: [{ id: "m3", code: "m3", title: "m3", status: "skipped" }] } as ReportData;
+    const skipped = {
+      ...empty,
+      stages: [{ id: "m3", code: "m3", title: "m3", status: "skipped" }],
+    } as ReportData;
     expect(buildBrief("m3", skipped)?.verdict).toBe("This step did not run.");
   });
 

@@ -20,7 +20,8 @@ import {
 } from "./reportAccess";
 import type { ReportData } from "./types";
 
-const report = (fields: Partial<ReportData>) => ({ metrics: [], stages: [], ...fields }) as ReportData;
+const report = (fields: Partial<ReportData>) =>
+  ({ metrics: [], stages: [], ...fields }) as ReportData;
 
 describe("findContract", () => {
   it("returns the newest cycle's payload for a stage", () => {
@@ -36,7 +37,10 @@ describe("findContract", () => {
 
   it("matches a bare span id and skips emission errors", () => {
     const data = report({
-      contract: { m5_fix: { stage: "m5" }, "c0.m3": { stage: "m3", error: "boom" } } as unknown as ReportData["contract"],
+      contract: {
+        m5_fix: { stage: "m5" },
+        "c0.m3": { stage: "m3", error: "boom" },
+      } as unknown as ReportData["contract"],
     });
     expect(findContract(data, "m5_fix")).toEqual({ stage: "m5" });
     expect(findContract(data, "m3")).toBeUndefined();
@@ -51,11 +55,18 @@ describe("stageDetail and metric", () => {
   it("returns {} for a stage the run never reached", () => {
     expect(stageDetail(report({}), "m4")).toEqual({});
     expect(stageDetail(report({ stage_detail: { m4: null } } as never), "m4")).toEqual({});
-    expect(stageDetail(report({ stage_detail: { m1: { n_probes: 3 } } } as never), "m1")).toEqual({ n_probes: 3 });
+    expect(stageDetail(report({ stage_detail: { m1: { n_probes: 3 } } } as never), "m1")).toEqual({
+      n_probes: 3,
+    });
   });
 
   it("reads numeric metrics only", () => {
-    const data = report({ metrics: [{ id: "failed", label: "", value: 4 }, { id: "rate", label: "", value: "n/a" }] });
+    const data = report({
+      metrics: [
+        { id: "failed", label: "", value: 4 },
+        { id: "rate", label: "", value: "n/a" },
+      ],
+    });
     expect(metric(data, "failed")).toBe(4);
     expect(metric(data, "rate")).toBeUndefined();
     expect(metric(data, "missing")).toBeUndefined();
@@ -92,7 +103,9 @@ describe("sentences", () => {
   it("cuts an over-long headline at the first clause break the author wrote", () => {
     const head = `${"The model misreads stacked bars ".repeat(3)}— ${"which costs it accuracy on every chart ".repeat(3)}.`;
     const [headline, body] = headlineSplit(`${head} Second sentence.`);
-    expect(headline).toBe("The model misreads stacked bars The model misreads stacked bars The model misreads stacked bars.");
+    expect(headline).toBe(
+      "The model misreads stacked bars The model misreads stacked bars The model misreads stacked bars.",
+    );
     expect(body.startsWith("Which costs it accuracy")).toBe(true);
     expect(body.endsWith("Second sentence.")).toBe(true);
   });

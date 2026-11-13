@@ -26,7 +26,8 @@ export type RunListItem = {
 
 async function fetchRuns(): Promise<{ root: string; items: RunListItem[]; truncated: boolean }> {
   const res = await fetch("/api/runs");
-  if (!res.ok) throw new Error((await res.json().catch(() => null))?.detail || `HTTP ${res.status}`);
+  if (!res.ok)
+    throw new Error((await res.json().catch(() => null))?.detail || `HTTP ${res.status}`);
   return res.json();
 }
 
@@ -34,7 +35,11 @@ async function openRun(id: string): Promise<UploadedRun> {
   const res = await fetch(`/api/runs/${encodeURIComponent(id)}/open`, { method: "POST" });
   const text = await res.text();
   let parsed: any = null;
-  try { parsed = JSON.parse(text); } catch { /* an error page, not JSON */ }
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    /* an error page, not JSON */
+  }
   if (!res.ok) throw new Error(parsed?.detail || `HTTP ${res.status}`);
   return parsed as UploadedRun;
 }
@@ -50,7 +55,10 @@ function relativeTime(iso: string | null): string {
 }
 
 export function RunsPanel({
-  open, onClose, onOpened, activeRoot,
+  open,
+  onClose,
+  onOpened,
+  activeRoot,
 }: {
   open: boolean;
   onClose: () => void;
@@ -68,14 +76,20 @@ export function RunsPanel({
     setLoading(true);
     setError("");
     fetchRuns()
-      .then((res) => { setItems(res.items); setRoot(res.root); setTruncated(res.truncated); })
+      .then((res) => {
+        setItems(res.items);
+        setRoot(res.root);
+        setTruncated(res.truncated);
+      })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
       .finally(() => setLoading(false));
   }, []);
 
   // Rescan every time the panel opens rather than once at mount, so a run
   // launched after the server started still shows up.
-  useEffect(() => { if (open) refresh(); }, [open, refresh]);
+  useEffect(() => {
+    if (open) refresh();
+  }, [open, refresh]);
 
   const pick = async (item: RunListItem) => {
     if (busyId) return;
@@ -90,46 +104,65 @@ export function RunsPanel({
     }
   };
 
-  return <>
-    {/* Closes on an outside click; Escape is handled by the panel itself. */}
-    {open && <div className="runs-backdrop" onClick={onClose} />}
-    <aside className={`runs-panel${open ? " open" : ""}`} aria-hidden={!open}
-      onKeyDown={(event) => { if (event.key === "Escape") onClose(); }}>
-      <header>
-        <FolderClock size={15} /><h3>Experiments</h3>
-        <button type="button" className="runs-icon-btn" onClick={refresh} disabled={loading} title="Rescan for runs">
-          <RefreshCw size={13} className={loading ? "spin" : ""} />
-        </button>
-        <button type="button" className="runs-icon-btn" onClick={onClose} title="Close">
-          <X size={15} />
-        </button>
-      </header>
-      {root && <p className="runs-root" title={root}>{root}{truncated && ` — showing the ${items?.length ?? 0} most recent`}</p>}
-      {error && <p className="runs-error">{error}</p>}
-      {!error && !loading && items?.length === 0 && (
-        <p className="runs-empty">No experiments found near this run yet.</p>
-      )}
-      <ul className="runs-list">
-        {(items || []).map((item) => (
-          <li key={item.id}>
-            <button
-              type="button"
-              className={`runs-item${item.root === activeRoot ? " active" : ""}${busyId === item.id ? " busy" : ""}`}
-              disabled={busyId !== null}
-              onClick={() => pick(item)}
-              title={item.root}
-            >
-              <span className="runs-item-label">{item.path}</span>
-              <span className="runs-item-meta">
-                {item.model && <span>{item.model}</span>}
-                {item.dataset && <span>{item.dataset}</span>}
-                {!item.published && <em>compiles on open</em>}
-              </span>
-              <span className="runs-item-time">{relativeTime(item.modified_at)}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </aside>
-  </>;
+  return (
+    <>
+      {/* Closes on an outside click; Escape is handled by the panel itself. */}
+      {open && <div className="runs-backdrop" onClick={onClose} />}
+      <aside
+        className={`runs-panel${open ? " open" : ""}`}
+        aria-hidden={!open}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onClose();
+        }}
+      >
+        <header>
+          <FolderClock size={15} />
+          <h3>Experiments</h3>
+          <button
+            type="button"
+            className="runs-icon-btn"
+            onClick={refresh}
+            disabled={loading}
+            title="Rescan for runs"
+          >
+            <RefreshCw size={13} className={loading ? "spin" : ""} />
+          </button>
+          <button type="button" className="runs-icon-btn" onClick={onClose} title="Close">
+            <X size={15} />
+          </button>
+        </header>
+        {root && (
+          <p className="runs-root" title={root}>
+            {root}
+            {truncated && ` — showing the ${items?.length ?? 0} most recent`}
+          </p>
+        )}
+        {error && <p className="runs-error">{error}</p>}
+        {!error && !loading && items?.length === 0 && (
+          <p className="runs-empty">No experiments found near this run yet.</p>
+        )}
+        <ul className="runs-list">
+          {(items || []).map((item) => (
+            <li key={item.id}>
+              <button
+                type="button"
+                className={`runs-item${item.root === activeRoot ? " active" : ""}${busyId === item.id ? " busy" : ""}`}
+                disabled={busyId !== null}
+                onClick={() => pick(item)}
+                title={item.root}
+              >
+                <span className="runs-item-label">{item.path}</span>
+                <span className="runs-item-meta">
+                  {item.model && <span>{item.model}</span>}
+                  {item.dataset && <span>{item.dataset}</span>}
+                  {!item.published && <em>compiles on open</em>}
+                </span>
+                <span className="runs-item-time">{relativeTime(item.modified_at)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </aside>
+    </>
+  );
 }

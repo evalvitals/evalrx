@@ -24,16 +24,38 @@
 import ReactECharts from "echarts-for-react";
 import { tc } from "./theme";
 import {
-  AlertTriangle, ArrowRight, BarChart3, CheckCircle2, HelpCircle, XCircle,
+  AlertTriangle,
+  ArrowRight,
+  BarChart3,
+  CheckCircle2,
+  HelpCircle,
+  XCircle,
 } from "lucide-react";
 import type {
-  AnalyzerSelection, Chart, DiagnosisOutput, FixOutput, HypothesisTestOutput,
-  Modality, ProbeOutput, ReportData,
+  AnalyzerSelection,
+  Chart,
+  DiagnosisOutput,
+  FixOutput,
+  HypothesisTestOutput,
+  Modality,
+  ProbeOutput,
+  ReportData,
 } from "./types";
 import { ZoomableImage } from "./lightbox";
 import {
-  chartValue, countOf, findContract, headlineSplit, leadFrom, metric, oddsPhrase, oddsValue,
-  outcomeColors, plural, pointsGap, stageDetail, stripMarkdown,
+  chartValue,
+  countOf,
+  findContract,
+  headlineSplit,
+  leadFrom,
+  metric,
+  oddsPhrase,
+  oddsValue,
+  outcomeColors,
+  plural,
+  pointsGap,
+  stageDetail,
+  stripMarkdown,
 } from "./reportAccess";
 
 /** What one L2 screen shows. Every field except `verdict` is optional, because
@@ -67,51 +89,83 @@ export function StageBrief({ brief, onDeepen }: { brief: Brief; onDeepen: () => 
   // derived sentences then come out word-for-word identical. Three identical
   // bullets read as a rendering bug and crowd out the points that differ, so
   // the list is deduplicated on the rendered text before it is capped.
-  const points = [...new Set(brief.points.map((point) => point.trim()).filter(Boolean))].slice(0, 5);
-  return <div className="stage-brief">
-    <section className="brief-verdict">
-      <span className="section-kicker">WHAT CAME OUT OF THIS STEP</span>
-      <h2>{brief.verdict}</h2>
-      {brief.lead && <p className="lead-small">{brief.lead}</p>}
-    </section>
+  const points = [...new Set(brief.points.map((point) => point.trim()).filter(Boolean))].slice(
+    0,
+    5,
+  );
+  return (
+    <div className="stage-brief">
+      <section className="brief-verdict">
+        <span className="section-kicker">WHAT CAME OUT OF THIS STEP</span>
+        <h2>{brief.verdict}</h2>
+        {brief.lead && <p className="lead-small">{brief.lead}</p>}
+      </section>
 
-    {brief.kpis.length > 0 && <div className="brief-kpis">
-      {brief.kpis.slice(0, 5).map((item) => <article key={item.label}>
-        <span>{item.label}</span>
-        <strong>{item.value ?? "—"}</strong>
-        {item.note && <small>{item.note}</small>}
-      </article>)}
-    </div>}
+      {brief.kpis.length > 0 && (
+        <div className="brief-kpis">
+          {brief.kpis.slice(0, 5).map((item) => (
+            <article key={item.label}>
+              <span>{item.label}</span>
+              <strong>{item.value ?? "—"}</strong>
+              {item.note && <small>{item.note}</small>}
+            </article>
+          ))}
+        </div>
+      )}
 
-    <div className={`brief-body${brief.figure ? "" : " brief-body-textonly"}`}>
-      {brief.figure && <figure className="brief-figure">
-        {brief.figure}
-        {brief.figureNote && <figcaption><BarChart3 size={13} /> {brief.figureNote}</figcaption>}
-      </figure>}
-      {(points.length > 0 || (brief.checks && brief.checks.length > 0)) && <div className="brief-points">
-        {brief.checks && brief.checks.length > 0 && <>
-          <h3>Checks run</h3>
-          <ul className="brief-checks">{brief.checks.map((check) => <li key={check.name}>
-            <b>{check.name}</b>{typeof check.n === "number" && check.n > 0 && <small>{check.n} cases</small>}
-            {check.question && <span>{check.question}</span>}
-          </li>)}</ul>
-        </>}
-        {points.length > 0 && <>
-          <h3>What that rests on</h3>
-          <ul>{points.map((point, i) => <li key={i}>{point}</li>)}</ul>
-        </>}
-      </div>}
+      <div className={`brief-body${brief.figure ? "" : " brief-body-textonly"}`}>
+        {brief.figure && (
+          <figure className="brief-figure">
+            {brief.figure}
+            {brief.figureNote && (
+              <figcaption>
+                <BarChart3 size={13} /> {brief.figureNote}
+              </figcaption>
+            )}
+          </figure>
+        )}
+        {(points.length > 0 || (brief.checks && brief.checks.length > 0)) && (
+          <div className="brief-points">
+            {brief.checks && brief.checks.length > 0 && (
+              <>
+                <h3>Checks run</h3>
+                <ul className="brief-checks">
+                  {brief.checks.map((check) => (
+                    <li key={check.name}>
+                      <b>{check.name}</b>
+                      {typeof check.n === "number" && check.n > 0 && <small>{check.n} cases</small>}
+                      {check.question && <span>{check.question}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {points.length > 0 && (
+              <>
+                <h3>What that rests on</h3>
+                <ul>
+                  {points.map((point, i) => (
+                    <li key={i}>{point}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {brief.caveat && (
+        <div className="brief-caveat">
+          <AlertTriangle size={17} />
+          <p>{brief.caveat}</p>
+        </div>
+      )}
+
+      <button className="brief-deepen" onClick={onDeepen}>
+        See everything this step recorded <ArrowRight size={16} />
+      </button>
     </div>
-
-    {brief.caveat && <div className="brief-caveat">
-      <AlertTriangle size={17} />
-      <p>{brief.caveat}</p>
-    </div>}
-
-    <button className="brief-deepen" onClick={onDeepen}>
-      See everything this step recorded <ArrowRight size={16} />
-    </button>
-  </div>;
+  );
 }
 
 /** The stage's own chart from the compiled report, by id. Undefined is fine. */
@@ -122,45 +176,68 @@ function reportChart(report: ReportData, id: string): Chart | undefined {
 /** A compact echarts rendering of one compiled `Chart`, sized for L2. */
 function BriefChart({ chart }: { chart: Chart }) {
   const series = chart.series || [];
-  const option = chart.kind === "donut" ? {
-    tooltip: { trigger: "item", valueFormatter: chartValue },
-    color: outcomeColors(series.map((item) => item.label)),
-    // The L2 column is narrower than the L3 page, and outside labels with
-    // leader lines get clipped to "Pas..." there. A legend under the ring
-    // carries the same two facts and cannot be cut off by the container.
-    legend: {
-      bottom: 0, textStyle: { color: tc("#b8c9c4"), fontSize: 11 },
-      formatter: (name: string) =>
-        `${name}  ${series.find((item) => item.label === name)?.value ?? ""}`,
-    },
-    series: [{
-      type: "pie", radius: ["54%", "76%"], center: ["50%", "44%"],
-      label: { show: false },
-      data: series.map((item) => ({ name: item.label, value: item.value })),
-    }],
-  } : {
-    grid: { left: 152, right: 26, top: 10, bottom: 24 },
-    tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, valueFormatter: chartValue },
-    xAxis: {
-      type: "value", axisLabel: { color: tc("#8da19b") },
-      splitLine: { lineStyle: { color: tc("#23332f") } },
-    },
-    yAxis: {
-      type: "category", data: series.map((item) => item.label),
-      // These labels are analyzer questions, not short keys. Truncating them to
-      // "Can repeated attempt..." leaves a bar nobody can identify, so they wrap
-      // onto two lines and the row height grows to match.
-      axisLabel: { color: tc("#b8c9c4"), width: 138, overflow: "break", lineHeight: 13, fontSize: 11 },
-      axisLine: { show: false }, axisTick: { show: false },
-    },
-    series: [{
-      type: "bar", barWidth: 12,
-      data: series.map((item) => ({
-        value: item.value,
-        itemStyle: { color: item.highlight ? tc("#6bd8ad") : tc("#586a65"), borderRadius: 4 },
-      })),
-    }],
-  };
+  const option =
+    chart.kind === "donut"
+      ? {
+          tooltip: { trigger: "item", valueFormatter: chartValue },
+          color: outcomeColors(series.map((item) => item.label)),
+          // The L2 column is narrower than the L3 page, and outside labels with
+          // leader lines get clipped to "Pas..." there. A legend under the ring
+          // carries the same two facts and cannot be cut off by the container.
+          legend: {
+            bottom: 0,
+            textStyle: { color: tc("#b8c9c4"), fontSize: 11 },
+            formatter: (name: string) =>
+              `${name}  ${series.find((item) => item.label === name)?.value ?? ""}`,
+          },
+          series: [
+            {
+              type: "pie",
+              radius: ["54%", "76%"],
+              center: ["50%", "44%"],
+              label: { show: false },
+              data: series.map((item) => ({ name: item.label, value: item.value })),
+            },
+          ],
+        }
+      : {
+          grid: { left: 152, right: 26, top: 10, bottom: 24 },
+          tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, valueFormatter: chartValue },
+          xAxis: {
+            type: "value",
+            axisLabel: { color: tc("#8da19b") },
+            splitLine: { lineStyle: { color: tc("#23332f") } },
+          },
+          yAxis: {
+            type: "category",
+            data: series.map((item) => item.label),
+            // These labels are analyzer questions, not short keys. Truncating them to
+            // "Can repeated attempt..." leaves a bar nobody can identify, so they wrap
+            // onto two lines and the row height grows to match.
+            axisLabel: {
+              color: tc("#b8c9c4"),
+              width: 138,
+              overflow: "break",
+              lineHeight: 13,
+              fontSize: 11,
+            },
+            axisLine: { show: false },
+            axisTick: { show: false },
+          },
+          series: [
+            {
+              type: "bar",
+              barWidth: 12,
+              data: series.map((item) => ({
+                value: item.value,
+                itemStyle: {
+                  color: item.highlight ? tc("#6bd8ad") : tc("#586a65"),
+                  borderRadius: 4,
+                },
+              })),
+            },
+          ],
+        };
   const height = chart.kind === "donut" ? 250 : Math.max(200, series.length * 42 + 40);
   // notMerge: moving between stages swaps a bar chart for a donut in the same
   // slot, and echarts merges into the live instance by default — the previous
@@ -171,8 +248,14 @@ function BriefChart({ chart }: { chart: Chart }) {
 /** A saved PNG a stage produced. `data_uri` on an exported report, path on a served one. */
 function BriefImage({ figure }: { figure: any }) {
   const source = figure.data_uri || `/api/artifact?path=${encodeURIComponent(figure.path)}`;
-  return <ZoomableImage className="brief-image" src={source}
-    alt={figure.title || "Stage figure"} caption={figure.title || ""} />;
+  return (
+    <ZoomableImage
+      className="brief-image"
+      src={source}
+      alt={figure.title || "Stage figure"}
+      caption={figure.title || ""}
+    />
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -185,9 +268,11 @@ export function buildBrief(stage: string, report: ReportData): Brief | null {
   if (["not-run", "skipped"].includes(status) && stage !== "m5") {
     return {
       verdict: "This step did not run.",
-      lead: "Nothing was measured here, so there is nothing to summarise. The steps "
-        + "before it still stand on their own.",
-      kpis: [], points: [],
+      lead:
+        "Nothing was measured here, so there is nothing to summarise. The steps " +
+        "before it still stand on their own.",
+      kpis: [],
+      points: [],
     };
   }
   if (stage === "m1") return briefM1(report, detail);
@@ -201,13 +286,18 @@ export function buildBrief(stage: string, report: ReportData): Brief | null {
 /** `text` guaranteed to end as a sentence, so derived lines can be joined
  *  without producing "…consistency=0.2) No way of testing…" or a double dot. */
 function sentence(text: string): string {
-  const clean = String(text || "").trim().replace(/\.{2,}$/, ".");
+  const clean = String(text || "")
+    .trim()
+    .replace(/\.{2,}$/, ".");
   if (!clean) return "";
   return /[.!?…]$/.test(clean) ? clean : `${clean}.`;
 }
 
 const MODALITY_WORD: Record<string, string> = {
-  text: "text", image: "images", audio: "audio", video: "video",
+  text: "text",
+  image: "images",
+  audio: "audio",
+  video: "video",
 };
 function modalityWords(slots?: Modality[]): string {
   const words = (slots || []).map((slot) => MODALITY_WORD[slot] || slot);
@@ -224,11 +314,11 @@ function briefM1(report: ReportData, detail: Record<string, any>): Brief {
   const selection: AnalyzerSelection | undefined = m1?.selection;
   const broken = Object.entries(m1?.failed_analyzers || {});
 
-  const verdict = failed !== undefined && evaluated
-    ? `${plural(probes.length, "behavioural check")} ran, and the model got `
-      + `${failed} of the ${evaluated} cases wrong.`
-    : `${plural(probes.length, "behavioural check")} ran on `
-      + `${plural(measured, "case")}.`;
+  const verdict =
+    failed !== undefined && evaluated
+      ? `${plural(probes.length, "behavioural check")} ran, and the model got ` +
+        `${failed} of the ${evaluated} cases wrong.`
+      : `${plural(probes.length, "behavioural check")} ran on ` + `${plural(measured, "case")}.`;
 
   // Naming the checks beats describing them here. Each probe carries a
   // `question`, but an analyzer the glossary does not know gets a generic
@@ -240,20 +330,24 @@ function briefM1(report: ReportData, detail: Record<string, any>): Brief {
   if (selection) {
     const routed = modalityWords(selection.routed_on);
     const probed = modalityWords(selection.probed_modalities);
-    points.push(routed === probed
-      ? `The checks read ${routed}, which is what these cases actually carry.`
-      : `The checks read ${routed}, while the cases themselves carry ${probed} — `
-        + "so the parts of the input outside that were never examined.");
+    points.push(
+      routed === probed
+        ? `The checks read ${routed}, which is what these cases actually carry.`
+        : `The checks read ${routed}, while the cases themselves carry ${probed} — ` +
+            "so the parts of the input outside that were never examined.",
+    );
   }
   // The checks get a list of their own (`checks`): one bullet that joined
   // five titles with " · and 3 more" mixed questions with Title-Cased ids and
   // read as noise.
   const generic = (text: string) => !text || text.startsWith("Measures model behavior");
-  const checks = probes.map((probe) => ({
-    name: String(probe.display_name || probe.title || probe.raw_name || ""),
-    question: generic(String(probe.question || "")) ? undefined : String(probe.question),
-    n: probe.n_cases === undefined || probe.n_cases === null ? null : Number(probe.n_cases),
-  })).filter((check) => check.name);
+  const checks = probes
+    .map((probe) => ({
+      name: String(probe.display_name || probe.title || probe.raw_name || ""),
+      question: generic(String(probe.question || "")) ? undefined : String(probe.question),
+      n: probe.n_cases === undefined || probe.n_cases === null ? null : Number(probe.n_cases),
+    }))
+    .filter((check) => check.name);
 
   // A check with `n_cases: 0` and a check that ran on 8 of 12 cases are
   // different facts, and lumping them into one filter once produced "Every
@@ -261,59 +355,84 @@ function briefM1(report: ReportData, detail: Record<string, any>): Brief {
   // `coverage` is the checks that measured something; `zeroed` is the checks
   // that explicitly recorded measuring nothing.
   const coverage = probes.map((probe) => Number(probe.n_cases)).filter((n) => n > 0);
-  const zeroed = probes.filter((probe) => Number(probe.n_cases) === 0
-    && probe.n_cases !== undefined && probe.n_cases !== null);
+  const zeroed = probes.filter(
+    (probe) => Number(probe.n_cases) === 0 && probe.n_cases !== undefined && probe.n_cases !== null,
+  );
   const lowest = coverage.length ? Math.min(...coverage) : 0;
   if (measured && coverage.length) {
-    points.push(lowest === measured
-      ? (coverage.length === probes.length
+    points.push(
+      lowest === measured
+        ? coverage.length === probes.length
           ? `Every check ran on all ${plural(measured, "case")}.`
-          : `${plural(coverage.length, "check")} reported a case count, and each ran on all ${measured} cases.`)
-      : `Coverage ranged from ${lowest} to ${measured} cases per check — the shorter ones `
-        + "were capped to keep the step inside its time budget.");
+          : `${plural(coverage.length, "check")} reported a case count, and each ran on all ${measured} cases.`
+        : `Coverage ranged from ${lowest} to ${measured} cases per check — the shorter ones ` +
+            "were capped to keep the step inside its time budget.",
+    );
   }
   const capped = coverage.filter((n) => n < measured).length;
   const caveatParts: string[] = [];
   if (zeroed.length) {
-    const names = zeroed.map((probe) => String(probe.title || probe.raw_name || ""))
-      .filter(Boolean).join(", ");
-    caveatParts.push(`${plural(zeroed.length, "check")}${names ? ` (${names})` : ""} measured `
-      + `no cases at all, so ${zeroed.length === 1 ? "its question" : "their questions"} simply `
-      + "went unanswered this run.");
+    const names = zeroed
+      .map((probe) => String(probe.title || probe.raw_name || ""))
+      .filter(Boolean)
+      .join(", ");
+    caveatParts.push(
+      `${plural(zeroed.length, "check")}${names ? ` (${names})` : ""} measured ` +
+        `no cases at all, so ${zeroed.length === 1 ? "its question" : "their questions"} simply ` +
+        "went unanswered this run.",
+    );
   }
   if (broken.length) {
     caveatParts.push(
-      `${plural(broken.length, "check")} could not run at all `
-      + `(${broken.map(([name]) => name).join(", ")}), so whatever ${broken.length === 1 ? "it" : "they"} `
-      + "would have measured is simply absent from everything downstream — not measured and found clean.");
+      `${plural(broken.length, "check")} could not run at all ` +
+        `(${broken.map(([name]) => name).join(", ")}), so whatever ${broken.length === 1 ? "it" : "they"} ` +
+        "would have measured is simply absent from everything downstream — not measured and found clean.",
+    );
   }
   if (capped && measured) {
-    caveatParts.push(`${plural(capped, "check")} ran on fewer than all ${measured} cases, `
-      + "which costs statistical power later but does not bias what was measured.");
+    caveatParts.push(
+      `${plural(capped, "check")} ran on fewer than all ${measured} cases, ` +
+        "which costs statistical power later but does not bias what was measured.",
+    );
   }
 
   return {
     verdict,
     checks,
-    lead: "This step only measures. It records what the model does differently on "
-      + "the cases it gets right and the ones it gets wrong — it does not yet claim "
-      + "to know why anything failed.",
+    lead:
+      "This step only measures. It records what the model does differently on " +
+      "the cases it gets right and the ones it gets wrong — it does not yet claim " +
+      "to know why anything failed.",
     kpis: [
-      { label: "Checks run", value: probes.length || detail.n_probes || 0,
-        note: broken.length ? `${broken.length} could not run` : "all completed" },
-      { label: "Cases measured", value: measured || "—",
-        note: evaluated ? `out of ${evaluated} evaluated` : undefined },
+      {
+        label: "Checks run",
+        value: probes.length || detail.n_probes || 0,
+        note: broken.length ? `${broken.length} could not run` : "all completed",
+      },
+      {
+        label: "Cases measured",
+        value: measured || "—",
+        note: evaluated ? `out of ${evaluated} evaluated` : undefined,
+      },
       ...(failed !== undefined && evaluated
-        ? [{ label: "Got it wrong", value: countOf(failed, evaluated),
-             note: "these are what the rest of the report is about" }]
+        ? [
+            {
+              label: "Got it wrong",
+              value: countOf(failed, evaluated),
+              note: "these are what the rest of the report is about",
+            },
+          ]
         : []),
       ...(typeof detail.duration === "number"
-        ? [{ label: "Time taken", value: `${detail.duration.toFixed(0)}s` }] : []),
+        ? [{ label: "Time taken", value: `${detail.duration.toFixed(0)}s` }]
+        : []),
     ],
-    figure: reportChart(report, "outcomes")
-      ? <BriefChart chart={reportChart(report, "outcomes")!} /> : undefined,
-    figureNote: "How the evaluated cases came out. Everything later in the report is "
-      + "an attempt to explain the wrong ones.",
+    figure: reportChart(report, "outcomes") ? (
+      <BriefChart chart={reportChart(report, "outcomes")!} />
+    ) : undefined,
+    figureNote:
+      "How the evaluated cases came out. Everything later in the report is " +
+      "an attempt to explain the wrong ones.",
     points,
     caveat: caveatParts.join(" ") || undefined,
   };
@@ -331,8 +450,8 @@ function briefM2(report: ReportData, detail: Record<string, any>): Brief {
   const verdict = headline
     ? headline
     : survived.length
-      ? `${plural(survived.length, "measured behaviour")} line up with the model's errors `
-        + "more often than chance would explain."
+      ? `${plural(survived.length, "measured behaviour")} line up with the model's errors ` +
+        "more often than chance would explain."
       : "No behaviour stood out strongly enough to separate the right answers from the wrong ones.";
 
   const points: string[] = [];
@@ -347,17 +466,21 @@ function briefM2(report: ReportData, detail: Record<string, any>): Brief {
     // supposed to spare the reader. It stays reachable one level down.
     for (const item of survived.slice(0, 3)) {
       const label = stripMarkdown(String(item.label || item.raw_signal || "A measured behaviour"));
-      const hasRates = typeof item.fail_rate_signal === "number"
-        && typeof item.fail_rate_control === "number";
+      const hasRates =
+        typeof item.fail_rate_signal === "number" && typeof item.fail_rate_control === "number";
       if (hasRates) {
-        points.push(`${label}: the model got ${Math.round(item.fail_rate_signal * 100)}% of cases `
-          + `wrong when this shows up, against ${Math.round(item.fail_rate_control * 100)}% when it does not.`);
+        points.push(
+          `${label}: the model got ${Math.round(item.fail_rate_signal * 100)}% of cases ` +
+            `wrong when this shows up, against ${Math.round(item.fail_rate_control * 100)}% when it does not.`,
+        );
         continue;
       }
       const gap = pointsGap(item.effect);
       const odds = oddsPhrase(item.e_value);
-      points.push(`${label}: a gap of ${gap || "some size"} between the two groups compared`
-        + (odds ? `, with the evidence against that being luck running ${odds}.` : "."));
+      points.push(
+        `${label}: a gap of ${gap || "some size"} between the two groups compared` +
+          (odds ? `, with the evidence against that being luck running ${odds}.` : "."),
+      );
     }
   }
   if (!points.length && conclusion) {
@@ -366,8 +489,10 @@ function briefM2(report: ReportData, detail: Record<string, any>): Brief {
     }
   }
   if (survived.length && stats.length > survived.length) {
-    points.push(`${survived.length} of the ${stats.length} patterns screened are still standing `
-      + "after discounting for how many were tried at once; the rest could be luck.");
+    points.push(
+      `${survived.length} of the ${stats.length} patterns screened are still standing ` +
+        "after discounting for how many were tried at once; the rest could be luck.",
+    );
   }
 
   const topFigure = figures[0];
@@ -378,22 +503,32 @@ function briefM2(report: ReportData, detail: Record<string, any>): Brief {
     lead: leadFrom(rest) || undefined,
     kpis: [
       ...(takeaways.length ? [{ label: "Ranked findings", value: takeaways.length }] : []),
-      { label: "Patterns screened", value: stats.length,
-        note: "each one compares a measured behaviour against the errors" },
-      { label: "Still standing", value: survived.length,
-        note: "after discounting for how many were tried at once" },
+      {
+        label: "Patterns screened",
+        value: stats.length,
+        note: "each one compares a measured behaviour against the errors",
+      },
+      {
+        label: "Still standing",
+        value: survived.length,
+        note: "after discounting for how many were tried at once",
+      },
       ...(figures.length ? [{ label: "Figures produced", value: figures.length }] : []),
     ],
-    figure: topFigure ? <BriefImage figure={topFigure} />
-      : effects ? <BriefChart chart={effects} /> : undefined,
+    figure: topFigure ? (
+      <BriefImage figure={topFigure} />
+    ) : effects ? (
+      <BriefChart chart={effects} />
+    ) : undefined,
     figureNote: topFigure
       ? stripMarkdown(topFigure.reading || topFigure.title || "")
-      : "A longer bar means the behaviour separates right from wrong answers more "
-        + "sharply. It is a pattern, not a cause.",
+      : "A longer bar means the behaviour separates right from wrong answers more " +
+        "sharply. It is a pattern, not a cause.",
     points,
-    caveat: "These patterns were found on the same half of the data used to look for "
-      + "them, so any of them could be a coincidence that happens to fit. Nothing here "
-      + "is a verdict — the held-out check is the only step allowed to issue one.",
+    caveat:
+      "These patterns were found on the same half of the data used to look for " +
+      "them, so any of them could be a coincidence that happens to fit. Nothing here " +
+      "is a verdict — the held-out check is the only step allowed to issue one.",
   };
 }
 
@@ -407,8 +542,8 @@ function briefM3(report: ReportData, detail: Record<string, any>): Brief {
   const withTest = list.filter((h) => String(h.test_design || "").trim()).length;
 
   const verdict = list.length
-    ? `${plural(list.length, "possible explanation")} for the failures ${list.length === 1 ? "was" : "were"} `
-      + `put forward, and ${list.length === 1 ? "it is not proven" : "none of them is proven"} yet.`
+    ? `${plural(list.length, "possible explanation")} for the failures ${list.length === 1 ? "was" : "were"} ` +
+      `put forward, and ${list.length === 1 ? "it is not proven" : "none of them is proven"} yet.`
     : "No explanation could be put forward from the patterns found.";
 
   // A hypothesis statement can be a 400-character paragraph and its test
@@ -432,44 +567,63 @@ function briefM3(report: ReportData, detail: Record<string, any>): Brief {
     const lead = `H${i + 1} — ${claim}`;
     if (!test) return `${lead} No way of testing it was named.`;
     if (!clipped && test.length <= 160) return `${lead} Checked against: ${sentence(test)}`;
-    return `${lead} ${clipped ? "Shortened here — the full claim and how it will be checked are"
-      : "How it will be checked is spelled out"} one level down.`;
+    return `${lead} ${
+      clipped
+        ? "Shortened here — the full claim and how it will be checked are"
+        : "How it will be checked is spelled out"
+    } one level down.`;
   });
 
   const caveatParts: string[] = [];
   if (!accepted.length && recovered.length) {
-    caveatParts.push("The agent did propose explanations, but the pipeline could not read "
-      + "the format it wrote them in, so they never reached the held-out check. They are "
-      + "shown for audit only.");
+    caveatParts.push(
+      "The agent did propose explanations, but the pipeline could not read " +
+        "the format it wrote them in, so they never reached the held-out check. They are " +
+        "shown for audit only.",
+    );
   }
   if (untestable.length) {
-    caveatParts.push(`${plural(untestable.length, "proposal")} name${untestable.length === 1 ? "s" : ""} `
-      + "no way of being wrong. Those come back \"could not be decided\" however much "
-      + "evidence the next step gathers — read that as \"never testable\", not as "
-      + "\"not enough data yet\".");
+    caveatParts.push(
+      `${plural(untestable.length, "proposal")} name${untestable.length === 1 ? "s" : ""} ` +
+        'no way of being wrong. Those come back "could not be decided" however much ' +
+        'evidence the next step gathers — read that as "never testable", not as ' +
+        '"not enough data yet".',
+    );
   }
 
   return {
     verdict,
-    lead: "This step turns the patterns from the previous one into explanations that "
-      + "could be shown to be wrong. Everything on this screen is a proposal; whether "
-      + "any of it survives is decided one step later.",
+    lead:
+      "This step turns the patterns from the previous one into explanations that " +
+      "could be shown to be wrong. Everything on this screen is a proposal; whether " +
+      "any of it survives is decided one step later.",
     kpis: [
       { label: "Explanations proposed", value: list.length },
-      { label: "With a way to test them", value: withTest,
-        note: withTest < list.length ? `${list.length - withTest} without` : "all of them" },
+      {
+        label: "With a way to test them",
+        value: withTest,
+        note: withTest < list.length ? `${list.length - withTest} without` : "all of them",
+      },
       ...(recovered.length && !accepted.length
-        ? [{ label: "Read for audit only", value: recovered.length,
-             note: "the pipeline could not parse these" }] : []),
+        ? [
+            {
+              label: "Read for audit only",
+              value: recovered.length,
+              note: "the pipeline could not parse these",
+            },
+          ]
+        : []),
     ],
     // Only a figure this step produced. Borrowing the previous step's chart
     // would put the same picture on two screens in a row, which is exactly the
     // "L2 is L3 rearranged" failure this layer exists to avoid — and it would
     // imply M3 measured something, which it never does.
-    figure: (detail.evidence_figures || [])[0]
-      ? <BriefImage figure={detail.evidence_figures[0]} /> : undefined,
-    figureNote: "The pattern these explanations are trying to account for. It comes "
-      + "from the previous step, and motivates the ideas — it does not confirm them.",
+    figure: (detail.evidence_figures || [])[0] ? (
+      <BriefImage figure={detail.evidence_figures[0]} />
+    ) : undefined,
+    figureNote:
+      "The pattern these explanations are trying to account for. It comes " +
+      "from the previous step, and motivates the ideas — it does not confirm them.",
     points,
     caveat: caveatParts.join(" ") || undefined,
   };
@@ -487,9 +641,11 @@ function briefM4(report: ReportData, detail: Record<string, any>): Brief {
   if (!detail.ran || !results.length) {
     return {
       verdict: "No explanation reached the independent check.",
-      lead: "This step tests a frozen explanation on cases that were not used to invent "
-        + "it. Nothing was available to test, so this run has no verdict of any kind.",
-      kpis: [], points: [],
+      lead:
+        "This step tests a frozen explanation on cases that were not used to invent " +
+        "it. Nothing was available to test, so this run has no verdict of any kind.",
+      kpis: [],
+      points: [],
     };
   }
   const count = (name: string) =>
@@ -501,27 +657,34 @@ function briefM4(report: ReportData, detail: Record<string, any>): Brief {
 
   // n=1 needs its own sentence: "Of the 1 explanation checked … while forming
   // them, 1 could not be decided" is what the plural template degrades to.
-  const verdict = results.length === 1
-    ? "One explanation was checked on cases the agent never saw while forming it, and "
-      + `it ${supported ? "held up" : refuted ? "was contradicted" : "could not be decided"}.`
-    : `Of the ${plural(results.length, "explanation")} checked on cases the `
-      + "agent never saw while forming them, "
-      + [
-        supported ? `${supported} held up` : "",
-        refuted ? `${refuted} ${refuted === 1 ? "was" : "were"} contradicted` : "",
-        undecided ? `${undecided} could not be decided` : "",
-      ].filter(Boolean).join(", ") + ".";
+  const verdict =
+    results.length === 1
+      ? "One explanation was checked on cases the agent never saw while forming it, and " +
+        `it ${supported ? "held up" : refuted ? "was contradicted" : "could not be decided"}.`
+      : `Of the ${plural(results.length, "explanation")} checked on cases the ` +
+        "agent never saw while forming them, " +
+        [
+          supported ? `${supported} held up` : "",
+          refuted ? `${refuted} ${refuted === 1 ? "was" : "were"} contradicted` : "",
+          undecided ? `${undecided} could not be decided` : "",
+        ]
+          .filter(Boolean)
+          .join(", ") +
+        ".";
 
   const m3 = findContract<DiagnosisOutput>(report, "m3");
-  const untestable = new Set((m3?.hypotheses || [])
-    .filter((h) => !h.test_design?.trim()).map((h) => h.id));
+  const untestable = new Set(
+    (m3?.hypotheses || []).filter((h) => !h.test_design?.trim()).map((h) => h.id),
+  );
   const m4 = findContract<HypothesisTestOutput>(report, "m4");
   const stuck = (m4?.results || []).filter(
-    (r) => r.status === "inconclusive" && untestable.has(r.hypothesis_id));
+    (r) => r.status === "inconclusive" && untestable.has(r.hypothesis_id),
+  );
 
   const points = results.slice(0, 4).map((result, i) => {
     const full = stripMarkdown(
-      result.plain_statement || result.hypothesis || result.statement || `Explanation ${i + 1}`);
+      result.plain_statement || result.hypothesis || result.statement || `Explanation ${i + 1}`,
+    );
     // The claim is a whole M3 statement on some runs; keep the bullet a
     // summary by cutting only at the author's own punctuation.
     const claim = (headlineSplit(full)[0] || full).replace(/[.]$/, "");
@@ -530,44 +693,65 @@ function briefM4(report: ReportData, detail: Record<string, any>): Brief {
   });
   if (consistent < results.length) {
     const off = results.length - consistent;
-    points.push(`${plural(off, "check")} answered a question this run was not actually `
-      + `asking, and ${off === 1 ? "was" : "were"} kept out of the conclusions.`);
+    points.push(
+      `${plural(off, "check")} answered a question this run was not actually ` +
+        `asking, and ${off === 1 ? "was" : "were"} kept out of the conclusions.`,
+    );
   }
 
   const withEffect = results.filter((r) => typeof r.effect_size === "number");
   const option = {
     grid: { left: 130, right: 26, top: 10, bottom: 26 },
-    tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, valueFormatter: (v: unknown) => chartValue(v, { signed: true }) },
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "shadow" },
+      valueFormatter: (v: unknown) => chartValue(v, { signed: true }),
+    },
     xAxis: {
-      type: "value", axisLabel: { color: tc("#8da19b") },
+      type: "value",
+      axisLabel: { color: tc("#8da19b") },
       splitLine: { lineStyle: { color: tc("#23332f") } },
     },
     yAxis: {
       type: "category",
       data: withEffect.map((_, i) => `H${i + 1}`),
-      axisLabel: { color: tc("#b8c9c4") }, axisLine: { show: false }, axisTick: { show: false },
+      axisLabel: { color: tc("#b8c9c4") },
+      axisLine: { show: false },
+      axisTick: { show: false },
     },
-    series: [{
-      type: "bar", barWidth: 14,
-      data: withEffect.map((r) => ({
-        value: r.effect_size,
-        itemStyle: {
-          color: String(r.status).toLowerCase() === "supported" ? tc("#6bd8ad")
-            : String(r.status).toLowerCase() === "refuted" ? tc("#f06d5f") : tc("#586a65"),
-          borderRadius: 4,
-        },
-      })),
-    }],
+    series: [
+      {
+        type: "bar",
+        barWidth: 14,
+        data: withEffect.map((r) => ({
+          value: r.effect_size,
+          itemStyle: {
+            color:
+              String(r.status).toLowerCase() === "supported"
+                ? tc("#6bd8ad")
+                : String(r.status).toLowerCase() === "refuted"
+                  ? tc("#f06d5f")
+                  : tc("#586a65"),
+            borderRadius: 4,
+          },
+        })),
+      },
+    ],
   };
 
   return {
     verdict,
-    lead: "First an explanation is frozen. Then it is tested against cases the agent did "
-      + "not use to invent it. This is the only step in the report allowed to say whether "
-      + "an idea held up.",
+    lead:
+      "First an explanation is frozen. Then it is tested against cases the agent did " +
+      "not use to invent it. This is the only step in the report allowed to say whether " +
+      "an idea held up.",
     kpis: [
       { label: "Explanations checked", value: results.length },
-      { label: "Held up", value: supported, note: supported ? "survived the held-out test" : "none" },
+      {
+        label: "Held up",
+        value: supported,
+        note: supported ? "survived the held-out test" : "none",
+      },
       { label: "Contradicted", value: refuted },
       { label: "Could not be decided", value: undecided },
     ],
@@ -575,20 +759,26 @@ function briefM4(report: ReportData, detail: Record<string, any>): Brief {
     // conveys nothing and reads as a rendering failure. The picture earns its
     // place once there is either a comparison to make or a decided verdict to
     // show; otherwise the words carry it.
-    figure: withEffect.length && (withEffect.length > 1 || supported || refuted)
-      ? <ReactECharts option={option} notMerge style={{ height: Math.max(160, withEffect.length * 42 + 50) }} />
-      : undefined,
-    figureNote: "How large a gap each explanation predicted, and whether it survived. "
-      + "Green held up, red pointed the other way, grey could not be decided.",
+    figure:
+      withEffect.length && (withEffect.length > 1 || supported || refuted) ? (
+        <ReactECharts
+          option={option}
+          notMerge
+          style={{ height: Math.max(160, withEffect.length * 42 + 50) }}
+        />
+      ) : undefined,
+    figureNote:
+      "How large a gap each explanation predicted, and whether it survived. " +
+      "Green held up, red pointed the other way, grey could not be decided.",
     points,
     caveat: stuck.length
-      ? (stuck.length === 1
-        ? "One \"could not be decided\" verdict is not a shortage of evidence: that "
-          + "proposal named no test, so nothing measured here could have settled it "
-          + "either way. Re-running with more cases returns the same answer."
-        : `${stuck.length} "could not be decided" verdicts are not a shortage of evidence: `
-          + "those proposals named no test, so nothing measured here could have settled "
-          + "them either way. Re-running with more cases returns the same answer.")
+      ? stuck.length === 1
+        ? 'One "could not be decided" verdict is not a shortage of evidence: that ' +
+          "proposal named no test, so nothing measured here could have settled it " +
+          "either way. Re-running with more cases returns the same answer."
+        : `${stuck.length} "could not be decided" verdicts are not a shortage of evidence: ` +
+          "those proposals named no test, so nothing measured here could have settled " +
+          "them either way. Re-running with more cases returns the same answer."
       : undefined,
   };
 }
@@ -605,21 +795,30 @@ function briefM5(report: ReportData, detail: Record<string, any>): Brief {
       verdict: detail.skipped
         ? "Repair was deliberately held back."
         : tried
-          ? `${plural(tried, "repair")} ${tried === 1 ? "was" : "were"} tried while choosing one, `
-            + "and none was worth confirming."
+          ? `${plural(tried, "repair")} ${tried === 1 ? "was" : "were"} tried while choosing one, ` +
+            "and none was worth confirming."
           : "No repair was attempted.",
-      lead: detail.skip_detail || detail.skip_reason
-        || "A repair is only attempted once an explanation has survived the held-out "
-           + "check, so that there is something specific to repair.",
-      kpis: tried ? [{ label: "Repairs tried", value: tried, note: "none reached confirmation" }] : [],
-      points: sweep.slice(0, 4).map((row) =>
-        `${row.ref || row.name}${row.headline ? ` — ${row.headline}` : ""}`),
+      lead:
+        detail.skip_detail ||
+        detail.skip_reason ||
+        "A repair is only attempted once an explanation has survived the held-out " +
+          "check, so that there is something specific to repair.",
+      kpis: tried
+        ? [{ label: "Repairs tried", value: tried, note: "none reached confirmation" }]
+        : [],
+      points: sweep
+        .slice(0, 4)
+        .map((row) => `${row.ref || row.name}${row.headline ? ` — ${row.headline}` : ""}`),
     };
   }
 
-  const winner = candidates.find((item) => item.fixed)
-    || candidates.reduce((best: any, item: any) =>
-      Number(item.effect ?? -Infinity) > Number(best?.effect ?? -Infinity) ? item : best, null);
+  const winner =
+    candidates.find((item) => item.fixed) ||
+    candidates.reduce(
+      (best: any, item: any) =>
+        Number(item.effect ?? -Infinity) > Number(best?.effect ?? -Infinity) ? item : best,
+      null,
+    );
   const fixed = Number(winner?.n_fixed || 0);
   const broke = Number(winner?.n_broken || 0);
   const pairs = Number(winner?.n_pairs || 0);
@@ -633,9 +832,9 @@ function briefM5(report: ReportData, detail: Record<string, any>): Brief {
   // exactly the runs where it was written by hand. Neither source is
   // guaranteed — a run with neither gets no sentence rather than its slug.
   const headline = String(
-    winner?.headline
-    || [...(m5?.attempted || []), ...sweep].find((row) => row.name === winner?.name)?.headline
-    || "",
+    winner?.headline ||
+      [...(m5?.attempted || []), ...sweep].find((row) => row.name === winner?.name)?.headline ||
+      "",
   ).trim();
 
   const held = candidates.filter((item: any) => item.fixed).length;
@@ -644,37 +843,46 @@ function briefM5(report: ReportData, detail: Record<string, any>): Brief {
   const heldNote = held
     ? `cleared ${bar}${ratio ? ` at ${ratio}` : ""}`
     : `none cleared ${bar}${ratio ? ` · best ran ${ratio}` : ""}`;
-  const heldWord = held > 1 ? `${held} repairs held up, the strongest of them` : "One repair held up";
+  const heldWord =
+    held > 1 ? `${held} repairs held up, the strongest of them` : "One repair held up";
   const verdict = detail.fixed
-    ? (headline
-        ? `${heldWord}: ${headline.charAt(0).toLowerCase()}${headline.slice(1)}`
-        : `${heldWord} on cases it had not been tuned on.`)
-    : `${plural(candidates.length, "repair")} ${candidates.length === 1 ? "was" : "were"} `
-      + "tested against the unchanged model, and none earned its place.";
+    ? headline
+      ? `${heldWord}: ${headline.charAt(0).toLowerCase()}${headline.slice(1)}`
+      : `${heldWord} on cases it had not been tuned on.`
+    : `${plural(candidates.length, "repair")} ${candidates.length === 1 ? "was" : "were"} ` +
+      "tested against the unchanged model, and none earned its place.";
 
   const points: string[] = [];
   if (pairs || fixed || broke) {
-    points.push(`Across ${plural(pairs || 0, "case")} it was tested on, the best repair fixed `
-      + `${fixed} and broke ${broke}.`);
+    points.push(
+      `Across ${plural(pairs || 0, "case")} it was tested on, the best repair fixed ` +
+        `${fixed} and broke ${broke}.`,
+    );
   }
   if (odds) {
-    points.push(winner?.reject
-      ? `The evidence against that being luck runs ${odds}, which is strong enough to count.`
-      : `The evidence against that being luck runs only ${odds}, which is not strong enough to count.`);
+    points.push(
+      winner?.reject
+        ? `The evidence against that being luck runs ${odds}, which is strong enough to count.`
+        : `The evidence against that being luck runs only ${odds}, which is not strong enough to count.`,
+    );
   }
   if (typeof winner?.coverage === "number") {
     const pct = Math.round(winner.coverage * 100);
     // At 100% "the rest were out of its reach" describes an empty set.
-    points.push(pct >= 100
-      ? "It applied to every failure it was aimed at — none was out of its reach."
-      : `It applied to ${pct}% of the failures it was aimed at; the rest were out of `
-        + "its reach entirely.");
+    points.push(
+      pct >= 100
+        ? "It applied to every failure it was aimed at — none was out of its reach."
+        : `It applied to ${pct}% of the failures it was aimed at; the rest were out of ` +
+            "its reach entirely.",
+    );
   }
   if (candidates.length > 1) {
     // "Confirmed" would overclaim: every candidate reached the confirmation
     // stage, and most of them lost there.
-    points.push(`${candidates.length - 1} other ${candidates.length - 1 === 1 ? "repair was" : "repairs were"} `
-      + "tested on the same cases and are listed one level down.");
+    points.push(
+      `${candidates.length - 1} other ${candidates.length - 1 === 1 ? "repair was" : "repairs were"} ` +
+        "tested on the same cases and are listed one level down.",
+    );
   }
 
   // The best repair's tested cases as one ring: what it moved against what
@@ -686,12 +894,17 @@ function briefM5(report: ReportData, detail: Record<string, any>): Brief {
   // slices it can vouch for.
   const baselineRight = Number(winner?.n_baseline_correct);
   const stillRight = Number.isFinite(baselineRight) ? Math.max(0, baselineRight - broke) : null;
-  const stillWrong = stillRight !== null && pairs ? Math.max(0, pairs - stillRight - fixed - broke) : null;
+  const stillWrong =
+    stillRight !== null && pairs ? Math.max(0, pairs - stillRight - fixed - broke) : null;
   const slices = [
     { name: "errors fixed", value: fixed, color: tc("#6bd8ad") },
     { name: "new errors", value: broke, color: tc("#f06d5f") },
-    ...(stillRight !== null ? [{ name: "still right", value: stillRight, color: tc("#8fa49d") }] : []),
-    ...(stillWrong !== null ? [{ name: "still wrong", value: stillWrong, color: tc("#4f615b") }] : []),
+    ...(stillRight !== null
+      ? [{ name: "still right", value: stillRight, color: tc("#8fa49d") }]
+      : []),
+    ...(stillWrong !== null
+      ? [{ name: "still wrong", value: stillWrong, color: tc("#4f615b") }]
+      : []),
   ];
   const net = fixed - broke;
   const option = {
@@ -702,62 +915,108 @@ function briefM5(report: ReportData, detail: Record<string, any>): Brief {
     tooltip: { trigger: "item", valueFormatter: chartValue },
     color: slices.map((slice) => slice.color),
     legend: {
-      bottom: 0, itemWidth: 10, itemHeight: 10, itemGap: 14,
+      bottom: 0,
+      itemWidth: 10,
+      itemHeight: 10,
+      itemGap: 14,
       textStyle: { color: tc("#b8c9c4"), fontSize: 11 },
-      formatter: (name: string) => `${name}  ${slices.find((slice) => slice.name === name)?.value ?? ""}`,
+      formatter: (name: string) =>
+        `${name}  ${slices.find((slice) => slice.name === name)?.value ?? ""}`,
     },
     // Net change in the middle: the one number the whole ring is about.
-    graphic: [{
-      type: "group", left: "center", top: pairs ? "34%" : "38%",
-      children: [
-        { type: "text", style: { text: `${net > 0 ? "+" : ""}${net}`, fontSize: 30, fontFamily: "Newsreader",
-                                  fill: tc(net > 0 ? "#6bd8ad" : net < 0 ? "#f06d5f" : "#b8c9c4"), textAlign: "center" } },
-        ...(pairs ? [{ type: "text", top: 38, style: { text: `net of ${pairs} tested`, fontSize: 10, fontFamily: "DM Mono",
-                                                        fill: tc("#8da19b"), textAlign: "center" } }] : []),
-      ],
-    }],
-    series: [{
-      type: "pie", radius: ["56%", "78%"], center: ["50%", "44%"],
-      label: { show: false }, avoidLabelOverlap: false,
-      // A 2px surface gap between slices so adjacent fills never touch.
-      itemStyle: { borderColor: tc("#0d1a16"), borderWidth: 2 },
-      emphasis: { scale: false },
-      data: slices.map((slice) => ({ name: slice.name, value: slice.value })),
-    }],
+    graphic: [
+      {
+        type: "group",
+        left: "center",
+        top: pairs ? "34%" : "38%",
+        children: [
+          {
+            type: "text",
+            style: {
+              text: `${net > 0 ? "+" : ""}${net}`,
+              fontSize: 30,
+              fontFamily: "Newsreader",
+              fill: tc(net > 0 ? "#6bd8ad" : net < 0 ? "#f06d5f" : "#b8c9c4"),
+              textAlign: "center",
+            },
+          },
+          ...(pairs
+            ? [
+                {
+                  type: "text",
+                  top: 38,
+                  style: {
+                    text: `net of ${pairs} tested`,
+                    fontSize: 10,
+                    fontFamily: "DM Mono",
+                    fill: tc("#8da19b"),
+                    textAlign: "center",
+                  },
+                },
+              ]
+            : []),
+        ],
+      },
+    ],
+    series: [
+      {
+        type: "pie",
+        radius: ["56%", "78%"],
+        center: ["50%", "44%"],
+        label: { show: false },
+        avoidLabelOverlap: false,
+        // A 2px surface gap between slices so adjacent fills never touch.
+        itemStyle: { borderColor: tc("#0d1a16"), borderWidth: 2 },
+        emphasis: { scale: false },
+        data: slices.map((slice) => ({ name: slice.name, value: slice.value })),
+      },
+    ],
   };
 
   const independent = Number(winner?.n_model_independent || 0);
   return {
     verdict,
-    lead: "Every repair is run case by case against the unchanged model on cases held "
-      + "back from the search, so a repair that only looks good on the cases it was "
-      + "designed against does not get through.",
+    lead:
+      "Every repair is run case by case against the unchanged model on cases held " +
+      "back from the search, so a repair that only looks good on the cases it was " +
+      "designed against does not get through.",
     kpis: [
       // "Confirmed" would be wrong for this count: every candidate here reached
       // the confirmation stage, and most of them lost there.
-      { label: "Repairs tested", value: candidates.length,
-        note: "on cases held back from the search" },
+      {
+        label: "Repairs tested",
+        value: candidates.length,
+        note: "on cases held back from the search",
+      },
       // The odds against luck ride on this tile rather than getting one of
       // their own: the kicker, this count and the bullet under the chart all
       // already say whether the repair held up, so a fifth tile repeating
       // "not strong enough" added nothing. The number is what is new here —
       // how far from the bar the best candidate ran.
       { label: "Held up", value: held, note: heldNote },
-      { label: "Errors fixed", value: fixed, note: pairs ? `out of ${pairs} cases tested` : undefined },
-      { label: "New errors caused", value: broke,
-        note: broke ? "cases that were right before" : "none" },
+      {
+        label: "Errors fixed",
+        value: fixed,
+        note: pairs ? `out of ${pairs} cases tested` : undefined,
+      },
+      {
+        label: "New errors caused",
+        value: broke,
+        note: broke ? "cases that were right before" : "none",
+      },
     ],
     figure: <ReactECharts option={option} notMerge style={{ height: 280 }} />,
-    figureNote: `The ${plural(pairs || fixed + broke, "case")} the best repair`
-      + `${winner?.ref ? ` (${winner.ref})` : ""} was tested on: how many it turned from `
-      + "wrong to right, how many from right to wrong, and how many it left where they "
-      + "were. Both coloured slices matter — a repair that fixes ten and breaks nine has "
-      + "done almost nothing.",
+    figureNote:
+      `The ${plural(pairs || fixed + broke, "case")} the best repair` +
+      `${winner?.ref ? ` (${winner.ref})` : ""} was tested on: how many it turned from ` +
+      "wrong to right, how many from right to wrong, and how many it left where they " +
+      "were. Both coloured slices matter — a repair that fixes ten and breaks nine has " +
+      "done almost nothing.",
     points,
     caveat: independent
-      ? `${plural(independent, "case")} ${independent === 1 ? "was" : "were"} solved by the added `
-        + "code rather than by the model, and left out of the count — a scaffold that "
-        + "answers the question itself has repaired the task, not the model."
+      ? `${plural(independent, "case")} ${independent === 1 ? "was" : "were"} solved by the added ` +
+        "code rather than by the model, and left out of the count — a scaffold that " +
+        "answers the question itself has repaired the task, not the model."
       : undefined,
   };
 }

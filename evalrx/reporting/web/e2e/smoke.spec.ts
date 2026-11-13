@@ -9,7 +9,9 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 
-const payload = JSON.parse(readFileSync(new URL("../fixtures/chartqa-gemini.json", import.meta.url), "utf8"));
+const payload = JSON.parse(
+  readFileSync(new URL("../fixtures/chartqa-gemini.json", import.meta.url), "utf8"),
+);
 const PIXEL = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
   "base64",
@@ -21,7 +23,9 @@ async function openReport(page: Page): Promise<string[]> {
     if (message.type() === "error") errors.push(message.text());
   });
   page.on("pageerror", (error) => errors.push(String(error)));
-  await page.route("**/api/**", (route) => route.fulfill({ contentType: "image/png", body: PIXEL }));
+  await page.route("**/api/**", (route) =>
+    route.fulfill({ contentType: "image/png", body: PIXEL }),
+  );
   await page.addInitScript((data) => {
     (window as unknown as { __EVALRX_REPORT__: unknown }).__EVALRX_REPORT__ = data;
   }, payload);
@@ -29,8 +33,7 @@ async function openReport(page: Page): Promise<string[]> {
   return errors;
 }
 
-const toOverview = (page: Page) =>
-  page.getByRole("button", { name: "Overview" }).click();
+const toOverview = (page: Page) => page.getByRole("button", { name: "Overview" }).click();
 const openAuditView = (page: Page, view: string) =>
   page.locator(".evidence-index").getByRole("button", { name: view }).click();
 
@@ -42,7 +45,10 @@ test("every view of a real run renders without console errors", async ({ page })
 
   await openAuditView(page, "evidence");
   for (const stage of stages) {
-    await page.locator(".stage-list").getByRole("button", { name: new RegExp(stage.title) }).click();
+    await page
+      .locator(".stage-list")
+      .getByRole("button", { name: new RegExp(stage.title) })
+      .click();
     await expect(page.locator(".evidence-head h2")).toHaveText(stage.title);
     await expect(page.locator(".detail-page nav")).toContainText("What this step found");
     await page.getByRole("tab", { name: "Full record" }).click();

@@ -26,15 +26,20 @@ export function initialTheme(): Theme {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved === "light" || saved === "dark") return saved;
-  } catch { /* storage can be unavailable (file://, privacy mode) */ }
+  } catch {
+    /* storage can be unavailable (file://, privacy mode) */
+  }
   return document.documentElement.dataset.theme === "light" ? "light" : "dark";
 }
 
 export function applyTheme(theme: Theme): void {
   document.documentElement.dataset.theme = theme;
-  document.querySelector('meta[name="theme-color"]')
+  document
+    .querySelector('meta[name="theme-color"]')
     ?.setAttribute("content", theme === "light" ? "#f7f8fa" : "#07110f");
   try {
     localStorage.setItem(STORAGE_KEY, theme);
-  } catch { /* best effort */ }
+  } catch {
+    /* best effort */
+  }
 }

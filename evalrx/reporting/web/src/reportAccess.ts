@@ -118,14 +118,20 @@ export function headlineSplit(text: string): [string, string] {
   const head = firstSentence(clean);
   const tail = clean.length > head.length ? clean.slice(head.length).trim() : "";
   if (head.length <= HEADLINE_LIMIT) return [head, tail];
-  const breaks = [...head.matchAll(/\s*[—–;:]\s*|\s-\s/g)]
-    .filter((m) => (m.index ?? 0) > 40 && (m.index ?? 0) < HEADLINE_LIMIT + 60);
+  const breaks = [...head.matchAll(/\s*[—–;:]\s*|\s-\s/g)].filter(
+    (m) => (m.index ?? 0) > 40 && (m.index ?? 0) < HEADLINE_LIMIT + 60,
+  );
   if (!breaks.length) return [head, tail];
   const at = breaks[0].index ?? 0;
-  const cut = head.slice(0, at).trim().replace(/[,;:—–-]$/, "");
-  const moved = head.slice(at).replace(/^\s*[—–;:-]\s*/, "").trim();
-  const rejoined = [moved.charAt(0).toUpperCase() + moved.slice(1), tail]
-    .filter(Boolean).join(" ");
+  const cut = head
+    .slice(0, at)
+    .trim()
+    .replace(/[,;:—–-]$/, "");
+  const moved = head
+    .slice(at)
+    .replace(/^\s*[—–;:-]\s*/, "")
+    .trim();
+  const rejoined = [moved.charAt(0).toUpperCase() + moved.slice(1), tail].filter(Boolean).join(" ");
   return [`${cut}.`, rejoined];
 }
 
@@ -199,7 +205,9 @@ export function leadFrom(text: string, maxChars = 340): string {
   const ends = [...clean.slice(0, maxChars + 80).matchAll(/[.!?](?=\s|$)/g)]
     .map((m) => (m.index ?? 0) + 1)
     .filter((at) => at <= maxChars + 60);
-  return ends.length ? clean.slice(0, ends[ends.length - 1]).trim() : clean.slice(0, maxChars).trim();
+  return ends.length
+    ? clean.slice(0, ends[ends.length - 1]).trim()
+    : clean.slice(0, maxChars).trim();
 }
 
 /** A signed effect as "29 percentage points", or "" when there is no number. */

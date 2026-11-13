@@ -23,6 +23,7 @@ lockfile before building, including after a branch change updates dependencies:
 cd evalrx/reporting/web
 npm ci
 npm run typecheck
+npm run format:check  # `npm run format` rewrites
 npm run lint
 npm test               # unit tests (vitest)
 npm run build
@@ -76,7 +77,7 @@ The new analyzer is instantly discoverable via `registry.analyzers.names_compati
 ## Pull requests
 
 - Keep PRs focused: one analyzer, one model, or one infrastructure change per PR.
-- All configured CI checks must pass: Ruff, the frontend lint/tests/build, contract export,
+- All configured CI checks must pass: Ruff, the frontend format/lint/tests/build, contract export,
   documentation build, and the non-GPU/non-network test suite. Mypy is an
   additional local check, not currently a CI gate.
 - Add or update the relevant entry in `CHANGELOG.md` under `[Unreleased]`.
