@@ -131,7 +131,7 @@ dev = [
     "pytest>=8.0",
     "pytest-cov>=4.0",
     "ruff>=0.4",
-    "mypy>=1.8",
+    "mypy>=1.19",
     # Validate run_log.jsonl against the published schema (log_schema.py).
     "jsonschema>=4.0",
 ]

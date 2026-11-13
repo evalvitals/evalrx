@@ -175,7 +175,7 @@ def clean_benchmark_name(protocol: str, manifest_path: str) -> str:
 
 
 def _dig(d: dict, path: str) -> Any:
-    cur = d
+    cur: Any = d
     for part in path.split("."):
         if not isinstance(cur, dict):
             return None
@@ -194,12 +194,14 @@ def resolve_run_dirs(run_dir: Path) -> tuple[Path, Path | None, Path | None]:
             logs_dir = child.parent
             break
 
+    explore_dir: Path | None
     explore_dir = logs_dir / "explore"
     if not explore_dir.is_dir() and (logs_dir.parent / "explore").is_dir():
         explore_dir = logs_dir.parent / "explore"
     if not explore_dir.is_dir():
         explore_dir = None
 
+    fixes_dir: Path | None
     fixes_dir = logs_dir / "fixes"
     if not fixes_dir.is_dir() and (logs_dir.parent / "fixes").is_dir():
         fixes_dir = logs_dir.parent / "fixes"
@@ -522,7 +524,7 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
         result_paths = p0.get("result_paths") or {}
         p = logs_dir / str(result_paths.get(name) or f"artifacts/c{m1_cycle}_{name}.result.json")
         findings, n = {}, None
-        per_case_rows = []
+        per_case_rows: list[Any] = []
         # V1 externalised each analyzer's result to artifacts/; RunLoggerV2
         # keeps the findings inline on the probe entry itself.
         inline = (p0.get("findings") or {}).get(name)

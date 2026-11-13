@@ -59,7 +59,7 @@ def _is_agent_report(report: dict) -> bool:
 
 if TYPE_CHECKING:
     from evalrx.agent_runtime.cli_types import CliAgentConfig
-    from evalrx.core.model import Model
+    from evalrx.core.model import Judge
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +96,7 @@ class HypothesisAgent:
 
     def __init__(
         self,
-        judge: "Model | None" = None,
+        judge: "Judge | None" = None,
         cli_config: "CliAgentConfig | None" = None,
         timeout_sec: int = 90,
     ) -> None:

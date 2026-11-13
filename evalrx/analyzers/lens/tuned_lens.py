@@ -24,7 +24,7 @@ References:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from evalrx.core.analyzer import Analyzer
 from evalrx.core.capability import Capability
@@ -143,7 +143,7 @@ class TunedLensAnalyzer(Analyzer):
             for layer, h in enumerate(hidden):
                 train[layer].append(h[pick].detach().float().cpu())
             last_states.append((case.id, [h[-1].detach().float().cpu() for h in hidden]))
-        data = [torch.cat(chunks) for chunks in train]
+        data = [torch.cat(chunks) for chunks in cast("list[list]", train)]  # rows is non-empty
         n_layers = len(data) - 1           # entries 0..L-1 premature, L = final (post-norm)
         dim = data[0].shape[1]
         apply_norm = _functional_norm(norm, data[0][:1].to(device))

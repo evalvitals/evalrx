@@ -82,7 +82,7 @@ class CoverageVerificationGap(Analyzer):
     k: int
     self_verify: bool
     max_cases: int
-    gen_kwargs: Optional[dict]
+    gen_kwargs: dict[str, Any]
 
     def __init__(
         self,

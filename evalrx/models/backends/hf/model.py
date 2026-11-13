@@ -60,7 +60,7 @@ class HFLocalModel(ContrastiveDecodingMixin, SpecialistRepairsMixin, Model):
     def __init__(self, spec, runtime: RuntimeConfig) -> None:
         self.spec = spec
         self.runtime = runtime
-        self._hf = None  # (model, processor) — lazy
+        self._hf: tuple[Any, Any] | None = None  # (model, processor) — lazy
         self._ifcd_editors: dict[str, Any] = {}
         self._detect_engines: dict[str, Any] = {}
         self._audio_text_engines: dict[tuple[str, str], Any] = {}
@@ -186,7 +186,7 @@ class HFLocalModel(ContrastiveDecodingMixin, SpecialistRepairsMixin, Model):
                 kwargs.setdefault("return_audio", False)
             return original_generate(*args, **kwargs)
 
-        _generate_without_talker._evalrx_talker_suppressed = True
+        setattr(_generate_without_talker, "_evalrx_talker_suppressed", True)
         model.generate = _generate_without_talker
 
     @staticmethod

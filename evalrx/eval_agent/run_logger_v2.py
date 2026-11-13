@@ -45,6 +45,7 @@ import tempfile
 import threading
 import uuid
 import warnings
+from collections.abc import Sized
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -272,8 +273,8 @@ def _probe_examples(results: "dict[str, Any]", cases: Any) -> "list[dict[str, An
         )
         for row in rows:
             case_id = str(row.get("sample_id") or row.get("case_id") or "")
-            snapshot = snapshots.get(case_id)
-            if not snapshot or case_id in used:
+            case_snapshot = snapshots.get(case_id)
+            if not case_snapshot or case_id in used:
                 continue
             checked = {
                 str(key).replace("_", " "): value for key, value in row.items()
@@ -285,7 +286,7 @@ def _probe_examples(results: "dict[str, Any]", cases: Any) -> "list[dict[str, An
             output.append({
                 "id": f"m1-{name}-{case_id}", "kind": "case_measurement", "case_id": case_id,
                 "probe_title": str(name).replace("_", " ").title(),
-                **snapshot, "check_result": checked,
+                **case_snapshot, "check_result": checked,
                 "plain_reading": "This one case illustrates the recorded check. The aggregate M1 result uses all measured cases.",
                 "evidence_scope": "one recorded case within M1",
             })
@@ -483,7 +484,7 @@ class RunLoggerV2:
         self._lock = threading.RLock()
         self._event_seq = 0
         self._validate_events = bool(os.environ.get("EVALRX_VALIDATE_LOG"))
-        self._event_validator = None
+        self._event_validator: Any = None
         self._run_doc: dict[str, Any] = {
             "trace_id": self.trace_id,
             "run_start": None,
@@ -780,7 +781,7 @@ class RunLoggerV2:
     def log_diagnose_report(
         self,
         report: Any,
-        cases: "list[Any]",
+        cases: "Sized",
         *,
         discovery: "list[dict[str, Any]] | None" = None,
     ) -> None:
@@ -865,7 +866,7 @@ class RunLoggerV2:
         def json_safe(value: Any) -> Any:
             import dataclasses
 
-            if dataclasses.is_dataclass(value):
+            if dataclasses.is_dataclass(value) and not isinstance(value, type):
                 value = dataclasses.asdict(value)
             elif hasattr(value, "to_dict") and callable(value.to_dict):
                 try:

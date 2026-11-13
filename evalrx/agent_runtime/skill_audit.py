@@ -64,7 +64,8 @@ def _codex_evidence(stdout: str, requested: list[str]) -> list[dict[str, str]]:
     """
     evidence: list[dict[str, str]] = []
     for event in _json_lines(stdout):
-        item = event.get("item") if isinstance(event.get("item"), dict) else {}
+        raw_item = event.get("item")
+        item = raw_item if isinstance(raw_item, dict) else {}
         if item.get("type") != "command_execution":
             continue
         command = str(item.get("command") or "")

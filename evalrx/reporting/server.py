@@ -27,7 +27,7 @@ try:  # FastAPI stays optional, but a route's annotations must resolve against
     # module globals — a function-local import of UploadFile would not be seen.
     from fastapi import File, UploadFile
 except ImportError:  # pragma: no cover - create_app reports the missing extra
-    File = UploadFile = None  # type: ignore[assignment]
+    File = UploadFile = None  # type: ignore[assignment,misc]
 
 # A dropped archive is a whole run directory, which for a media-carrying
 # benchmark is mostly audio/video. The workbench default (1 GiB) is the same

@@ -60,7 +60,7 @@ class DiagnosticTracer:
         self.events: list[dict[str, Any]] = []
         self.trace_metadata: dict[str, Any] = {}
         self._start_time = time.time()
-        requested_mode = (mode or os.getenv("EVALRX_LANGFUSE_MODE", "auto")).strip().lower()
+        requested_mode = (mode or os.environ.get("EVALRX_LANGFUSE_MODE", "auto")).strip().lower()
         if requested_mode not in {"auto", "live", "offline"}:
             raise ValueError("EVALRX_LANGFUSE_MODE must be one of: auto, live, offline")
         self.mode = requested_mode
@@ -175,7 +175,7 @@ class DiagnosticTracer:
             observation.end()
             return
         self._langfuse_client.create_event(
-            trace_context={"trace_id": self.langfuse_trace_id},
+            trace_context={"trace_id": self.langfuse_trace_id},  # type: ignore[arg-type]  # langfuse TraceContext makes NotRequired parent_span_id required on py3.10
             name=f"EvalRX {envelope['stage']}: {envelope['event_type']}",
             input=input_data, metadata=metadata,
         )
@@ -224,7 +224,7 @@ class DiagnosticTracer:
         }
         if self._langfuse_client is not None:
             try:
-                self._live_root = self._langfuse_client.start_observation(
+                self._live_root = self._langfuse_client.start_observation(  # type: ignore[call-overload]  # langfuse TraceContext makes NotRequired parent_span_id required on py3.10
                     trace_context={"trace_id": self.langfuse_trace_id},
                     name=f"EvalRX: {model} on {benchmark}",
                     as_type="chain",
@@ -267,7 +267,7 @@ class DiagnosticTracer:
                         name=name, input=input_data, metadata=metadata or {}
                     )
                 else:
-                    obs = self._langfuse_client.start_observation(
+                    obs = self._langfuse_client.start_observation(  # type: ignore[call-overload]  # langfuse TraceContext makes NotRequired parent_span_id required on py3.10
                         trace_context={"trace_id": self.langfuse_trace_id},
                         name=name,
                         input=input_data,
@@ -336,7 +336,7 @@ class DiagnosticTracer:
                         metadata=metadata or {},
                     )
                 else:
-                    gen = self._langfuse_client.start_observation(
+                    gen = self._langfuse_client.start_observation(  # type: ignore[call-overload]  # langfuse TraceContext makes NotRequired parent_span_id required on py3.10
                         trace_context={"trace_id": self.langfuse_trace_id},
                         name=name,
                         as_type="generation",
@@ -803,7 +803,7 @@ def sync_to_langfuse_live(run_dir: str | Path) -> bool:
 
     try:
         langfuse = Langfuse()
-        root = langfuse.start_observation(
+        root = langfuse.start_observation(  # type: ignore[call-overload]  # langfuse TraceContext makes NotRequired parent_span_id required on py3.10
             trace_context={"trace_id": lf_trace_id},
             name=trace_info["name"],
             as_type="chain",
@@ -823,7 +823,7 @@ def sync_to_langfuse_live(run_dir: str | Path) -> bool:
                     metadata=span.get("metadata"),
                 )
             except AttributeError:
-                obs = langfuse.start_observation(
+                obs = langfuse.start_observation(  # type: ignore[call-overload]  # langfuse TraceContext makes NotRequired parent_span_id required on py3.10
                     trace_context={"trace_id": lf_trace_id},
                     name=span["name"],
                     input=span.get("input"),
@@ -845,7 +845,7 @@ def sync_to_langfuse_live(run_dir: str | Path) -> bool:
                     metadata=gen.get("metadata"),
                 )
             except AttributeError:
-                g = langfuse.start_observation(
+                g = langfuse.start_observation(  # type: ignore[call-overload]  # langfuse TraceContext makes NotRequired parent_span_id required on py3.10
                     trace_context={"trace_id": lf_trace_id},
                     name=gen["name"],
                     as_type="generation",

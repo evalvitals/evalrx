@@ -40,7 +40,7 @@ from __future__ import annotations
 import math
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Optional
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Optional, cast
 
 from evalrx.analyzers._internals.access import decoder_stack, torch_module
 
@@ -236,13 +236,14 @@ def _tap_attention(module: Any, query: Any, key: Any, value: Any, attention_mask
 
     layer = state.layer_of.get(id(module)) if state is not None else None
     if layer is not None:
-        state.calls.append(layer)
-        scores = state.edit_scores(layer, scores)
+        tap = cast(TapState, state)  # layer is only resolved from a live state
+        tap.calls.append(layer)
+        scores = tap.edit_scores(layer, scores)
     probs = nn.functional.softmax(scores, dim=-1, dtype=torch.float32).to(query.dtype)
     if layer is not None:
-        probs = state.edit_probs(layer, probs)
-        if state.on_probs is not None:
-            state.on_probs(layer, probs)
+        probs = tap.edit_probs(layer, probs)
+        if tap.on_probs is not None:
+            tap.on_probs(layer, probs)
     probs = nn.functional.dropout(probs, p=dropout, training=module.training)
     out = torch.matmul(probs, value).transpose(1, 2).contiguous()
     return out, probs

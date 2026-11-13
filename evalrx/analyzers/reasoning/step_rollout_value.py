@@ -86,7 +86,7 @@ class StepRolloutValueAnalyzer(Analyzer):
     max_steps: int
     drop_threshold: float
     max_cases: int
-    gen_kwargs: Optional[dict]
+    gen_kwargs: dict[str, Any]
 
     def __init__(
         self,

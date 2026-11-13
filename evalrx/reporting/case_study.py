@@ -930,7 +930,7 @@ def build_case_study(
     start = run.event("run_start") or {}
     # The benchmark harness writes `baseline_accuracy`; llm_benchmark's
     # summary.json nests the same number as `batch.accuracy`.
-    batch = run.summary.get("batch") if isinstance(run.summary.get("batch"), dict) else {}
+    batch = found if isinstance(found := run.summary.get("batch"), dict) else {}
     baseline = run.summary.get("baseline_accuracy")
     if baseline is None:
         baseline = batch.get("accuracy")

@@ -22,6 +22,11 @@ from evalrx.contract.common import (
     WireModel,
 )
 
+
+def _text_only() -> list[Modality]:
+    return ["text"]
+
+
 # ---------------------------------------------------------------------------
 # Input
 # ---------------------------------------------------------------------------
@@ -57,7 +62,7 @@ class ModelRef(WireModel):
                     "name, e.g. 'qwen3.5-2b' or 'VideoLLaMA2.1-7B-AV'.",
     )
     backend: str | None = None
-    modalities: list[Modality] = Field(default_factory=lambda: ["text"])
+    modalities: list[Modality] = Field(default_factory=_text_only)
     capabilities: list[str] = Field(
         default_factory=list,
         description="e.g. GENERATE / LOGPROBS / ATTENTION / HIDDEN_STATES.",
@@ -231,15 +236,15 @@ class AnalyzerSelection(WireModel):
     """
 
     model_modalities: list[Modality] = Field(
-        default_factory=lambda: ["text"],
+        default_factory=_text_only,
         description="What the model DECLARES it can consume (from its spec).",
     )
     probed_modalities: list[Modality] = Field(
-        default_factory=lambda: ["text"],
+        default_factory=_text_only,
         description="What the case batch actually FILLS. Text is the floor, not a slot.",
     )
     routed_on: list[Modality] = Field(
-        default_factory=lambda: ["text"],
+        default_factory=_text_only,
         description="The slots routing actually used. Normally model ∩ probed; equal to "
                     "model_modalities when the batch filled no media slot at all, because "
                     "an empty batch is no evidence about what is under test. A reader "

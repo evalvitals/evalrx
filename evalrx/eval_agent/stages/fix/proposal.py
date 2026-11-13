@@ -13,7 +13,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Iterable
+from typing import TYPE_CHECKING, Any, Callable, Iterable, cast
 
 from evalrx.eval_agent.prompts.fix_agent import (
     _L1_PROMPT,
@@ -42,7 +42,7 @@ from evalrx.eval_agent.stages.fix.types import FixCandidate, FixContext
 
 if TYPE_CHECKING:
     from evalrx.core.case import CaseBatch
-    from evalrx.core.model import Model
+    from evalrx.core.model import Judge, Model
     from evalrx.eval_agent.hypothesis import Hypothesis
 
 logger = logging.getLogger(__name__)
@@ -329,7 +329,8 @@ CONDITIONAL_DEFAULTS: "tuple[ConditionalDefault, ...]" = (
         name="upscale_count_extract",
         qualifies=_chart_batch,
         predicate=_chart_count_extract_predicate,
-        spec=lambda: builtin_spec("upscale_sharpen"),
+        # A BUILTIN_SPECS key, so never None.
+        spec=lambda: cast(PipelineSpec, builtin_spec("upscale_sharpen")),
     ),
 )
 
@@ -355,7 +356,8 @@ def enforce_generation_floor(candidates: "list[FixCandidate]", floor: "int | Non
         if not isinstance(gk, dict):
             continue
         try:
-            proposed = int(gk.get("max_tokens"))
+            proposed_raw: Any = gk.get("max_tokens")  # may be absent or non-numeric
+            proposed = int(proposed_raw)
         except (TypeError, ValueError):
             continue
         if proposed < floor:
@@ -378,7 +380,7 @@ class FixProposer:
     def __init__(
         self,
         *,
-        judge: "Model | None",
+        judge: "Judge | None",
         recorder: FixRecorder,
         coder: PipelineCoder,
         max_judge_candidates: int = MAX_JUDGE_CANDIDATES,
@@ -579,12 +581,12 @@ class FixProposer:
             for name in floor_names:
                 if name in present or name in prior_names:
                     continue
-                spec = self._default_spec(name)
-                if spec is not None:
+                floor_spec = self._default_spec(name)
+                if floor_spec is not None:
                     candidates.append(
                         FixCandidate(
                             tier=FixTier.L2_SCAFFOLD, name=name, kind="spec",
-                            source="floor", payload=spec.to_dict(),
+                            source="floor", payload=floor_spec.to_dict(),
                         )
                     )
         if (not skip_lower_tiers and max_tier >= FixTier.L2_SCAFFOLD
@@ -669,7 +671,7 @@ class FixProposer:
         caps: "list[int]" = []
         for case in data:
             meta = getattr(case, "metadata", {}) or {}
-            config = meta.get("generation_config") or {}
+            config: Any = meta.get("generation_config") or {}
             try:
                 cap = int(config.get("max_tokens"))
             except (AttributeError, TypeError, ValueError):
@@ -824,14 +826,14 @@ class FixProposer:
             meta = getattr(case, "metadata", {}) or {}
             if str(meta.get("finish_reason", "")).lower() != "length":
                 continue
-            config = meta.get("generation_config") or {}
+            config: Any = meta.get("generation_config") or {}
             try:
                 cap = int(config.get("max_tokens"))
             except (AttributeError, TypeError, ValueError):
                 continue
             if 1 <= cap < 8192:
                 caps.append(cap)
-            policy = meta.get("generation_policy") or {}
+            policy: Any = meta.get("generation_policy") or {}
             try:
                 policy_cap = int(policy.get("max_tokens_cap"))
             except (AttributeError, TypeError, ValueError):

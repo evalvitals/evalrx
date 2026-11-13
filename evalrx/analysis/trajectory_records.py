@@ -164,6 +164,7 @@ def trajectories_to_records(
     """
     rows: list[dict[str, Any]] = []
     tool_cols: set[str] = set()
+    trajectory: Trajectory | None
     for item in items:
         if isinstance(item, Trajectory):
             case, trajectory = None, item

@@ -52,6 +52,7 @@ import json
 import re
 import shutil
 import tempfile
+from collections.abc import Sized
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -273,7 +274,7 @@ class RunContext:
     def write_diagnose_report(
         self,
         report: Any,
-        cases: "list[Any]",
+        cases: "Sized",
         *,
         discovery: "list[dict[str, Any]] | None" = None,
     ) -> None:

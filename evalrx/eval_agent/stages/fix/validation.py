@@ -277,11 +277,12 @@ class CandidateValidator:
         max_tokens_floor: "int | None" = None,
     ) -> "dict[str, Optional[bool]]":
         """Per-case success of one candidate on *data*."""
-        batch = {
+        runners: "dict[str, Callable[..., dict[str, Optional[bool]]]]" = {
             "primitive": self._run_primitive,
             "code": self._run_code,
             "finetune_spec": self._run_finetune,
-        }.get(candidate.kind)
+        }
+        batch = runners.get(candidate.kind)
         if batch is not None:
             return batch(candidate, model, data, max_tokens_floor=max_tokens_floor)
         strategy = self.strategy(candidate)

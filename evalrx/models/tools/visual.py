@@ -76,7 +76,7 @@ def _sanitize_bbox(bbox: Any, width: int, height: int) -> "tuple[list[float], st
         )
         if fits_pixels:
             mode = "pixel"
-            scale = (width, height, width, height)
+            scale: tuple[float, float, float, float] = (width, height, width, height)
         else:  # out of pixel bounds -> 0-1000 normalized grid
             mode = "grid_1000"
             scale = (1000.0, 1000.0, 1000.0, 1000.0)
@@ -139,7 +139,7 @@ def zoom_in_tool(
 
                 crop = crop.resize(
                     (int(round(crop.size[0] * factor)), int(round(crop.size[1] * factor))),
-                    Image.LANCZOS,
+                    Image.LANCZOS,  # type: ignore[attr-defined]  # alias set dynamically by Pillow
                 )
 
         meta: dict = {

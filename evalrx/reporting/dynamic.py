@@ -578,7 +578,7 @@ def _stages(raw: Mapping[str, Any], m5_detail: Mapping[str, Any] | None = None) 
 
 
 def _stage_detail(
-    raw: Mapping[str, Any], root: Path, cases: list[dict[str, Any]], events: list[Mapping[str, Any]]
+    raw: Mapping[str, Any], root: Path, cases: list[dict[str, Any]], events: Sequence[Mapping[str, Any]]
 ) -> dict[str, Any]:
     """Compile the mature stage-specific views into a bounded web contract.
 
@@ -608,9 +608,9 @@ def _stage_detail(
 
 
 def _m1_detail(
-    m1: Mapping[str, Any], cases: list[dict[str, Any]], events: list[Mapping[str, Any]]
+    m1: Mapping[str, Any], cases: list[dict[str, Any]], events: Sequence[Mapping[str, Any]]
 ) -> dict[str, Any]:
-    probes = []
+    probes: list[dict[str, Any]] = []
     for result in m1.get("results") or []:
         if not isinstance(result, dict):
             continue
@@ -715,7 +715,7 @@ def _m3_detail(
     figures: list[dict[str, Any]], stats: list[dict[str, Any]],
 ) -> dict[str, Any]:
     judges = list((raw.get("agents") or {}).get("judge_calls") or [])
-    m3_call = next((call for call in judges if "M3" in str(call.get("stage") or "")), {})
+    m3_call: dict[str, Any] = next((call for call in judges if "M3" in str(call.get("stage") or "")), {})
     agent_response = str(m3_call.get("response") or "")
     m3 = dict(raw.get("m3") or {})
     hypotheses = list(m3.get("hypotheses") or explore.get("hypotheses") or [])
@@ -743,12 +743,12 @@ def _m3_detail(
 
 def _m4_detail(
     m4: Mapping[str, Any], logs_dir: Path, cases: list[dict[str, Any]],
-    events: list[Mapping[str, Any]],
+    events: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     saved = _load_json(logs_dir / "report" / "m4_results.json")
     results = saved if isinstance(saved, list) and saved else list(m4.get("results") or [])
     event = dict(m4.get("event") or {})
-    logged = next((
+    logged: Mapping[str, Any] = next((
         item for item in reversed(events)
         if item.get("event") == "surgery" and item.get("module") == "m4"
     ), {})
@@ -760,14 +760,14 @@ def _m4_detail(
 
 
 def _m5_detail(
-    raw: Mapping[str, Any], cases: list[dict[str, Any]], events: list[Mapping[str, Any]]
+    raw: Mapping[str, Any], cases: list[dict[str, Any]], events: Sequence[Mapping[str, Any]]
 ) -> dict[str, Any]:
     m5 = dict(raw.get("m5_fix") or {})
     # extract_run_data may see an older sibling log when an example contains
     # multiple attempts.  The event stream is trace-filtered and is the source
     # of truth for the run currently being rendered.
-    fix_event = next((event for event in reversed(events) if event.get("event") == "fix"), {})
-    skipped_event = next((
+    fix_event: Mapping[str, Any] = next((event for event in reversed(events) if event.get("event") == "fix"), {})
+    skipped_event: Mapping[str, Any] = next((
         event for event in reversed(events)
         if event.get("event") == "stage_skipped" and str(event.get("stage")) == "M5"
     ), {})
@@ -818,7 +818,7 @@ def _m5_detail(
     }
 
 
-def _m1_examples(probes: list[Mapping[str, Any]], cases: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def _m1_examples(probes: Sequence[Mapping[str, Any]], cases: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """Pick recorded, human-readable M1 case walk-throughs.
 
     Recent loggers may include ``examples`` directly on a probe.  Older runs
@@ -875,7 +875,7 @@ def _m1_examples(probes: list[Mapping[str, Any]], cases: list[Mapping[str, Any]]
     return result
 
 
-def _attach_example_media(examples: list[dict[str, Any]], cases: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def _attach_example_media(examples: list[dict[str, Any]], cases: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     case_by_id = {str(case.get("id")): case for case in cases}
     for example in examples:
         if example.get("probe_title"):
@@ -889,13 +889,14 @@ def _attach_example_media(examples: list[dict[str, Any]], cases: list[Mapping[st
 
 
 def _m4_examples(
-    results: list[Any], event: Mapping[str, Any], cases: list[Mapping[str, Any]]
+    results: list[Any], event: Mapping[str, Any], cases: Sequence[Mapping[str, Any]]
 ) -> list[dict[str, Any]]:
     """Return explicit validation examples, with a truthful aggregate fallback."""
     supplied = event.get("validation_examples") if isinstance(event, Mapping) else None
+    first: Mapping[str, Any] | None
     if isinstance(supplied, list):
         first = next((item for item in results if isinstance(item, Mapping)), {})
-        evidence = first.get("evidence") if isinstance(first.get("evidence"), Mapping) else {}
+        evidence = found if isinstance(found := first.get("evidence"), Mapping) else {}
         kept = [{
             **dict(item),
             "hypothesis": item.get("hypothesis") or first.get("hypothesis") or first.get("statement"),
@@ -909,7 +910,7 @@ def _m4_examples(
     first = next((item for item in results if isinstance(item, Mapping)), None)
     if first is None:
         return []
-    evidence = first.get("evidence") if isinstance(first.get("evidence"), Mapping) else {}
+    evidence = found if isinstance(found := first.get("evidence"), Mapping) else {}
     # Legacy M4 logs retain the frozen claim and the actual validation statistic
     # but not a row-level verdict.  That is still a concrete example of the
     # validation operation; label it as an aggregate test rather than pretend a
@@ -930,9 +931,9 @@ def _m4_examples(
 
 def _display_stat(value: Mapping[str, Any]) -> dict[str, Any]:
     """Keep statistical evidence machine-auditable but primary labels human."""
-    config = value.get("config") if isinstance(value.get("config"), Mapping) else {}
+    config = found if isinstance(found := value.get("config"), Mapping) else {}
     signal = str(config.get("signal") or value.get("signal") or value.get("tool") or "")
-    details = value.get("details") if isinstance(value.get("details"), Mapping) else {}
+    details = found if isinstance(found := value.get("details"), Mapping) else {}
     # A PAIRED tool compares two strategies and carries no `signal`, so `signal`
     # falls through to the tool name and every such row was labelled with the
     # same words ("Mcnemar Evalue"). Three identically-labelled bars is not a
@@ -951,7 +952,7 @@ def _display_stat(value: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _enrich_m2_stats(stats: list[Mapping[str, Any]], logs_dir: Path) -> list[dict[str, Any]]:
+def _enrich_m2_stats(stats: Sequence[Mapping[str, Any]], logs_dir: Path) -> list[dict[str, Any]]:
     """Restore detailed M2 rate fields from durable tool-result artifacts.
 
     The compact HTML reader deliberately omits bulky ``details``.  Its
@@ -968,20 +969,20 @@ def _enrich_m2_stats(stats: list[Mapping[str, Any]], logs_dir: Path) -> list[dic
         for item in value:
             if not isinstance(item, Mapping):
                 continue
-            config = item.get("config") if isinstance(item.get("config"), Mapping) else {}
+            config = found if isinstance(found := item.get("config"), Mapping) else {}
             key = (str(item.get("tool") or ""), str(config.get("signal") or item.get("signal") or ""))
             if key[1]:
                 artifact_rows[key] = item
     result: list[dict[str, Any]] = []
     for item in stats:
-        config = item.get("config") if isinstance(item.get("config"), Mapping) else {}
+        config = found if isinstance(found := item.get("config"), Mapping) else {}
         key = (str(item.get("tool") or ""), str(config.get("signal") or item.get("signal") or ""))
         saved = artifact_rows.get(key)
         result.append({**dict(item), **({"details": saved.get("details")} if saved and saved.get("details") else {})})
     return result
 
 
-def _operation_examples(cases: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def _operation_examples(cases: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """Project recorded agent tool trajectories into compact, case-linked UI cards.
 
     This intentionally ignores prompt text that *mentions* a tool.  An action
@@ -997,7 +998,7 @@ def _operation_examples(cases: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
         steps = trajectory.get("steps")
         if not isinstance(steps, list):
             continue
-        calls = []
+        calls: list[dict[str, Any]] = []
         for step in steps:
             if not isinstance(step, Mapping) or not isinstance(step.get("tool_call"), Mapping):
                 continue
@@ -1024,7 +1025,7 @@ def _operation_examples(cases: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _repair_operation_previews(
-    candidates: list[Mapping[str, Any]], cases: list[Mapping[str, Any]]
+    candidates: Sequence[Mapping[str, Any]], cases: Sequence[Mapping[str, Any]]
 ) -> list[dict[str, Any]]:
     """Show what an image-operation repair *would* apply, without claiming execution.
 
@@ -1037,7 +1038,7 @@ def _repair_operation_previews(
     image_cases = [case for case in cases if case.get("media_ids")]
     result: list[dict[str, Any]] = []
     for candidate in candidates:
-        payload = candidate.get("payload") if isinstance(candidate.get("payload"), Mapping) else {}
+        payload = found if isinstance(found := candidate.get("payload"), Mapping) else {}
         ops = [op for op in payload.get("image_ops") or [] if isinstance(op, Mapping) and op.get("tool")]
         if not ops:
             continue
@@ -1080,7 +1081,7 @@ def _plain_operation(value: Any) -> str:
 
 
 def _m5_examples(
-    candidates: list[Mapping[str, Any]], cases: list[Mapping[str, Any]], probe_results: list[Any]
+    candidates: Sequence[Mapping[str, Any]], cases: Sequence[Mapping[str, Any]], probe_results: list[Any]
 ) -> list[dict[str, Any]]:
     """Reconstruct a truthful before/after repair example — confirmed or not.
 
@@ -1424,7 +1425,7 @@ def _repair_candidate(value: Any) -> dict[str, Any]:
         return {}
     fixed_cases = list(value.get("fixed_cases") or [])
     broken_cases = list(value.get("broken_cases") or [])
-    payload = value.get("payload") if isinstance(value.get("payload"), Mapping) else {}
+    payload = found if isinstance(found := value.get("payload"), Mapping) else {}
     return {
         "tier": value.get("tier"), "name": value.get("name"), "kind": value.get("kind"),
         # `ref` and `headline` are what a reader sees; `name` is only the join
@@ -1513,7 +1514,7 @@ def _repairs(raw: Mapping[str, Any]) -> list[dict[str, Any]]:
     fix = raw.get("m5_fix") or {}
     if not fix.get("ran"):
         return []
-    confirm = fix.get("confirm") if isinstance(fix.get("confirm"), Mapping) else {}
+    confirm = found if isinstance(found := fix.get("confirm"), Mapping) else {}
     # Early runs recorded the winning candidate as its bare name; later ones
     # record the whole candidate. Both name the same repair.
     best_name = _repair_name(fix.get("best"))
@@ -1731,7 +1732,7 @@ def _media_index(cases: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
     media: list[dict[str, Any]] = []
     seen: set[str] = set()
     for case in cases:
-        inputs = case.get("inputs") if isinstance(case.get("inputs"), dict) else case
+        inputs = found if isinstance(found := case.get("inputs"), dict) else case
         # Slots and copies are recorded in the same order, so they zip up.
         local = [p for p in (case.get("_media_paths") or []) if isinstance(p, str)]
         i = 0
@@ -1750,7 +1751,7 @@ def _media_index(cases: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _normalise_case(case: Mapping[str, Any], media: list[dict[str, Any]]) -> dict[str, Any]:
-    inputs = case.get("inputs") if isinstance(case.get("inputs"), dict) else {}
+    inputs = found if isinstance(found := case.get("inputs"), dict) else {}
     prompt = inputs.get("prompt") or case.get("instruction") or case.get("prompt") or ""
     # Match on either key: the index prefers the in-run copy, and a run without
     # copies still resolves through the producer's original path.

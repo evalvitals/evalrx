@@ -20,7 +20,7 @@ Applied to neural NLP (causal mediation / interchange intervention):
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 from evalrx.core.analyzer import Analyzer
 from evalrx.core.capability import Capability
@@ -58,7 +58,7 @@ class CounterfactualReplay(Analyzer):
                 continue
             original_success = traj.outcome == Label.PASS
             candidates = [s for s in traj.steps if s.tool_call]
-            step_scores = []
+            step_scores: list[dict[str, Any]] = []
             for s in candidates:
                 flips = sum(
                     1 for seed in range(self.n_replays)
@@ -66,7 +66,7 @@ class CounterfactualReplay(Analyzer):
                 )
                 step_scores.append({
                     "step": s.idx,
-                    "action": s.tool_call.get("name"),
+                    "action": cast(dict, s.tool_call).get("name"),  # candidates keep only steps with a tool_call
                     "flip_rate": round(flips / self.n_replays, 4) if self.n_replays else 0.0,
                 })
             step_scores.sort(key=lambda d: -d["flip_rate"])

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 from evalrx.core.capability import Capability
 
@@ -94,6 +94,18 @@ class Trace:
                 f"Captured: {sorted(c.value for c in self.provided)}"
             )
         return value
+
+
+class Judge(Protocol):
+    """A model a stage asks to read and write text — its judge.
+
+    Every :class:`Model` qualifies; so do the CLI-backed judges in
+    :mod:`evalrx.agent_runtime.judges`, which can do nothing else.
+    """
+
+    capabilities: frozenset[Capability]
+
+    def generate(self, inputs: Any, **kwargs: Any) -> str: ...
 
 
 class Model(ABC):

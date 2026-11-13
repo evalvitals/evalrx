@@ -39,7 +39,7 @@ from evalrx.eval_agent.prompts.diagnosis import (
 
 if TYPE_CHECKING:
     from evalrx.analysis.analysis_module import AnalysisReport
-    from evalrx.core.model import Model
+    from evalrx.core.model import Judge
     from evalrx.core.result import Result
 
 def _format_prior_section(prior_cycles: list[dict]) -> str:
@@ -476,7 +476,7 @@ def _format_label_context(cases: "Any | None") -> str:
 def _validate_hypotheses(
     hypotheses: list[Hypothesis],
     findings_json: str,
-    judge: "Model",
+    judge: "Judge",
     *,
     capture: "dict[str, Any] | None" = None,
     context: str = "",
@@ -614,7 +614,7 @@ def _validate_hypotheses(
             "kept as flagged leads; M4 testing decides",
             len(hypotheses),
         )
-    order = {"keep": 0, "unparsed": 1, "reject": 2}
+    order: dict[Any, int] = {"keep": 0, "unparsed": 1, "reject": 2}
     return sorted(hypotheses, key=lambda h: order.get(h.metadata.get("critic"), 1))
 
 
@@ -631,7 +631,7 @@ def _critic_decisions(hypotheses: list[Hypothesis]) -> list[dict[str, Any]]:
     } for h in hypotheses]
 
 
-def _default_judge() -> "Model":
+def _default_judge() -> "Judge":
     """Return a judge model without requiring an explicit API key.
 
     Resolution order:
@@ -673,7 +673,7 @@ class DiagnosisAgent:
 
     def __init__(
         self,
-        judge: "Model | None" = None,
+        judge: "Judge | None" = None,
         api_key: str | None = None,
         model_id: str = "gemini-2.0-flash",
     ) -> None:
@@ -684,13 +684,13 @@ class DiagnosisAgent:
         self._judge = judge  # None → resolved lazily on first call
 
     @property
-    def judge(self) -> "Model":
+    def judge(self) -> "Judge":
         if self._judge is None:
             self._judge = _default_judge()
         return self._judge
 
     @judge.setter
-    def judge(self, value: "Model") -> None:
+    def judge(self, value: "Judge") -> None:
         self._judge = value
 
     def _reask_for_format(self, raw: str, model_name: str) -> tuple[str, list[Hypothesis]]:

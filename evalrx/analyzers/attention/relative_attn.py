@@ -64,7 +64,8 @@ def _blend_heatmap_on_image(
 
     def _upsample(mat: np.ndarray) -> np.ndarray:
         img = Image.fromarray((np.clip(mat, 0.0, 1.0) * 255).astype(np.uint8), mode="L")
-        return np.asarray(img.resize(base.size, Image.BILINEAR), dtype=np.float64) / 255.0
+        # Pillow sets the module-level filter aliases dynamically, so its type hints miss them
+        return np.asarray(img.resize(base.size, Image.BILINEAR), dtype=np.float64) / 255.0  # type: ignore[attr-defined]
 
     norm_up = _upsample(norm)
     intensity_up = _upsample(intensity)
@@ -138,7 +139,7 @@ def image_token_attention(attn_layer, mask):
 
 
 def attention_heatmap(
-    model: "Model", case: "FailureCase", layer: "int | float" = 0.75
+    model: "Model | None", case: "FailureCase", layer: "int | float" = 0.75
 ) -> "np.ndarray | None":
     """One ATTENTION forward → (H, W) image-patch heatmap, or ``None``.
 
@@ -152,7 +153,7 @@ def attention_heatmap(
     """
     from evalrx.core.capability import Capability
 
-    if Capability.ATTENTION not in getattr(model, "capabilities", frozenset()):
+    if model is None or Capability.ATTENTION not in getattr(model, "capabilities", frozenset()):
         return None
     try:
         trace = model.forward(case.inputs, capture={Capability.ATTENTION})

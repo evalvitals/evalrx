@@ -94,7 +94,7 @@ from evalrx.eval_agent.stages.fix.verdict import (
 if TYPE_CHECKING:
     from evalrx.agent_runtime.cli_types import CliAgentConfig
     from evalrx.core.case import CaseBatch, FailureCase
-    from evalrx.core.model import Model
+    from evalrx.core.model import Judge, Model
     from evalrx.eval_agent.hypothesis import Hypothesis
 
 logger = logging.getLogger(__name__)
@@ -216,7 +216,7 @@ class FixAgent:
 
     def __init__(
         self,
-        judge: "Model | None" = None,
+        judge: "Judge | None" = None,
         max_tier: "str | FixTier" = FixTier.L2_SCAFFOLD,
         min_tier: "str | FixTier | None" = None,
         score_fn: "Callable[[FailureCase, str], Optional[bool]] | None" = None,

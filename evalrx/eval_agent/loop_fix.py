@@ -12,6 +12,8 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from evalrx.core.case import CaseBatch
 
 logger = logging.getLogger(__name__)
@@ -29,6 +31,7 @@ def _call_supported(fn: "Any", *args: Any, required: "tuple[str, ...]" = (),
     """
     import inspect as _inspect
 
+    params: "Mapping[str, _inspect.Parameter]"
     try:
         params = _inspect.signature(fn).parameters
     except (TypeError, ValueError):

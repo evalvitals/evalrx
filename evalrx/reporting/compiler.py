@@ -6,6 +6,8 @@ from typing import Any
 
 from evalrx.reporting.model import (
     Claim,
+    ClaimStatus,
+    Confidence,
     DiagnosticReport,
     Evidence,
     ReaderFinding,
@@ -450,7 +452,7 @@ def _answer(explore_report: dict[str, Any], claims: list[Claim]) -> str:
     return "No supported diagnostic claim is available in the loaded report."
 
 
-def _confidence(claims: list[Claim]) -> str:
+def _confidence(claims: list[Claim]) -> Confidence:
     if any(c.status == "supported" for c in claims):
         return "medium"
     if any(c.status == "descriptive" for c in claims):
@@ -458,7 +460,7 @@ def _confidence(claims: list[Claim]) -> str:
     return "unknown"
 
 
-def _signal_status(signal: dict[str, Any]) -> str:
+def _signal_status(signal: dict[str, Any]) -> ClaimStatus:
     if _is_leaky_signal(signal):
         return "descriptive"
     if signal.get("reject") is True:

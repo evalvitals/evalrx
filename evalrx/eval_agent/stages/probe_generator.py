@@ -31,7 +31,7 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from evalrx.agent_runtime.sandbox import ExperimentSandbox
 from evalrx.core.result import Result
@@ -45,7 +45,8 @@ from evalrx.eval_agent.prompts.probe_generator import (
 if TYPE_CHECKING:
     from evalrx.agent_runtime.cli_types import CliAgentConfig
     from evalrx.core.case import CaseBatch
-    from evalrx.core.model import Model
+    from evalrx.core.model import Judge, Model
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,7 @@ class ProbeGenerator:
 
     def __init__(
         self,
-        judge: "Model | None" = None,
+        judge: "Judge | None" = None,
         cli_config: "CliAgentConfig | None" = None,
         sandbox: "ExperimentSandbox | None" = None,
         timeout_sec: int = 60,
@@ -192,7 +193,7 @@ class ProbeGenerator:
             from evalrx.eval_agent.model_instrumentation import InstrumentedModel
 
             model = InstrumentedModel(
-                model, self.run_logger,
+                model, cast("RunLoggerV2", self.run_logger),  # only RunLoggerV2 sets preserve_full_model_io
                 cycle=int(getattr(self.run_logger, "current_cycle", -1)),
                 analyzer="generated_probe_input_collection",
                 case_prompts={c.inputs.prompt: c.id for c in selected},

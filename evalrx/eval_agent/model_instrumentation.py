@@ -62,8 +62,15 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from evalrx.core.capability import Capability
-    from evalrx.core.model import CaptureSpec, Model, Trace
+    from evalrx.core.model import CaptureSpec, Judge, Model, Trace
     from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+
+    # The proxy stands in for the Model it wraps. It is not a subclass at run
+    # time: Model's class-level defaults (capabilities, modalities) would
+    # shadow the forwarding __getattr__ below.
+    _ProxyBase = Model
+else:
+    _ProxyBase = object
 
 #: Longest single string field kept verbatim before it is truncated. Generous
 #: enough for almost every prompt/response; a truncated field says so rather
@@ -134,7 +141,7 @@ def _snapshot_trace(trace: "Trace") -> "dict[str, Any]":
     }
 
 
-class InstrumentedModel:
+class InstrumentedModel(_ProxyBase):
     """Forwarding proxy around a ``Model`` that reports every call to a ``RunLoggerV2``.
 
     One instance per analyzer invocation — construct fresh in
@@ -148,7 +155,7 @@ class InstrumentedModel:
 
     def __init__(
         self,
-        model: "Model",
+        model: "Model | Judge",
         run_logger: "RunLoggerV2",
         *,
         cycle: int,
@@ -157,7 +164,9 @@ class InstrumentedModel:
         case_prompts: "dict[str, str] | None" = None,
         batch_case_ids: "list[str] | None" = None,
     ) -> None:
-        self._model = model
+        # A Model, or a stage's judge: forward / logprobs / chat are only ever
+        # called on a wrapped object that has them.
+        self._model: Any = model
         self._run_logger = run_logger
         self._cycle = cycle
         self._analyzer = analyzer

@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from evalrx.core.capability import Capability
-from evalrx.core.model import Trace
+from evalrx.core.model import CaptureSpec, Trace
 from evalrx.models.base import BaseAgent
 from evalrx.models.whitebox.base import WhiteboxModel
 
@@ -24,7 +24,7 @@ class WhiteboxAgent(WhiteboxModel, BaseAgent):
     def generate(self, inputs: Any, **kwargs) -> str:
         raise NotImplementedError("WhiteboxAgent is planned for Stage 2.")
 
-    def forward(self, inputs: Any, capture: set[Capability]) -> Trace:
+    def forward(self, inputs: Any, capture: set[Capability], spec: CaptureSpec | None = None) -> Trace:
         raise NotImplementedError("WhiteboxAgent is planned for Stage 2.")
 
     def step(self, observation: str, **kwargs) -> str:

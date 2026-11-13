@@ -202,7 +202,7 @@ def run_fused_analysis(
     )
     held_out = confirm_rows is not None
     confirm_label = "held_out" if held_out else "in_sample"
-    if not held_out:
+    if confirm_rows is None:
         confirm_rows = explore_rows  # in-sample fallback (small batch)
 
     report = FusedReport(question=question)
@@ -477,8 +477,9 @@ def _describe(
     bridged_keys: set[str],
 ) -> str:
     c = explorer_named.get(origin) or explorer_named.get(name)
-    if c is not None and getattr(c, "rationale", ""):
-        return c.rationale
+    rationale = getattr(c, "rationale", "") if c is not None else ""
+    if rationale:
+        return rationale
     if name in bridged_keys:
         return "bridged explorer signal"
     return "existing per-case column"

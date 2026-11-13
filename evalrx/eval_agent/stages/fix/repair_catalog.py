@@ -55,7 +55,7 @@ def discover_methods(
     """Return physically executable repairs without consulting labels or data IDs."""
 
     fidelity_fn = getattr(model, "paper_method_fidelity", None)
-    capabilities = getattr(model, "capabilities", frozenset())
+    capabilities: frozenset[Capability] = getattr(model, "capabilities", frozenset())
     inputs = frozenset(
         name for name, present in (("image", has_images), ("audio", has_audio)) if present
     )

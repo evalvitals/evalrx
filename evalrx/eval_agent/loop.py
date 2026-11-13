@@ -63,6 +63,8 @@ from evalrx.eval_agent.run_metadata import (
 from evalrx.eval_agent.store import InMemoryStore, Store
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from evalrx.analysis.stats_agent import StatsAnalysisAgent
     from evalrx.core.case import CaseBatch
     from evalrx.core.model import Model
@@ -141,6 +143,7 @@ def _diagnose_with_optional_context(
     optional = {"explore_context": explore_context, "failure_modes": failure_modes,
                 "cases": cases}
     if any(v is not None for v in optional.values()):
+        params: "Mapping[str, _inspect.Parameter]"
         try:
             params = _inspect.signature(diag_agent.diagnose).parameters
         except (TypeError, ValueError):
@@ -1657,23 +1660,24 @@ class VLDiagnoseLoop:
         from evalrx.eval_agent.stages.fix.types import FixOutcome
 
         diagnosis_failed = report.stopped_by == "diagnosis_error"
+        recommendation = {
+            "reason": ("Repair was not attempted because diagnosis failed; inspect M3 errors."
+                       if diagnosis_failed else
+                       "Repair was not attempted because no hypothesis passed the evidence gate."),
+            "next_step": ("Inspect the recorded M3 error, fix its cause, and retry diagnosis."
+                          if diagnosis_failed else
+                          "Run the targeted diagnostic probe proposed by M3."),
+        }
         outcome = FixOutcome(
             max_tier=getattr(agent, "max_tier", FixTier.L2_SCAFFOLD),
             stage_status="skipped",
             skip_reason="diagnosis_error" if diagnosis_failed else "no_accepted_hypothesis",
-            recommendation={
-                "reason": ("Repair was not attempted because diagnosis failed; inspect M3 errors."
-                           if diagnosis_failed else
-                           "Repair was not attempted because no hypothesis passed the evidence gate."),
-                "next_step": ("Inspect the recorded M3 error, fix its cause, and retry diagnosis."
-                              if diagnosis_failed else
-                              "Run the targeted diagnostic probe proposed by M3."),
-            },
+            recommendation=recommendation,
         )
         if self.run_logger is not None:
             self.run_logger.log_stage_skipped(
                 "M5", outcome.skip_reason,
-                detail=outcome.recommendation["reason"],
+                detail=recommendation["reason"],
             )
         return self._set_fix_outcome(report, outcome)
 

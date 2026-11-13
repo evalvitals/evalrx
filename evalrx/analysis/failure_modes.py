@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from evalrx.agent_runtime.json_shape import validate_json_shape
 
 if TYPE_CHECKING:
-    from evalrx.core.model import Model
+    from evalrx.core.model import Judge
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +137,7 @@ def _error_signal_deterministic(row: dict[str, Any], expected_col: str) -> str:
 def _error_signals_llm(
     fail_rows: list[tuple[int, dict[str, Any]]],
     expected_col: str,
-    judge: "Model",
+    judge: "Judge",
     *,
     max_repairs: int = 1,
 ) -> "list[str] | None":
@@ -183,7 +183,7 @@ def _compute_error_signals(
     *,
     expected_col: "str | None",
     error_fn: "Callable[[dict[str, Any]], str] | None",
-    judge: "Model | None",
+    judge: "Judge | None",
 ) -> list[str]:
     """Per-FAIL-row failure-mechanism strings, aligned with *fail_rows*.
 
@@ -382,7 +382,7 @@ def _boundary_contrast_pairs(
 
 
 def _name_clusters_with_llm(
-    judge: "Model", clusters: list[FailureMode], *, max_repairs: int = 1
+    judge: "Judge", clusters: list[FailureMode], *, max_repairs: int = 1
 ) -> bool:
     """Best-effort: ask *judge* to name/describe each cluster from its
     exemplars. Returns True on success (clusters updated in place)."""
@@ -445,7 +445,7 @@ def cluster_failures(
     text_cols: "list[str] | None" = None,
     signal_cols: "list[str] | None" = None,
     id_key: str = "case_id",
-    judge: "Model | None" = None,
+    judge: "Judge | None" = None,
     min_cluster_size: int = 3,
     max_clusters: int = 8,
     n_exemplars: int = 3,
@@ -558,7 +558,7 @@ def cluster_failures(
         X, method=method, min_cluster_size=min_cluster_size, max_clusters=max_clusters
     )
 
-    corpus_freq: Counter = Counter()
+    corpus_freq = Counter()
     for t in texts:
         corpus_freq.update(set(_tokenize(t)))
 

@@ -49,7 +49,7 @@ from evalrx.stats import compare
 if TYPE_CHECKING:
     from evalrx.analysis.stats_agent import StatsAnalysisReport
     from evalrx.analysis.stats_tools import StatsToolResult
-    from evalrx.core.model import Model
+    from evalrx.core.model import Judge
     from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
 logger = logging.getLogger(__name__)
@@ -163,7 +163,7 @@ class HypothesisTester:
 
     def __init__(
         self,
-        judge: "Model | None" = None,
+        judge: "Judge | None" = None,
         alpha: float = 0.05,
         min_effect: float = 0.10,
         min_evidence_grade: str = "observational",
@@ -318,8 +318,8 @@ class HypothesisTester:
         verdict: str = core["verdict"]
 
         # ── Protocol consistency check ────────────────────────────────
-        self._last_judge_prompt: "str | None" = None
-        self._last_judge_raw: "str | None" = None
+        self._last_judge_prompt = None
+        self._last_judge_raw = None
         is_consistent = self._check_protocol_consistency(
             hypothesis, stats_report, protocol
         )
@@ -414,6 +414,7 @@ class HypothesisTester:
 
         consulted = [r.tool for r in relevant] + [r.tool for r in global_res]
 
+        chosen: "StatsToolResult | None"
         if supporting:
             chosen = max(supporting, key=lambda r: abs(r.effect or 0.0))
             status = HypothesisStatus.SUPPORTED

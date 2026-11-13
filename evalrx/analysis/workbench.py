@@ -331,7 +331,7 @@ def _media_units(path: Path, source: Path, entry: dict[str, Any], remaining: int
         duration = unit.get("duration_sec")
         if isinstance(duration, (float, int)) and duration > 0 and remaining > 1:
             segment_sec = 30.0 if suffix in AUDIO_SUFFIXES else 10.0
-            children = []
+            children: list[dict[str, Any]] = []
             start = 0.0
             while start < float(duration) and len(children) < remaining - 1:
                 end = min(start + segment_sec, float(duration))

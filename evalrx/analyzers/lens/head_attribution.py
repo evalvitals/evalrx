@@ -98,7 +98,7 @@ class HeadAttributionAnalyzer(Analyzer):
         stack = decoder_stack(module)
         norm = get_final_norm(module)
         unembed = get_unembed(module)
-        projs = [out_proj(m) if m is not None else None for m in stack.mixers]
+        projs: list[Any] = [out_proj(m) if m is not None else None for m in stack.mixers]
         if any(p is None for p in projs):
             raise ValueError(f"{self.name}: some decoder layers have no recognised token mixer "
                              "with an output projection; head attribution would miss them.")

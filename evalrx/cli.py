@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import overload
 
 from evalrx.analysis.explore_run import run_explore
 from evalrx.analysis.run_codebase import run_codebase_cli
@@ -33,6 +34,10 @@ def _langfuse_cache(trace_id: str) -> Path:
     return Path(".evalrx-cache") / safe_id
 
 
+@overload
+def _resolve_report_source(source: str, trace_id: str | None, run_dir: str) -> str: ...
+@overload
+def _resolve_report_source(source: str, trace_id: str | None, run_dir: str | None) -> str | None: ...
 def _resolve_report_source(source: str, trace_id: str | None, run_dir: str | None) -> str | None:
     if source == "auto":
         if trace_id:

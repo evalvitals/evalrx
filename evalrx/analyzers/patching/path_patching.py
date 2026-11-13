@@ -182,7 +182,7 @@ class PathPatchingAnalyzer(Analyzer):
         stack = decoder_stack(module)
         mergers = deepstack_mergers(module)
         norm, unembed = get_final_norm(module), get_unembed(module)
-        projs = [out_proj(m) if m is not None else None for m in stack.mixers]
+        projs: list[Any] = [out_proj(m) if m is not None else None for m in stack.mixers]
         if any(p is None for p in projs):
             raise ValueError(f"{self.name}: some decoder layers have no recognised token mixer "
                              "with an output projection; their heads could not be frozen.")
@@ -214,7 +214,7 @@ class PathPatchingAnalyzer(Analyzer):
         skipped: Counter = Counter()
         slots: Counter = Counter()
         for index, case in enumerate(cases.stratified_head(self.max_cases)):
-            clean_variant = (case.inputs, {}, (None, None))
+            clean_variant: tuple[Any, dict, tuple[Any, Any]] = (case.inputs, {}, (None, None))
             trace, clean_mix, clean_res = forward(clean_variant, capture=True, residual0=True)
             slot, media = media_positions(trace)
             if not media:
@@ -276,7 +276,7 @@ class PathPatchingAnalyzer(Analyzer):
                 trace, _, _ = forward(clean_variant, replace=replace)
                 return (m_clean - margin.value(trace.require(Capability.LOGITS)[-1:])) / effect
 
-            table = []
+            table: list[dict[str, Any]] = []
             for layer, head in chosen:
                 direct = share(with_senders(clean_in, donor_in, [(layer, head)], freeze=True))
                 table.append({"head": head_name(layer, head), "layer": layer, "head_index": head,

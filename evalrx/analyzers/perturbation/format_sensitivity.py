@@ -157,7 +157,7 @@ class FormatSensitivityAnalyzer(Analyzer):
         prompt: str, block: Optional[str], options: list[str], shift: int
     ) -> tuple[str, list[str]]:
         rotated = options[shift:] + options[:shift]
-        paren = bool(block) and bool(_PAREN_OPTION.match(block))
+        paren = bool(block and _PAREN_OPTION.match(block))
         rotated_block = render_options(rotated, paren=paren)
         if block:
             # identical restatements of the same block rotate together

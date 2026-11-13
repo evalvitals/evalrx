@@ -49,7 +49,7 @@ provides an inventory command. Generated files are preserved locally.
 
 ```bash
 ruff check .
-mypy evalrx --ignore-missing-imports
+mypy evalrx      # settings in pyproject.toml; CI runs it too
 ```
 
 ## Adding a model
@@ -77,8 +77,7 @@ The new analyzer is instantly discoverable via `registry.analyzers.names_compati
 ## Pull requests
 
 - Keep PRs focused: one analyzer, one model, or one infrastructure change per PR.
-- All configured CI checks must pass: Ruff, the frontend format/lint/tests/build, contract export,
-  documentation build, and the non-GPU/non-network test suite. Mypy is an
-  additional local check, not currently a CI gate.
+- All configured CI checks must pass: Ruff, mypy, the frontend format/lint/tests/build,
+  contract export, documentation build, and the non-GPU/non-network test suite.
 - Add or update the relevant entry in `CHANGELOG.md` under `[Unreleased]`.
 - Include paper citations (arXiv link + BibTeX key) for any method from the literature.

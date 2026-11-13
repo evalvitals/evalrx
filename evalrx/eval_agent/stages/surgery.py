@@ -30,7 +30,7 @@ from evalrx.core.case import CaseBatch, Label
 from evalrx.eval_agent.hypothesis import Hypothesis, HypothesisStatus
 
 if TYPE_CHECKING:
-    from evalrx.core.model import Model
+    from evalrx.core.model import Judge, Model
     from evalrx.core.result import Result
 
 
@@ -105,7 +105,7 @@ def _serialize_cases(data: CaseBatch, image_dir: "Any | None" = None) -> str:
     """
     from pathlib import Path as _Path
 
-    records = []
+    records: list[dict[str, Any]] = []
     for case in data:
         rec: dict[str, Any] = {"prompt": str(case.inputs)}
         if getattr(case, "label", None) is not None:
@@ -246,7 +246,7 @@ class SurgeryAgent:
         ]
         | None = None,
         analyzer_params: dict[str, dict[str, Any]] | None = None,
-        judge: "Model | None" = None,
+        judge: "Judge | None" = None,
         sandbox_dir: "str | None" = None,
         writer_config: "Any | None" = None,
         run_context: "Any | None" = None,

@@ -6,6 +6,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed — the package type-checks, and CI enforces it
+
+`mypy evalrx` reports no errors (it reported 672) and now runs in CI. Most of
+the work was declarations: analyzers declare the hyper-parameters
+`Analyzer.__init__` stores with `setattr`, the HF backend mixins declare the
+host attributes they use, and stages type their judge as the new
+`evalrx.core.model.Judge` protocol (`capabilities` + `generate`), which every
+`Model` and the CLI judges in `agent_runtime.judges` satisfy. Two real bugs it
+found are listed under Fixed. `CapabilityError.missing` accepts any set.
+
 ### Fixed — Docker-routed analyzers crashed on cases without a label
 
 `ProbeAgent(use_docker=True)` rebuilt each case inside the container with

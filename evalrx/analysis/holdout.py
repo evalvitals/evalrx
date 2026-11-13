@@ -228,13 +228,13 @@ def holdout_confirm(
     meta = adjudicate_signals(candidates, alpha=alpha, split_label="held_out")
     by_name = {c.name: c for c in candidates}
     for entry in signal_verdicts:
-        cand = by_name.get(str(entry.get("name")))
-        if entry.get("status") == "adjudicated" and cand is not None:
+        adjudicated = by_name.get(str(entry.get("name")))
+        if entry.get("status") == "adjudicated" and adjudicated is not None:
             entry.update(
-                reject=bool(cand.reject),
-                effect=cand.effect,
-                ci=cand.ci,
-                fdr_corrected=bool(cand.fdr_corrected),
+                reject=bool(adjudicated.reject),
+                effect=adjudicated.effect,
+                ci=adjudicated.ci,
+                fdr_corrected=bool(adjudicated.fdr_corrected),
             )
 
     # ── 2. LLM judge per hypothesis, grounded in the held-out table ─────────

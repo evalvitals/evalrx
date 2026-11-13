@@ -71,7 +71,7 @@ if TYPE_CHECKING:
         StatsToolGenerator,
     )
     from evalrx.core.case import CaseBatch
-    from evalrx.core.model import Model
+    from evalrx.core.model import Judge
     from evalrx.core.result import Result
     from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
@@ -79,7 +79,7 @@ logger = logging.getLogger(__name__)
 
 
 def _select_tools_via_llm(
-    judge: "Model",
+    judge: "Judge",
     protocol: "ExperimentProtocol",
     inp: StatsInput,
     valid_names: set[str],
@@ -271,7 +271,7 @@ class StatsAnalysisAgent:
 
     def __init__(
         self,
-        judge: "Model | None" = None,
+        judge: "Judge | None" = None,
         extra_rules: dict | None = None,
         stats_tool_agent: Any | None = None,
         enable_stats_tools: bool = True,
@@ -585,12 +585,12 @@ class StatsAnalysisAgent:
             "whether the analyzer signals predict case FAIL."
         )
         name = f"custom{len(self._generated_tools) + 1}"
-        result, tool = generator.generate(need, inp, name=name)
+        result, new_tool = generator.generate(need, inp, name=name)
         results.append(result)
         plan.append({"tool": f"generated:{name}", "config": {},
                      "rationale": "generated: no catalog tool fit the data"})
-        if tool is not None:
-            self._generated_tools.append(tool)
+        if new_tool is not None:
+            self._generated_tools.append(new_tool)
         return results, plan
 
     def _get_generator(self) -> "StatsToolGenerator | None":

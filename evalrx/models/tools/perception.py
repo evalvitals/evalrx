@@ -84,7 +84,7 @@ def ocr_tool(
     """
     base = _to_pil(image)
     width, height = base.size
-    state = {"engine": engine}
+    state: dict[str, Any] = {"engine": engine}
 
     def _get_engine() -> Callable:
         if state["engine"] is None:
@@ -242,7 +242,7 @@ def detect_tool(
     """
     base = _to_pil(image)
     width, height = base.size
-    state = {"engine": engine}
+    state: dict[str, Any] = {"engine": engine}
 
     def _get_engine() -> Callable:
         if state["engine"] is None:

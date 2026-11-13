@@ -10,6 +10,7 @@ constructed, and the capability set always reflects the chosen backend.
 from __future__ import annotations
 
 from dataclasses import replace
+from types import ModuleType
 from typing import Any
 
 from evalrx.config import ModelConfig
@@ -29,6 +30,7 @@ from evalrx.models.toolcodec import OpenAIToolCodec, QwenToolCodec, codec_for
 
 # Legacy concrete white-box model (now a thin deprecated alias) — optional on the
 # light, pure-API install (its module imports nothing heavy at top level).
+_whitebox: ModuleType | None
 try:
     from evalrx.models import whitebox as _whitebox  # noqa: F401
 except ImportError:  # pragma: no cover - light install

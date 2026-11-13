@@ -47,7 +47,7 @@ from evalrx.stats.evalue import evalue_bernoulli
 
 if TYPE_CHECKING:
     from evalrx.agent_runtime.cli_types import CliAgentConfig
-    from evalrx.core.model import Model
+    from evalrx.core.model import Judge
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ class StatsToolGenerator:
 
     def __init__(
         self,
-        judge: "Model | None" = None,
+        judge: "Judge | None" = None,
         cli_config: "CliAgentConfig | None" = None,
         sandbox: "ExperimentSandbox | None" = None,
         timeout_sec: int = 60,
@@ -373,7 +373,8 @@ def _parse_result(stdout: str, name: str, alpha: float = 0.05) -> StatsToolResul
     ci = data.get("ci")
     ci_tuple = tuple(ci) if isinstance(ci, (list, tuple)) and len(ci) == 2 else None
     effect = _as_float(data.get("effect"))
-    details = data.get("details") if isinstance(data.get("details"), dict) else {}
+    raw_details = data.get("details")
+    details = raw_details if isinstance(raw_details, dict) else {}
 
     # HOST reconstructs the decision; the script's own reject/e_value/p_value are
     # never trusted as a verdict (closes the codegen p-hacking hole).

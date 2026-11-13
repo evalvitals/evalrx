@@ -59,7 +59,7 @@ from evalrx.analysis.prompts.explorer import (
 
 if TYPE_CHECKING:
     from evalrx.agent_runtime.cli_types import CliAgentConfig
-    from evalrx.core.model import Model
+    from evalrx.core.model import Judge, Model
 
 logger = logging.getLogger(__name__)
 
@@ -245,7 +245,7 @@ class ExploratoryAnalysisAgent:
 
     def __init__(
         self,
-        judge: "Model | None" = None,
+        judge: "Judge | None" = None,
         inspector: "Model | None" = None,
         cli_config: "CliAgentConfig | None" = None,
         sandbox: ExperimentSandbox | None = None,

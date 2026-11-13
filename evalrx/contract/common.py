@@ -406,6 +406,9 @@ class JoinReport(WireModel):
         return self.n_left > 0 and self.n_matched == 0
 
 
+StageName = Literal["pre_m1", "m1", "explore", "m2", "m3", "m5_surgery", "m5_fix", "m4"]
+
+
 class StageStatus(WireModel):
     """Terminal state of one stage in one cycle.
 
@@ -414,7 +417,7 @@ class StageStatus(WireModel):
     has for whether to trust the absence of a result.
     """
 
-    stage: Literal["pre_m1", "m1", "explore", "m2", "m3", "m5_surgery", "m5_fix", "m4"]
+    stage: StageName
     state: StageState
     cycle: int = Field(description="Normal cycles start at 0; the post-loop fix uses -1.")
     reason: str | None = Field(

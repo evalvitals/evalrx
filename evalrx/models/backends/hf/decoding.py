@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import math
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from evalrx.core.capability import Capability
 from evalrx.core.case import Inputs
@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from evalrx.core.model import Trace
     from evalrx.core.spec import ModelSpec
     from evalrx.models.backends.base import RuntimeConfig
+    from evalrx.models.backends.hf.model import HFLocalModel
 
 logger = logging.getLogger(__name__)
 
@@ -480,7 +481,7 @@ class ContrastiveDecodingMixin:
             for answer in ids
             if clean_scores[answer] >= cutoff
         }
-        return max(scores or clean_scores, key=(scores or clean_scores).get)
+        return max(scores or clean_scores, key=(scores or clean_scores).__getitem__)
 
 
     def generate_vicrop(self, inputs: Any, *, layer: int | float = 14) -> str:
@@ -490,7 +491,7 @@ class ContrastiveDecodingMixin:
             raise ValueError(f"{self.spec.key}: ViCrop is only native on the LLaVA executor")
         from evalrx.models.paper_methods.vicrop import generate
 
-        return generate(self, inputs, layer=layer)
+        return generate(cast("HFLocalModel", self), inputs, layer=layer)  # the mixin's only host
 
 
     def generate_opera_binary(
@@ -860,7 +861,7 @@ class ContrastiveDecodingMixin:
             raise ValueError(f"{self.spec.key}: ViCrop is only native on the LLaVA executor")
         from evalrx.models.paper_methods.vicrop import prepare_views
 
-        image, crop, fused_prompt = prepare_views(self, inputs, layer=layer)
+        image, crop, fused_prompt = prepare_views(cast("HFLocalModel", self), inputs, layer=layer)  # the mixin's only host
         fused = self.generate(Inputs(fused_prompt, [image, crop]))
         crop_only_prompt = (
             "The image is a task-relative crop selected from a larger scene. "

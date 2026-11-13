@@ -30,7 +30,7 @@ from evalrx.eval_agent.stages.probe_generator import _extract_code
 if TYPE_CHECKING:
     from evalrx.agent_runtime.cli_types import CliAgentConfig
     from evalrx.core.case import CaseBatch, FailureCase
-    from evalrx.core.model import Model
+    from evalrx.core.model import Judge, Model
     from evalrx.eval_agent.run_context import Trial
 
 logger = logging.getLogger(__name__)
@@ -104,7 +104,7 @@ class PipelineCoder:
     def __init__(
         self,
         *,
-        judge: "Model | None",
+        judge: "Judge | None",
         cli_config: "CliAgentConfig | None",
         allow_codegen: bool,
         score: "Callable[[FailureCase, str], Optional[bool]]",

@@ -9,7 +9,7 @@ message instead of an ``AttributeError`` three calls deep.
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -101,10 +101,10 @@ class DecoderStack:
     path: str            # dotted path of ``layers`` inside the module
     attn: list           # per layer: softmax attention submodule or None
     parent: Any          # module owning ``layers`` (the text model)
-    linear: list = None  # per layer: delta-rule linear-attention mixer or None
+    linear: list = field(default_factory=list)  # per layer: delta-rule mixer or None
 
     def __post_init__(self) -> None:
-        if self.linear is None:
+        if not self.linear:
             self.linear = [None] * len(self.attn)
 
     @property

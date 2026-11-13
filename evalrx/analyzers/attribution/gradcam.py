@@ -30,7 +30,7 @@ References:
 from __future__ import annotations
 
 from collections import Counter
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from evalrx.core.analyzer import Analyzer
 from evalrx.core.capability import Capability
@@ -149,7 +149,7 @@ class GradCAMAnalyzer(Analyzer):
         if not per_case:
             raise ValueError(f"{self.name}: no case could be analysed (skipped: {dict(skipped)})")
         artifacts: dict[str, Any] = {
-            "spatial_map": per_case_maps[first_id].astype(np.float64),
+            "spatial_map": per_case_maps[cast(str, first_id)].astype(np.float64),  # set with the first row
             "per_case_maps": per_case_maps,
         }
         group_artifacts, group_findings = group_maps(per_case_maps, cases)

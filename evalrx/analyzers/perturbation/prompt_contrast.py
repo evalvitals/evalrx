@@ -154,7 +154,7 @@ class PromptContrastAnalyzer(Analyzer):
         'success_rate_sensitive': ('Correct, report-subtle', "Share correct when told to report a finding even if subtle. Higher than baseline means the model's yes/no threshold was set too high, not that it could not tell."),
     }
 
-    strategies: dict[str, str] | None
+    strategies: dict[str, str]
     score_fn: Callable[[Any, str], Optional[bool]] | None
     max_cases: int
 

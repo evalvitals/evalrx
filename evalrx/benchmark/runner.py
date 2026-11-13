@@ -128,7 +128,7 @@ def load_model(resolved: Resolved, args, task: T.Task):
         # gemma library underneath; text, image and audio inputs. apply_chat_template
         # as on hf_local. A --model-path is a local Orbax mirror of the spec's
         # gs:// checkpoint (17 GB for E2B; see docs/design_jax_backend.md section 4).
-        engine_kwargs = {"checkpoint": str(args.model_path)} if getattr(args, "model_path", None) else {}
+        engine_kwargs: dict[str, Any] = {"checkpoint": str(args.model_path)} if getattr(args, "model_path", None) else {}
         # text cells skip the vision / audio towers (~2 GB float32 and their load
         # time); the vlm / alm cells need them, and the adapter reports the
         # modalities it can serve accordingly
@@ -356,7 +356,10 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     label = model_label(resolved)
     print(f"[model] {label}; backend={resolved.backend}; benchmark={task.title}; n={len(candidates)}")
 
-    judge = coder_provider = coder_model = coder_extra = None
+    judge = None
+    coder_provider: Any = None
+    coder_model: Any = None
+    coder_extra: Any = None
     if not args.baseline_only:
         judge, coder_provider, coder_model, coder_extra = build_judge(args)
 
@@ -364,7 +367,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     if resolved.backend == "gemini":
         from evalrx.models.backends.api.gemini import runtime_state
 
-        capabilities = {"capabilities": sorted(c.value for c in model.capabilities),
+        capabilities: dict[str, Any] = {"capabilities": sorted(c.value for c in model.capabilities),
                         "runtime": runtime_state(model)}
         (run_dir / "api_capabilities.json").write_text(
             json.dumps(capabilities, indent=2) + "\n", encoding="utf-8")
@@ -576,9 +579,10 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
                                  analyzer_overrides=overrides, max_workers=probe_workers)
     m2_codegen = args.m2_codegen if args.m2_codegen is not None else (agentic or task.modality == "llm")
     ctx.config["m2_codegen"] = bool(m2_codegen)
+    stats_kwargs: dict[str, Any] = {"codegen_config": coder_cfg} if m2_codegen else {}
     stats_agent = StatsAnalysisAgent(
         judge=judge, figure_dir=str(ctx.figures_dir), max_signal_tools=16,
-        allow_codegen=m2_codegen, **({"codegen_config": coder_cfg} if m2_codegen else {}),
+        allow_codegen=m2_codegen, **stats_kwargs,
     )
     fix_kwargs: dict[str, Any] = {}
     sampled = bool(gen_kwargs.get("do_sample"))
@@ -597,6 +601,8 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     )
     if deployed_spec is not None:
         fix_kwargs.update(candidate_model=raw_model, deployed_spec=deployed_spec)
+    if args.code_only:
+        fix_kwargs["max_judge_candidates"] = 1
     fix_agent = FixAgent(
         judge=judge, max_tier=args.fix_tier, score_fn=T.score_case, run_logger=ctx.logger,
         cli_config=(CliAgentConfig(provider=coder_provider, timeout_sec=420, model=coder_model,
@@ -610,7 +616,6 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
                   else (method_names() if args.registered_repairs_only else None))
         ),
         max_repair_rounds=max(1, args.fix_repair_rounds),
-        **({"max_judge_candidates": 1} if args.code_only else {}),
         exec_timeout_sec=args.fix_exec_timeout,
         prewritten_code=prewritten_code,
         concurrency=getattr(args, "concurrency", 1),
@@ -631,7 +636,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
             ),
             timeout_sec=900, max_attempts=3,
         )
-    loop_class = VLDiagnoseLoop
+    loop_class: type[VLDiagnoseLoop] = VLDiagnoseLoop
     loop_kwargs = {}
     if agentic:
         from evalrx.eval_agent.agentic import AgenticDiagnoseLoop

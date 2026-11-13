@@ -85,6 +85,15 @@ jobs:
         # is a field the frontend cannot see, which is the drift the contract
         # exists to catch -- so catch it on the commit that causes it.
         run: python -m evalrx.contract.export --out docs/contract --check
+      - name: Type-check
+        # Once is enough: [tool.mypy] pins the target to Python 3.10. It runs
+        # here, not in the lint job, because it needs the installed extras to
+        # see the real types of torch, pydantic, fastapi, ...
+        # Pinned so a new mypy release cannot turn CI red on unchanged code.
+        if: matrix.python-version == '3.11'
+        run: |
+          pip install "mypy==2.4.1"
+          mypy evalrx
       - name: Run fast unit tests
         run: pytest -m "not gpu and not network" --cov=evalrx --cov-report=xml -q
       - name: Upload coverage

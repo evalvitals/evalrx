@@ -8,6 +8,8 @@ success bool for A/B comparisons.  (For image+text QA use :mod:`evalrx.datasets.
 
 from __future__ import annotations
 
+from typing import Any
+
 from evalrx.core.case import CaseBatch
 from evalrx.datasets.base import Dataset, cases_from_records, read_jsonl
 
@@ -32,7 +34,7 @@ class LLMQADataset(Dataset):
     ) -> None:
         self._records = records
         self._path = path
-        self._keys = dict(prompt_key=prompt_key, answer_key=answer_key)
+        self._keys: dict[str, Any] = dict(prompt_key=prompt_key, answer_key=answer_key)
 
     @classmethod
     def from_records(cls, records: list[dict], **keys) -> "LLMQADataset":

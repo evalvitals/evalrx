@@ -15,7 +15,7 @@ from evalrx.core.case import CaseBatch, FailureCase, Label
 from evalrx.eval_agent.prompts.case_discovery import _JUDGE_PROMPT
 
 if TYPE_CHECKING:
-    from evalrx.core.model import Model
+    from evalrx.core.model import Judge, Model
     from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
 
@@ -66,7 +66,7 @@ class CaseDiscoveryAgent:
     def __init__(
         self,
         scorer: ScoreFn | None = None,
-        judge: "Model | None" = None,
+        judge: "Judge | None" = None,
         generation_kwargs: dict[str, Any] | None = None,
         include_unknown: bool = True,
         concurrency: int = 1,
@@ -132,7 +132,7 @@ class CaseDiscoveryAgent:
         """
         workers = self._workers(model, len(cases))
         if workers <= 1:
-            out = []
+            out: "list[tuple[FailureCase, Any, Exception | None]]" = []
             for case in cases:
                 try:
                     out.append((case, model.generate(case.inputs, **self.generation_kwargs), None))

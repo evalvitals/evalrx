@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from evalrx.core.case import CaseBatch
     from evalrx.core.model import Model
     from evalrx.eval_agent.run_context import Trial
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
     from evalrx.eval_agent.stages.fix.types import FixOutcome
 
 logger = logging.getLogger(__name__)
@@ -116,7 +117,7 @@ class FixRecorder:
         only a lean event (paths via ``extra["trial_root"]``) goes through
         :meth:`RunLogger.log_tool_codegen`, with no duplicate file copy.
         """
-        extra = (
+        extra: "dict[str, Any] | None" = (
             {"cli_usage": usage}
             if source.startswith("cli:") and usage
             else None
@@ -164,7 +165,7 @@ class FixRecorder:
         from evalrx.eval_agent.model_instrumentation import InstrumentedModel
 
         return InstrumentedModel(
-            model, self.run_logger, stage="M5",
+            model, cast("RunLoggerV2", self.run_logger), stage="M5",  # only RunLoggerV2 sets preserve_full_model_io
             cycle=int(getattr(self.run_logger, "current_cycle", -1)),
             analyzer=analyzer,
             case_prompts={case.inputs.prompt: case.id for case in data},

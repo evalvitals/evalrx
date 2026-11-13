@@ -59,7 +59,7 @@ def _gray(image: Any) -> Any:
 
     from evalrx.analyzers.attention.relative_attn import _resolve_image
 
-    img = _resolve_image(image)
+    img: Any = _resolve_image(image)
     if not hasattr(img, "convert"):
         return None
     rgb = img.convert("RGB")
@@ -152,7 +152,7 @@ def corrupted_variants(
     variants = []
     for _ in range(max(1, n_noise)):
         noise = torch.randn(embeddings.shape, generator=gen).to(embeddings.device, embeddings.dtype) * std
-        store = {} if deepstack and slot == "image" else None
+        store: dict | None = {} if deepstack and slot == "image" else None
         variants.append((inputs, {0: (media, embeddings + noise)}, (store, gen)))
     return variants, ""
 

@@ -57,7 +57,7 @@ class MethodologyWire(WireModel):
         cells = list(root.iter("mxCell"))
         if not cells:
             raise ValueError("drawio_xml contains no mxCell elements")
-        ids = [c.get("id") for c in cells if c.get("id")]
+        ids = [cid for c in cells if (cid := c.get("id"))]
         dupes = {i for i in ids if ids.count(i) > 1}
         if dupes:
             raise ValueError(f"duplicate mxCell ids render unpredictably: {sorted(dupes)}")

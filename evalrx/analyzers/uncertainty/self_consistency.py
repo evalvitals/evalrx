@@ -116,7 +116,7 @@ class SelfConsistencyAnalyzer(Analyzer):
     }
 
     n: int
-    gen_kwargs: dict | None
+    gen_kwargs: dict[str, Any]
     semantic: bool
 
     def __init__(

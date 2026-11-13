@@ -61,7 +61,7 @@ from evalrx.eval_agent.prompts.experiment_writer import (
 
 if TYPE_CHECKING:
     from evalrx.agent_runtime.sandbox import SandboxProtocol
-    from evalrx.core.model import Model
+    from evalrx.core.model import Judge, Model
     from evalrx.eval_agent.hypothesis import Hypothesis
 
 logger = logging.getLogger(__name__)
@@ -304,7 +304,7 @@ class ExperimentWriter:
 
     def __init__(
         self,
-        judge: "Model",
+        judge: "Judge",
         config: ExperimentWriterConfig = ExperimentWriterConfig(),
     ) -> None:
         self._judge = judge
@@ -1525,9 +1525,9 @@ class ExperimentWriter:
         if files:
             return files
         # Fallback: single ```python block → treat as main.py
-        m = re.search(r"```python\s*\n(.*?)```", content, re.DOTALL)
-        if m:
-            return {"main.py": m.group(1).strip()}
+        block = re.search(r"```python\s*\n(.*?)```", content, re.DOTALL)
+        if block:
+            return {"main.py": block.group(1).strip()}
         return files
 
     @staticmethod

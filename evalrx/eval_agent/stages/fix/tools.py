@@ -117,7 +117,7 @@ def zoom_center(img, factor: float = 1.5):
     left, top = (w - cw) // 2, (h - ch) // 2
     from PIL import Image
 
-    return img.crop((left, top, left + cw, top + ch)).resize((w, h), Image.LANCZOS)
+    return img.crop((left, top, left + cw, top + ch)).resize((w, h), Image.LANCZOS)  # type: ignore[attr-defined]  # alias set dynamically by Pillow
 
 
 def enhance_contrast(img, factor: float = 1.5):
@@ -144,7 +144,7 @@ def upscale(img, factor: float = 2.0):
     from PIL import Image
 
     w, h = img.size
-    return img.resize((int(w * factor), int(h * factor)), Image.LANCZOS)
+    return img.resize((int(w * factor), int(h * factor)), Image.LANCZOS)  # type: ignore[attr-defined]  # alias set dynamically by Pillow
 
 
 def crop_region(img, box=(0.25, 0.25, 0.75, 0.75)):
@@ -286,7 +286,7 @@ def crop_salient_region(img, padding: float = 0.05, min_delta: float = 18.0):
     bottom = min(h, int(ys.max()) + pad_px + 1)
     if right <= left or bottom <= top:
         return img
-    return rgb.crop((left, top, right, bottom)).resize((w, h), Image.LANCZOS)
+    return rgb.crop((left, top, right, bottom)).resize((w, h), Image.LANCZOS)  # type: ignore[attr-defined]  # alias set dynamically by Pillow
 
 
 def separate_horizontal_bands(
@@ -714,7 +714,7 @@ def _safe_generation_kwargs(value: Any) -> "dict[str, Any]":
     only tune controls that are safe to replay and audit; this avoids a judge
     smuggling arbitrary provider arguments or callbacks into ``generate``.
     """
-    raw = value if isinstance(value, dict) else {}
+    raw: Any = value if isinstance(value, dict) else {}
     out: "dict[str, Any]" = {}
     try:
         max_tokens = int(raw.get("max_tokens"))

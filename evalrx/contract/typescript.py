@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-_SCALARS = {
+_SCALARS: dict[str | None, str] = {
     "string": "string", "integer": "number", "number": "number",
     "boolean": "boolean", "null": "null",
 }
