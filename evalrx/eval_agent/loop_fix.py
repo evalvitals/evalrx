@@ -337,38 +337,8 @@ def _log_fix(run_logger: "Any | None", outcome: "Any") -> None:
         logger.debug("run_fix: log_fix failed: %s", exc)
 
 
-def _confirm_from_explore(
-    agent: "Any",
-    model: "Any",
-    confirm: "CaseBatch",
-    attempted: "list[Any]",
-    *,
-    max_tier: "Any",
-    repair_rounds: int,
-) -> "Any":
-    """Freeze the strongest EXPLORE improvement and test it once on CONFIRM."""
-    from evalrx.eval_agent.stages.fix.descriptions import plain_description
-    from evalrx.eval_agent.stages.fix.types import FixOutcome
-    from evalrx.eval_agent.stages.fix.verdict import ebh_survivors, refine_signal
-
-    def _recommend(reason: str, validations: "list[Any]") -> "dict[str, Any] | None":
-        routed = sorted({v.candidate.tier for v in validations})
-        recommend = getattr(agent, "recommend", None)
-        if callable(recommend):
-            try:
-                return _call_supported(
-                    recommend,
-                    routed,
-                    model=model,
-                    data=confirm,
-                    reason_prefix=reason,
-                    max_tier=max_tier,
-                )
-            except TypeError:
-                # Backward compatibility for application-specific FixAgents.
-                pass
-        return {"recommend_tier": max_tier.label, "reason": reason}
-
+def _select_on_explore(attempted: "list[Any]") -> "Any | None":
+    """The strongest EXPLORE improvement with enough support, or None."""
     executed = [
         validation
         for validation in attempted
@@ -385,7 +355,7 @@ def _confirm_from_explore(
     # candidate family; small experiments still select from what they have.
     support_floor = min(8, max((v.n_pairs for v in improving), default=0))
     supported = [v for v in improving if v.n_pairs >= support_floor]
-    selected = max(
+    return max(
         supported,
         key=lambda validation: (
             validation.e_value or 0.0,
@@ -397,10 +367,16 @@ def _confirm_from_explore(
         ),
         default=None,
     )
+
+
+def _selection_audit(attempted: "list[Any]") -> "list[dict[str, Any]]":
+    """One row per EXPLORE candidate, as the contract emitter reads it."""
+    from evalrx.eval_agent.stages.fix.descriptions import plain_description
+
     # `headline` travels with the audit row because the candidate object does
     # not: the contract emitter sees only these dicts, and a slug is the one
     # thing it must not show a reader.
-    audit = [
+    return [
         {
             "name": validation.candidate.name,
             "headline": plain_description(validation.candidate),
@@ -415,14 +391,60 @@ def _confirm_from_explore(
         }
         for validation in attempted
     ]
+
+
+def _recommend_tier(
+    agent: "Any",
+    model: "Any",
+    confirm: "CaseBatch",
+    validations: "list[Any]",
+    *,
+    reason: str,
+    max_tier: "Any",
+) -> "dict[str, Any] | None":
+    """The agent's next-tier recommendation, or the ceiling with *reason*."""
+    routed = sorted({v.candidate.tier for v in validations})
+    recommend = getattr(agent, "recommend", None)
+    if callable(recommend):
+        try:
+            return _call_supported(
+                recommend,
+                routed,
+                model=model,
+                data=confirm,
+                reason_prefix=reason,
+                max_tier=max_tier,
+            )
+        except TypeError:
+            # Backward compatibility for application-specific FixAgents.
+            pass
+    return {"recommend_tier": max_tier.label, "reason": reason}
+
+
+def _confirm_from_explore(
+    agent: "Any",
+    model: "Any",
+    confirm: "CaseBatch",
+    attempted: "list[Any]",
+    *,
+    max_tier: "Any",
+    repair_rounds: int,
+) -> "Any":
+    """Freeze the strongest EXPLORE improvement and test it once on CONFIRM."""
+    from evalrx.eval_agent.stages.fix.types import FixOutcome
+    from evalrx.eval_agent.stages.fix.verdict import ebh_survivors, refine_signal
+
+    selected = _select_on_explore(attempted)
+    audit = _selection_audit(attempted)
     if selected is None:
         return FixOutcome(
             max_tier=max_tier,
             repair_rounds=repair_rounds,
             selection_attempted=audit,
-            recommendation=_recommend(
-                "no EXPLORE candidate had positive net repairs; CONFIRM was left untouched",
-                attempted,
+            recommendation=_recommend_tier(
+                agent, model, confirm, attempted,
+                reason="no EXPLORE candidate had positive net repairs; CONFIRM was left untouched",
+                max_tier=max_tier,
             ),
         )
 
@@ -457,9 +479,10 @@ def _confirm_from_explore(
                     + outcome.recommendation["reason"]
                 )
         else:
-            outcome.recommendation = _recommend(
-                "the candidate selected on EXPLORE did not validate on untouched CONFIRM",
-                [validation],
+            outcome.recommendation = _recommend_tier(
+                agent, model, confirm, [validation],
+                reason="the candidate selected on EXPLORE did not validate on untouched CONFIRM",
+                max_tier=max_tier,
             )
     outcome.refine_signal = refine_signal([validation], confirm)
     return outcome

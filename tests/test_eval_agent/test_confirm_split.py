@@ -447,3 +447,49 @@ def test_ladder_without_split_returns_an_opaque_custom_result():
         _report(), _batch(), auto_escalate=True, allow_unverified=True
     )
     assert out is opaque and stub.calls == 1
+
+
+def test_confirm_freezes_the_supported_explore_lead_and_falls_back_to_the_ceiling():
+    """An agent with neither a no-fix recommender nor a usable tier router
+    still gets a recommendation: the run's ceiling, with the reason."""
+    from evalrx.eval_agent.loop_fix import _confirm_from_explore
+    from evalrx.eval_agent.stages.fix.types import FixCandidate, FixValidation
+
+    def lead(name, n_pairs, n_fixed, n_broken):
+        return FixValidation(
+            candidate=FixCandidate(tier=FixTier.L1_PROMPT, name=name, payload={}),
+            n_pairs=n_pairs, n_fixed=n_fixed, n_broken=n_broken, effect=0.1,
+        )
+
+    # Two fixes on two pairs is a fragile lead beside 5 net on 12 pairs.
+    fragile, supported = lead("fragile", 2, 2, 0), lead("supported", 12, 6, 1)
+    confirmed = lead("supported", 20, 1, 3)
+
+    class _Agent:
+        alpha = 0.05
+
+        def __init__(self):
+            self.validated = []
+
+        def validate_candidate(self, model, data, candidate):
+            self.validated.append(candidate.name)
+            return confirmed
+
+        def recommend(self, *args, **kwargs):
+            raise TypeError("an application FixAgent with another signature")
+
+    agent = _Agent()
+    confirm = CaseBatch([
+        FailureCase.from_prompt("q", id="c0", expected="yes", observed="no", label=Label.FAIL),
+    ])
+    outcome = _confirm_from_explore(
+        agent, object(), confirm, [fragile, supported],
+        max_tier=FixTier.L2_SCAFFOLD, repair_rounds=1,
+    )
+    assert agent.validated == ["supported"]
+    assert outcome.selected_on_explore == "supported" and not outcome.fixed
+    assert [row["name"] for row in outcome.selection_attempted] == ["fragile", "supported"]
+    assert outcome.recommendation == {
+        "recommend_tier": FixTier.L2_SCAFFOLD.label,
+        "reason": "the candidate selected on EXPLORE did not validate on untouched CONFIRM",
+    }
