@@ -281,10 +281,18 @@ def _in_memory_envelope(data: dict[str, Any], mode: str) -> dict[str, Any]:
     }
 
 
-def _latest_event_seq(root: Path) -> int:
-    from evalrx.reporting.run_events import read_v2_events
-
-    return max((int(e.get("event_seq") or 0) for e in read_v2_events(root)), default=0)
+def _log_signature(root: Path) -> tuple[tuple[str, int, int], ...]:
+    """What changes whenever the run's log is rewritten: each document's
+    mtime and size. Cheaper than re-reading the log on every poll, and it
+    sees a second logger that restarts ``event_seq`` in the same directory."""
+    stamps = []
+    for doc in (root / "run.json", *(root / stage / "log.json" for stage in _STAGES)):
+        try:
+            stat = doc.stat()
+        except OSError:
+            continue
+        stamps.append((doc.name if doc.parent == root else doc.parent.name, stat.st_mtime_ns, stat.st_size))
+    return tuple(stamps)
 
 
 def follow_run(
@@ -296,7 +304,7 @@ def follow_run(
     sleep: Callable[[float], None] = time.sleep,
 ) -> Iterator[str]:
     """Server-sent events for a run being written: ``update`` whenever its log
-    grows (the run is recompiled first), ``done`` once it has finished.
+    is rewritten (the run is recompiled first), ``done`` once it has finished.
 
     The stream ends after *max_sec* without ``done`` while the run goes on, and
     the browser's EventSource reconnects; only ``done`` tells it to stop. A
@@ -304,22 +312,24 @@ def follow_run(
     and is retried on the next poll.
     """
     run = runs.get(key)
-    seen = int(run.data.get("source_event_seq") or 0)
+    seen = _log_signature(run.root)
     waited = 0.0
     while not run.data["setting"].get("finished", True):
         if waited >= max_sec:
             return
         sleep(poll_sec)
         waited += poll_sec
+        signature = _log_signature(run.root)
+        if signature == seen:
+            yield ": waiting\n\n"
+            continue
         try:
-            if _latest_event_seq(run.root) == seen:
-                yield ": waiting\n\n"
-                continue
             run = runs.open(key)
         except Exception:  # noqa: BLE001 - a document mid-rewrite; try again
             continue
-        seen = int(run.data.get("source_event_seq") or 0)
-        yield f"event: update\ndata: {json.dumps({'source_event_seq': seen})}\n\n"
+        seen = signature
+        payload = json.dumps({"source_event_seq": run.data.get("source_event_seq")})
+        yield f"event: update\ndata: {payload}\n\n"
     yield "event: done\ndata: {}\n\n"
 
 

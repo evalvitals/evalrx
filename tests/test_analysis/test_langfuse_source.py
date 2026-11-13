@@ -113,3 +113,27 @@ def test_materialized_langfuse_run_builds_the_report(tmp_path):
 
     assert data["trace_id"] == "trace"
     assert data["stage_detail"]["m1"] is not None
+
+
+def test_a_run_rebuilt_from_langfuse_is_finished_by_its_run_end(tmp_path):
+    from evalrx.reporting.dynamic import build_report_data
+    from evalrx.reporting.langfuse_source import LangfuseRunSource
+
+    def source(events):
+        class Observations:
+            def get_many(self, **_kwargs):
+                return SimpleNamespace(
+                    data=[_observation(e["event_seq"], e) for e in events],
+                    meta=SimpleNamespace(cursor=None),
+                )
+
+        return LangfuseRunSource(SimpleNamespace(api=SimpleNamespace(observations=Observations())))
+
+    start = {"event": "run_start", "event_seq": 1, "schema_version": 7, "ts": "2026-11-13T00:00:00+00:00"}
+    analysis = {"event": "analysis", "event_seq": 2, "ts": "2026-11-13T00:00:01+00:00"}
+    end = {"event": "run_end", "event_seq": 3, "ts": "2026-11-13T00:00:02+00:00"}
+
+    ended = source([start, analysis, end]).materialize("trace", tmp_path / "ended")
+    assert build_report_data(ended)["setting"]["finished"] is True
+    running = source([start, analysis]).materialize("trace", tmp_path / "running")
+    assert build_report_data(running)["setting"]["finished"] is False

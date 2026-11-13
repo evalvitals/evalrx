@@ -892,3 +892,48 @@ def test_follow_run_ends_at_once_for_a_finished_run_and_yields_to_a_reconnect(tm
     frames = list(follow_run(runs, runs.register(tmp_path / "live"), max_sec=4, sleep=lambda _sec: None))
     # No `done`: the stream just ends, and EventSource reconnects on its own.
     assert frames == [": waiting\n\n", ": waiting\n\n"]
+
+
+def test_finalize_leaves_run_end_last_after_the_fix_step(tmp_path):
+    from types import SimpleNamespace
+
+    from evalrx.eval_agent.run_context import RunContext
+    from evalrx.reporting.dynamic import build_report_data
+    from evalrx.reporting.run_events import read_v2_events
+
+    ctx = RunContext(tmp_path / "run", observability_mode="offline")
+    ctx.logger.log_run_start({"model": "demo-model", "protocol": {}, "n_cases": 1})
+    ctx.logger._append_stage("M1", "probe", {"cycle": 0, "analyzers": ["a"]})
+    ctx.logger._append_run("loop_end", {"cycles": 1})
+    # M5's fix step logs after loop_end: the run is not over yet.
+    assert build_report_data(ctx.root)["setting"]["finished"] is False
+    ctx.logger.log_fix(SimpleNamespace(to_dict=lambda: {"attempted": [], "best": None, "fixed": False}))
+    ctx.finalize()
+
+    events = read_v2_events(ctx.root)
+    assert events[-1]["event"] == "run_end"
+    assert build_report_data(ctx.root)["setting"]["finished"] is True
+
+
+def test_a_second_logger_in_the_same_directory_is_followed_until_it_ends(tmp_path):
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.reporting.server import RunRegistry, follow_run
+
+    first = RunLoggerV2(tmp_path, observability_mode="offline")
+    first.log_run_start({"model": "first", "protocol": {}, "n_cases": 1})
+    for _ in range(5):
+        first._append_stage("M1", "probe", {"cycle": 0, "analyzers": ["a"]})
+    first.close()
+
+    # The second run restarts event_seq below the first run's stale M1 log.
+    second = RunLoggerV2(tmp_path, observability_mode="offline")
+    second.log_run_start({"model": "second", "protocol": {}, "n_cases": 1})
+    runs = RunRegistry()
+    key = runs.register(tmp_path)
+    assert runs.get(key).data["setting"]["finished"] is False
+    steps = iter([
+        lambda: second._append_stage("M2", "analysis", {"cycle": 0, "findings": []}),
+        second.close,
+    ])
+    frames = list(follow_run(runs, key, sleep=lambda _sec: next(steps)()))
+    assert [f.split("\n")[0] for f in frames] == ["event: update", "event: update", "event: done"]
