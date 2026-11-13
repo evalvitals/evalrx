@@ -6,6 +6,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed — delta-rule relevance on transformers 5.23
+
+transformers 5.23 moved the grouped query/key head expansion of Qwen3-Next /
+Qwen3.5's `torch_chunk_gated_delta_rule` inside the kernel, so its `key` can
+now carry fewer heads than its values. The delta-rule mixing matrix was sized
+from `key` and failed with a shape mismatch (generic attention relevance and
+the delta-rule tap on hybrid models); it is now sized from the value heads.
+Verified on transformers 4.57.3, 5.20.2 and 5.23.0.
+
 ### Changed — the report UI keeps its place in the URL
 
 The view on screen is now the URL hash (`#/evidence/m3`, `#/evidence/m3/full`,
