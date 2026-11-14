@@ -45,10 +45,6 @@ def _slot_player(slot: str) -> str:
     return f"__{slot}__"
 
 
-#: Kept for backwards compatibility with callers that imported the old constant.
-_IMAGE = _slot_player("image")
-
-
 @register_analyzer("mm_shap")
 class MMShapAnalyzer(Analyzer):
     """Per-modality Shapley contribution + the MM-SHAP media-reliance scores."""

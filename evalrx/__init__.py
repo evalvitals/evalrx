@@ -129,12 +129,7 @@ def run(config: AnalysisConfig, data, **kwargs):
     Returns:
         A :class:`~evalrx.core.result.Result` subclass.
     """
-    # Back-compat: tolerate a leading "call_" in the config (old style).
-    name = config.analysis
-    if name.startswith("call_"):
-        name = name[len("call_"):]
-
-    analyzer_cls = registry.analyzers.get(name)
+    analyzer_cls = registry.analyzers.get(config.analysis)
     analyzer = analyzer_cls(**{**config.analysis_kwargs, **kwargs})
     model = load_model(config.model)
     return analyzer.run(model, data)

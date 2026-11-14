@@ -53,7 +53,3 @@ class LLMQADataset(Dataset):
             read_jsonl(self._path) if self._path else _SAMPLE
         )
         return cases_from_records(records, tags={"llm_qa"}, **self._keys)
-
-
-# Back-compat: the old combined name. Prefer LLMQADataset (text) / VLMQADataset (image+text).
-PureQADataset = LLMQADataset

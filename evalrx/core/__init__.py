@@ -32,7 +32,6 @@ from evalrx.core.pipeline import Pipeline
 from evalrx.core.registry import (
     Registry,
     register_analyzer,
-    register_model,
     registry,
 )
 from evalrx.core.result import Result
@@ -79,7 +78,6 @@ __all__ = [
     "Result",
     "registry",
     "Registry",
-    "register_model",
     "register_analyzer",
     "Pipeline",
     "Experiment",

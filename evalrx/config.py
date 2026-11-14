@@ -13,13 +13,13 @@ import yaml  # type: ignore[import-untyped]  # PyYAML ships no stubs; types-PyYA
 class ModelConfig:
     """Declarative model selection — resolved to a spec + backend at load time.
 
-    ``name`` is a :mod:`evalrx.specs` key (e.g. ``"qwen2.5-7b-instruct"``) or a
-    legacy alias (e.g. ``"qwen"``); resolution happens in
-    :func:`evalrx.models.load_model` via ``compose(spec, backend)``.  No
+    ``name`` is a :mod:`evalrx.specs` key (e.g. ``"qwen2.5-7b-instruct"``);
+    resolution happens in :func:`evalrx.models.load_model` via
+    ``compose(spec, backend)``.  No
     checkpoint is baked here — identity lives in the spec.
 
     Attributes:
-        name:       Spec key or legacy alias.
+        name:       Spec key.
         checkpoint: Optional override of the spec's ``hf_repo``.
         device:     Runtime device (``"auto"``, ``"cuda"``, ``"cpu"``, ``"cuda:N"``).
         dtype:      Runtime dtype (``"bfloat16"``, ``"float16"``, ``"float32"``).
@@ -47,7 +47,7 @@ def load_config(path: str | Path) -> AnalysisConfig:
 
     Supports both short form::
 
-        model: qwen2.5-7b-instruct      # spec key (or a legacy alias like "qwen")
+        model: qwen2.5-7b-instruct      # spec key
         analysis: attention
 
     and full form::

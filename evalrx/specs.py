@@ -42,7 +42,6 @@ _add(ModelSpec(
     hf_repo="Qwen/Qwen2.5-7B-Instruct", auto_class="AutoModelForCausalLM",
     processor_class="AutoTokenizer", min_transformers="4.43.0", tool_calling=True,
     module_paths=ModulePaths(decoder_layers="model.layers"),
-    caveats=("matches the legacy QwenLLM default checkpoint",),
 ))
 _add(ModelSpec(
     key="qwen3-4b", family="qwen3", model_type="qwen3",

@@ -10,12 +10,10 @@ Same pattern as :mod:`evalrx.models.whitebox.qwen`: thin wrappers over
 
 NOTE: text generation + logprobs work today; white-box forward-capture over image
 tokens (attention/hidden) uses the hf_local VLM path + ``core.tokentype.TokenTypeMap``.
-``QwenVL(...)`` remains as a deprecated back-compat shim.
 """
 
 from __future__ import annotations
 
-import warnings
 from typing import Any
 
 # Spec keys exposed as factories (each must exist in evalrx.specs).
@@ -46,17 +44,4 @@ for _k in _VL_KEYS:
     globals()[_k.replace("-", "_").replace(".", "_")] = _version_factory(_k)
 
 
-def QwenVL(checkpoint: str | None = None, device: str = "auto", dtype: str = "bfloat16", **runtime: Any):
-    """Deprecated. Use a version factory (e.g. ``qwen3_vl_8b_instruct()``) or
-    ``evalrx.load('qwen2.5-vl-7b-instruct')``."""
-    warnings.warn(
-        "QwenVL is deprecated; use a version factory (e.g. qwen3_vl_8b_instruct()) "
-        "or evalrx.load('qwen2.5-vl-7b-instruct').",
-        DeprecationWarning, stacklevel=2,
-    )
-    from evalrx.models import load
-    return load("qwen2.5-vl-7b-instruct", backend="hf_local",
-                checkpoint=checkpoint, device=device, dtype=dtype, **runtime)
-
-
-__all__ = ["QwenVL"] + [k.replace("-", "_").replace(".", "_") for k in _VL_KEYS]
+__all__ = [k.replace("-", "_").replace(".", "_") for k in _VL_KEYS]

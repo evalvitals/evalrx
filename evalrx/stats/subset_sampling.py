@@ -49,7 +49,3 @@ def kendall_tau(x: Sequence[float], y: Sequence[float]) -> float:
                 disc += 1
     denom = n * (n - 1) / 2
     return (conc - disc) / denom if denom else 1.0
-
-
-def sample_subset(items, key, n, seed: int = 0):  # back-compat alias
-    return stratified_subset(items, key, n, seed)

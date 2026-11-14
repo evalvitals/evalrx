@@ -10,7 +10,6 @@ from evalrx.core.case import CaseBatch
 from evalrx.datasets import (
     GUIOSDataset,
     LLMQADataset,
-    PureQADataset,
     Spatial457Dataset,
     TextVQASizeDataset,
     VLMQADataset,
@@ -29,18 +28,14 @@ def test_llm_qa_sample_loads():
     assert "llm_qa" in c.tags and c.metadata["difficulty"] == "easy"
 
 
-def test_pure_qa_is_llm_qa_alias():
-    assert PureQADataset is LLMQADataset  # back-compat
-
-
-def test_pure_qa_from_records_and_jsonl(tmp_path):
+def test_llm_qa_from_records_and_jsonl(tmp_path):
     recs = [{"question": "q1", "answer": "a1"}, {"question": "q2", "answer": "a2"}]
-    cb = PureQADataset.from_records(recs).load()
+    cb = LLMQADataset.from_records(recs).load()
     assert len(cb) == 2 and cb[1].expected == "a2"
 
     p = tmp_path / "qa.jsonl"
     p.write_text("\n".join(json.dumps(r) for r in recs))
-    cb2 = PureQADataset.from_jsonl(str(p)).load()
+    cb2 = LLMQADataset.from_jsonl(str(p)).load()
     assert len(cb2) == 2 and cb2[0].inputs.prompt == "q1"
 
 

@@ -6,6 +6,22 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Removed — names and code paths kept from earlier iterations
+
+Each of these had a current replacement and stayed only so older code kept
+working. They are gone, with no forwarding name left behind.
+
+- `QwenLLM()` / `QwenVL()`: use `evalrx.load("<spec key>")` or a version
+  factory such as `qwen2_5_7b_instruct()`.
+- The model aliases `"qwen"` and `"qwen2.5-7b"` and `resolve_spec_key`: name a
+  spec key (`evalrx.list_specs()`). An unknown key raises `KeyError`.
+- `registry.models` and `register_model`: model identity lives in
+  `evalrx.specs`.
+- `PureQADataset` and `evalrx.datasets.pure_qa`: use `LLMQADataset`.
+- `evalrx.stats.sample_subset` (use `stratified_subset`) and `ab_test` (use
+  `compare`).
+- A leading `call_` on `analysis:` in a config file is no longer stripped.
+
 ## [0.2.0] — 2026-11-13
 
 ### Added — follow a run while it is written
