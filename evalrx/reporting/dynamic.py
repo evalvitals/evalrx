@@ -27,9 +27,7 @@ from evalrx.reporting.report_inputs import (
     _assign_partitions,
     _contract_model_name,
     _contract_payloads,
-    _load_json,
     _media_index,
-    _merge_recorded_case_evidence,
     _normalise_case,
     _repair_outcomes,
 )
@@ -67,15 +65,12 @@ ALLOWED_COMPONENTS = frozenset(
         "Journey",
         "FindingGrid",
         "ChartGrid",
-        "OutcomeCard",
         "CasePreview",
         "CaseStudySheet",
         "LoopFigure",
         "EvidenceIndex",
     }
 )
-# OutcomeCard stays in ALLOWED_COMPONENTS so layouts published before it was
-# dropped from the page still validate; the renderer draws nothing for it.
 REQUIRED_COMPONENTS = frozenset({"SettingHero"})
 # The page needs one picture of the M1-M5 loop: the plain stage strip, or the
 # loop figure that folds the case-study sheet into it.
@@ -140,23 +135,16 @@ def build_report_data(run_dir: str | Path) -> dict[str, Any]:
     charts = _charts(run, raw, contract)
     media = _media_index(cases)
     normalized_cases = [_normalise_case(case, media) for case in cases if isinstance(case, dict)]
-    normalized_cases = _merge_recorded_case_evidence(normalized_cases, root)
     # Attach what M5's repair answered on each case, so "12 repaired, 1 broken"
     # is thirteen cases a reader can open rather than two numbers.
-    repair_outcomes = _repair_outcomes(root, contract)
+    repair_outcomes = _repair_outcomes(events)
     for case in normalized_cases:
         hit = repair_outcomes.get(case["id"])
         if hit:
             case["repair"] = hit
     # Which partition each case sat in -- explore for M1-M3, the withheld
-    # confirm / test pools for M4 and M5 -- read off the records when the run
-    # tagged them, inferred from the record order when it did not.
-    partitions = _assign_partitions(
-        normalized_cases,
-        logged_ids=[str(c.get("id") or c.get("case_id") or "") for c in case_events],
-        n_explore=run.get("n_cases"),
-        final_ids=set(repair_outcomes),
-    )
+    # confirm / test pools for M4 and M5 -- as the run tagged them.
+    partitions = _assign_partitions(normalized_cases)
     stage_detail = _stage_detail(raw, root, normalized_cases, events)
     m5_detail = stage_detail.get("m5") if isinstance(stage_detail, dict) else None
     stages = _stages(raw, m5_detail)
@@ -191,7 +179,7 @@ def build_report_data(run_dir: str | Path) -> dict[str, Any]:
                 "protocol": run.get("protocol") or "",
                 # Who drove the pipeline, as opposed to `model`, which is what
                 # it was pointed at. Empty when the run recorded neither.
-                "diagnosed_by": _diagnosed_by(root, run),
+                "diagnosed_by": _diagnosed_by(run),
                 # Whether the run is over, and when it last logged anything:
                 # what the UI needs to say "in progress" without guessing.
                 "finished": _run_finished(events, root),
@@ -201,7 +189,7 @@ def build_report_data(run_dir: str | Path) -> dict[str, Any]:
                 "n_cases": int(run.get("n_cases") or len(normalized_cases)),
                 # The frozen batch's partitions, in the order they are drawn:
                 # explore, then what was withheld. Empty when the run recorded
-                # no split and none can be inferred.
+                # no split.
                 "partitions": partitions,
             },
             "summary": {
@@ -431,14 +419,6 @@ def load_published_report(run_dir: str | Path) -> tuple[dict[str, Any], dict[str
     root = run_root / "report"
     data = json.loads((root / "report_data.json").read_text(encoding="utf-8"))
     envelope = json.loads((root / "report_spec.json").read_text(encoding="utf-8"))
-    # Reports published before the explicit-props contract omitted `props` for
-    # simple catalog elements.  Make those immutable artifacts viewable while
-    # newly generated layouts are rejected and repaired by ReportAgent.
-    spec = envelope.get("spec")
-    if isinstance(spec, dict) and isinstance(spec.get("elements"), dict):
-        for element in spec["elements"].values():
-            if isinstance(element, dict):
-                element.setdefault("props", {})
     # Do not make an old agent-composed layout disappear merely because the
     # renderer learned a richer data projection.  Rebuild its data in memory;
     # the saved layout and its provenance remain untouched.
@@ -530,43 +510,23 @@ def _hero_image(root: Path) -> str:
 def _run_finished(events: Sequence[Mapping[str, Any]], root: Path) -> bool:
     """Whether the run logged its completion signal.
 
-    ``run_end`` (log schema 7) is written when the logger closes. Logs from
-    before it have nothing better than ``loop_end``, which M5 and the fix step
-    can follow. An output with no run log at all (an explore step's report) is
-    finished as written; a run log with no readable events yet has just begun.
+    ``run_end`` is written when the logger closes. An output with no run log
+    at all (an explore step's report) is finished as written; a run log with
+    no readable events yet has just begun.
     """
     if not events:
         return not any((where / "run.json").is_file() for where in (root, root / "logs"))
-    if any(e.get("event") == "run_end" for e in events):
-        return True
-    start = next((e for e in events if e.get("event") == "run_start"), {})
-    if int(start.get("schema_version") or 0) >= 7:
-        return False
-    return any(e.get("event") == "loop_end" for e in events)
+    return any(e.get("event") == "run_end" for e in events)
 
 
-def _diagnosed_by(root: Path, run: Mapping[str, Any]) -> str:
+def _diagnosed_by(run: Mapping[str, Any]) -> str:
     """Which agent drove this run, as one display string, or "" if unrecorded.
 
     Two runs of the same benchmark against the same model differ ONLY in the
-    agent that drove them, and the report never said which — open both and they
-    are indistinguishable. The run manifest records the choice cleanly
-    (`judge_provider` / `judge_model`); the run_start event's `coder`
-    ("claude_code:opus") is the fallback for a run written before the manifest,
-    and its `judge` is a repr, so it is read only for its provider prefix.
+    agent that drove them, and without this the report never says which. The
+    run_start event records it as `coder` ("claude_code:claude-opus-5").
     """
-    config = _load_json(root / "manifest.json")
-    config = (config or {}).get("config") if isinstance(config, Mapping) else None
-    provider = model = ""
-    if isinstance(config, Mapping):
-        provider = str(config.get("judge_provider") or "")
-        model = str(config.get("judge_model") or "")
-    if not provider:
-        coder = str(run.get("coder") or "")
-        if ":" in coder:
-            provider, _, model = coder.partition(":")
-        else:
-            provider = coder
+    provider, _, model = str(run.get("coder") or "").partition(":")
     if not provider:
         return ""
     label = _AGENT_LABEL.get(provider.strip().lower(), provider.strip())
@@ -580,15 +540,8 @@ def _read_events(root: Path) -> list[dict[str, Any]]:
 
 
 def _debug_event(event: Mapping[str, Any]) -> dict[str, Any]:
-    event_type = str(event.get("event") or "")
-    inferred_stage = {
-        "probe": "M1", "explore": "M2", "analysis": "M2", "diagnosis": "M3",
-        "surgery": "M4" if event.get("module") == "m4" else "M5",
-        "experiment": "M5", "fix": "M5", "case_record": "DATA",
-        "report_published": "REPORT",
-    }.get(event_type, "RUN")
     return {
-        "event": event.get("event"), "stage": event.get("stage") or inferred_stage, "cycle": event.get("cycle"),
+        "event": event.get("event"), "stage": event.get("stage"), "cycle": event.get("cycle"),
         "event_seq": event.get("event_seq"), "ts": event.get("ts"), "span_id": event.get("span_id"),
         "summary": _event_summary(event),
     }

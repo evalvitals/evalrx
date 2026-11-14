@@ -251,6 +251,7 @@ def _run_section(
         "duration_sec": loop_end.get("total_duration_sec", 0),
         "version": run_start.get("evalrx_version", "0.2.0"),
         "data_fingerprint": run_start.get("data_fingerprint", ""),
+        "coder": run_start.get("coder") or "",
         "logs_dir": str(logs_dir),
     }
 

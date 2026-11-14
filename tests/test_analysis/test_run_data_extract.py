@@ -130,3 +130,31 @@ def test_only_the_latest_run_in_a_reused_directory_is_read(tmp_path):
 
     assert data["run"]["raw_model"] == "new"
     assert data["m3"]["hypotheses"] == []
+
+
+def test_per_case_repair_outcomes_come_from_the_confirmation_attempts():
+    from evalrx.reporting.report_inputs import _repair_outcomes
+
+    fix = _event(1, "fix", "M5", module="fix",
+                 selection_attempted=[{"name": "swept", "outputs": {"c9": "ignored"}}],
+                 attempted=[
+                     {"name": "first", "tier": "L1", "outputs": {"c1": "A", "c2": "B"}, "fixed_cases": ["c1"]},
+                     {"name": "second", "tier": "L2", "outputs": {"c2": "C", "c3": "D"}, "broken_cases": ["c3"]},
+                     {"name": "never_ran", "outputs": None},
+                 ])
+
+    assert _repair_outcomes([_event(0, "probe", "M1"), fix]) == {
+        "c1": {"candidate": "first", "tier": "L1", "status": "fixed", "output": "A"},
+        # A later attempt on the same case is the one the report shows.
+        "c2": {"candidate": "second", "tier": "L2", "status": "unchanged", "output": "C"},
+        "c3": {"candidate": "second", "tier": "L2", "status": "broken", "output": "D"},
+    }
+
+
+def test_the_report_names_the_agent_that_drove_the_run():
+    from evalrx.reporting.dynamic import _diagnosed_by
+
+    assert _diagnosed_by({"coder": "claude_code:claude-opus-5"}) == "Claude Code · claude-opus-5"
+    assert _diagnosed_by({"coder": "codex"}) == "Codex"
+    assert _diagnosed_by({"coder": "some_new_cli:m"}) == "some_new_cli · m"
+    assert _diagnosed_by({}) == ""

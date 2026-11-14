@@ -6,9 +6,8 @@ const at = (fields: Partial<ReportData["setting"]>) => fields as ReportData["set
 const now = Date.parse("2026-11-13T12:00:00Z");
 
 describe("the run status", () => {
-  it("is complete once the run logged its end, or on a report from before the field", () => {
+  it("is complete once the run logged its end", () => {
     expect(runStatus(at({ finished: true }), now).state).toBe("complete");
-    expect(runStatus(at({}), now).state).toBe("complete");
   });
 
   it("is live while an unfinished run keeps logging", () => {

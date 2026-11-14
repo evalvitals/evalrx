@@ -53,7 +53,7 @@ export function App() {
   // A run still being written is followed: the server streams an event each
   // time its log grows, and the report on screen is swapped for the new one
   // in place, on whatever view the reader is on.
-  const following = Boolean(runId && payload && payload.data.setting.finished === false);
+  const following = Boolean(runId && payload && !payload.data.setting.finished);
   useEffect(() => {
     if (!following) return;
     const source = new EventSource(api.live(runId));
@@ -263,7 +263,7 @@ function renderReport(
 function RunStatusBadge({ setting }: { setting: ReportData["setting"] }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (setting.finished !== false) return;
+    if (setting.finished) return;
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, [setting.finished]);

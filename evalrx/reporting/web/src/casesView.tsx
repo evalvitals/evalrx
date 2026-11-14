@@ -159,11 +159,6 @@ export function CasesView({
               </b>
             </button>
           ))}
-          {partitions.some((p) => p.inferred) && (
-            <em title="This run predates the split tag on case records; the partition is read from run_start's explore count and the order the cases were logged in.">
-              split inferred from the record order
-            </em>
-          )}
         </div>
       )}
       <div className="case-studio">

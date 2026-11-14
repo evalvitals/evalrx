@@ -39,10 +39,10 @@ def test_report_agent_repairs_once_then_validates():
     valid = {
         "root": "page",
         "elements": {
-            "page": {"type": "ReportPage", "props": {}, "children": ["hero", "journey", "outcome"]},
+            "page": {"type": "ReportPage", "props": {}, "children": ["hero", "journey", "findings"]},
             "hero": {"type": "SettingHero", "props": {}},
             "journey": {"type": "Journey", "props": {}},
-            "outcome": {"type": "OutcomeCard", "props": {}},
+            "findings": {"type": "FindingGrid", "props": {}},
         },
     }
 
@@ -378,52 +378,6 @@ def test_read_only_run_can_be_served_without_publishing(tmp_path, monkeypatch):
         payload = client.get(f"/api/runs/{run['id']}/report").json()
     assert payload["layout"]["generated_by"]["mode"] == "deterministic-read-only"
     assert payload["data"]["setting"]["model"] == "read-only-demo"
-
-
-def test_a_pre_ref_run_still_numbers_its_repairs_the_emitters_way():
-    """The AVLM run's stored payload predates `ref`, and must still be readable.
-
-    Left to itself the frontend numbers each list from one, so the frozen
-    candidate is #1 on its card and whatever position it happened to occupy in
-    the sweep — two numbers, one repair, nothing on screen connecting them.
-    """
-    from evalrx.reporting.report_inputs import _backfill_repair_identity
-
-    payload = {
-        "selection": [
-            {"name": "visual_grounding", "tier": "L1"},
-            {"name": "audio_evidence_then_answer", "tier": "L1"},
-            {"name": "coded_pipeline", "tier": "L2"},
-        ],
-        "attempted": [{"name": "coded_pipeline", "tier": "L2"}],
-    }
-    _backfill_repair_identity(payload)
-
-    assert [r["ref"] for r in payload["selection"]] == ["R1", "R2", "R3"]
-    # Same repair, same number, in both lists.
-    assert [r["ref"] for r in payload["attempted"]] == ["R3"]
-    # The host authored two of these three and can say what they do.
-    assert payload["selection"][0]["headline"].startswith("Tells the model to read")
-    assert payload["selection"][2]["headline"].startswith("Runs a short program")
-    # The judge invented the middle one under a prompt that never asked for a
-    # description, so nothing is invented on its behalf now.
-    assert payload["selection"][1]["headline"] == ""
-
-
-def test_backfill_never_overwrites_what_the_producer_wrote():
-    from evalrx.reporting.report_inputs import _backfill_repair_identity
-
-    payload = {
-        "selection": [
-            {"name": "coded_pipeline", "tier": "L2", "ref": "R9",
-             "headline": "Re-asks the model and takes the majority answer."},
-        ],
-        "attempted": [],
-    }
-    _backfill_repair_identity(payload)
-
-    assert payload["selection"][0]["ref"] == "R9"
-    assert payload["selection"][0]["headline"].startswith("Re-asks the model")
 
 
 def test_stage_figures_embed_everywhere_they_are_cited(tmp_path):
@@ -842,19 +796,6 @@ def test_a_run_is_finished_once_its_logger_closes(tmp_path):
     assert build_report_data(tmp_path)["setting"]["finished"] is True
     _compile_report(tmp_path)
     assert (tmp_path / "report" / "report_data.json").exists()
-
-
-def test_a_log_from_before_run_end_is_finished_at_loop_end(tmp_path):
-    from pathlib import Path
-
-    from evalrx.reporting.dynamic import _run_finished
-
-    start = {"event": "run_start", "schema_version": 6}
-    here = Path(tmp_path)
-    assert _run_finished([start, {"event": "loop_end"}], here) is True
-    assert _run_finished([start], here) is False
-    assert _run_finished([{**start, "schema_version": 7}, {"event": "loop_end"}], here) is False
-    assert _run_finished([], here) is True  # an explore output: no run log
 
 
 def test_follow_run_streams_updates_until_the_run_ends(tmp_path):

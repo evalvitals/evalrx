@@ -36,7 +36,6 @@ export const reportCatalog = defineCatalog(schema, {
       description: "At most three evidence findings",
     },
     ChartGrid: { props: z.object({ chartIds: ids }), description: "At most two evidence charts" },
-    OutcomeCard: { props: z.object({}), description: "What was learned and whether repair worked" },
     CasePreview: { props: z.object({ caseIds: ids }), description: "Representative model I/O" },
     CaseStudySheet: {
       props: z.object({}),
@@ -319,10 +318,6 @@ export const { registry } = defineRegistry(reportCatalog, {
         </section>
       );
     },
-    // Dropped from the page (2026-09-10): it restated the loop figure's health
-    // card. Layouts published before then still name it, so it renders nothing
-    // rather than failing as an unknown type.
-    OutcomeCard: () => null,
     CasePreview: ({ props }) => {
       const data = useReport();
       const navigate = useContext(NavContext);

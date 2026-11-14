@@ -13,7 +13,7 @@ export const QUIET_AFTER_MS = 5 * 60_000;
 export type RunStatus = { state: "complete" | "live" | "quiet"; label: string };
 
 export function runStatus(setting: ReportData["setting"], now: number): RunStatus {
-  if (setting.finished !== false) return { state: "complete", label: "report complete" };
+  if (setting.finished) return { state: "complete", label: "report complete" };
   const last = setting.last_event_at ? Date.parse(setting.last_event_at) : NaN;
   if (Number.isNaN(last) || now - last < QUIET_AFTER_MS) {
     return { state: "live", label: "run in progress" };

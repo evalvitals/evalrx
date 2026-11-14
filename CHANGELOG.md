@@ -22,8 +22,27 @@ beside the log are gone:
   `build_report_data`, `publish_report`, `export_static_report`,
   `RunContext.publish_report` and `VLDiagnoseLoop.publish_report`.
 
+- What the report inferred for logs that did not record it: the partition
+  of untagged case records (from the record order), a finished run from
+  `loop_end` (a run is finished when it logged `run_end`), the repair
+  numbering of contract payloads written before `ref`, and case text from
+  `report/discovery_cases.json`.
+- Layouts published before two renderer changes: the `OutcomeCard` component
+  is no longer accepted, and elements without `props` are no longer patched
+  on load.
+
 A run directory from an earlier version has to be brought up to the current
 log format before it is opened.
+
+### Fixed — two report fields read from files no run writes any more
+
+- The Case Studio and M5's worked example show what the repair answered on
+  each case again. They read `outputs.jsonl` from a trial folder that is gone
+  by the time a run finishes; the fix event carries the same answers, and the
+  report reads them from there.
+- The header names the agent that drove the run ("Claude Code ·
+  claude-opus-5"). It looked for a `manifest.json` beside the log; the
+  `run_start` event records it.
 
 ### Changed — the explore agent's record shows for loop runs too
 

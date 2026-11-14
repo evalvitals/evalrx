@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Iterable, Mapping
 
 
 def _load_json(path: Path) -> Any:
@@ -43,89 +43,38 @@ def _contract_payloads(root: Path) -> dict[str, Any]:
         # "c0.m1.json" -> "c0.m1"; ".invalid.json" keeps its suffix so a reader
         # can see that a stage failed validation rather than silently missing it.
         out[path.name[: -len(".json")]] = payload
-    for key, payload in out.items():
-        if key.endswith("m5_fix"):
-            _backfill_repair_identity(payload)
     return out
 
 
-def _backfill_repair_identity(payload: Any) -> None:
-    """Give a pre-`ref` run the same numbering a current run would emit.
-
-    Runs recorded before these fields existed carry neither, and a consumer
-    left to number rows itself gives the frozen candidate one number in the
-    sweep and another on its card. The assignment here is the emitter's, done
-    the emitter's way -- selection order first, one number per distinct name --
-    so an old report and a new one read alike.
-
-    It only ever FILLS BLANKS. What a producer actually wrote is never
-    overwritten, and a `headline` is only ever taken from the fix agent's table
-    of its own candidates: a judge-invented name nobody described stays blank,
-    because inventing a sentence for it here would be this file guessing.
-    """
-    if not isinstance(payload, dict):
-        return
-    try:
-        from evalrx.eval_agent.stages.fix.descriptions import BUILTIN_DESCRIPTIONS
-    except Exception:
-        BUILTIN_DESCRIPTIONS = {}
-    refs: dict[str, str] = {}
-    for group in ("selection", "attempted"):
-        for row in payload.get(group) or []:
-            if not isinstance(row, dict):
-                continue
-            name = str(row.get("name") or "")
-            ref = refs.get(name)
-            if ref is None:
-                ref = f"R{len(refs) + 1}"
-                refs[name] = ref
-            row.setdefault("ref", "")
-            if not row["ref"]:
-                row["ref"] = ref
-            row.setdefault("headline", "")
-            if not row["headline"]:
-                row["headline"] = BUILTIN_DESCRIPTIONS.get(name, "")
-
-
-def _repair_outcomes(root: Path, contract: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+def _repair_outcomes(events: Iterable[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
     """What each repair candidate answered, per case.
 
     ``case_id -> {candidate, tier, status, output}``. The counts in M5 say twelve
     cases were repaired and one broken; this is what lets a reader open those
     thirteen and see what actually changed. Without it a repair is a number.
 
-    Read from each attempt's ``trial_root/outputs.jsonl`` rather than the wire,
-    because it is one row per case per candidate — the contract points at the
-    file instead of inlining it, and this is the reader following the pointer.
-    Confirmation attempts only: the selection sweep chose the candidate and its
-    per-case results are not evidence about it.
+    Read from the fix event's confirmation attempts, which carry each
+    candidate's answer per case and the cases it fixed and broke. The
+    selection sweep chose the candidate, and its per-case results are not
+    evidence about it.
     """
     out: dict[str, dict[str, Any]] = {}
-    for key in sorted(contract):
-        if not key.endswith("m5_fix"):
+    for event in events:
+        if event.get("event") != "fix":
             continue
-        for attempt in (contract[key] or {}).get("attempted") or []:
-            trial = str(attempt.get("trial_root") or "")
-            if not trial:
+        for attempt in event.get("attempted") or []:
+            outputs = attempt.get("outputs") if isinstance(attempt, Mapping) else None
+            if not isinstance(outputs, Mapping):
                 continue
-            path = (root / trial / "outputs.jsonl")
-            if not path.is_file():
-                path = Path(trial) / "outputs.jsonl"   # a run read where it was produced
-            if not path.is_file():
-                continue
-            for line in path.read_text(encoding="utf-8").splitlines():
-                try:
-                    row = json.loads(line)
-                except ValueError:
-                    continue
-                cid = str(row.get("case_id") or "")
-                if not cid:
-                    continue
+            fixed = {str(cid) for cid in attempt.get("fixed_cases") or []}
+            broken = {str(cid) for cid in attempt.get("broken_cases") or []}
+            for cid, output in outputs.items():
+                cid = str(cid)
                 out[cid] = {
                     "candidate": attempt.get("name"),
                     "tier": attempt.get("tier"),
-                    "status": row.get("status"),
-                    "output": row.get("output"),
+                    "status": "fixed" if cid in fixed else "broken" if cid in broken else "unchanged",
+                    "output": output,
                 }
     return out
 
@@ -158,19 +107,19 @@ def _media_index(cases: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
 
     ``inputs.<slot>`` is where the producer read the file from — an absolute path
     on that host, and meaningless on any other. The run logger already copied the
-    file to ``artifacts/case_media/`` and recorded that relative path, so a run
-    unzipped elsewhere still has its media; index by that when it exists and keep
-    the original only as the fallback for runs that predate the copy.
+    file into the run and recorded that relative path, so a run unzipped
+    elsewhere still has its media; index by that, and by the original path only
+    for a file the logger could not copy.
     """
     media: list[dict[str, Any]] = []
     seen: set[str] = set()
     for case in cases:
-        inputs = found if isinstance(found := case.get("inputs"), dict) else case
+        inputs = found if isinstance(found := case.get("inputs"), dict) else {}
         # Slots and copies are recorded in the same order, so they zip up.
         local = [p for p in (case.get("_media_paths") or []) if isinstance(p, str)]
         i = 0
         for kind in ("audio", "image", "video"):
-            source = inputs.get(kind) or inputs.get(f"{kind}_path")
+            source = inputs.get(kind)
             if not isinstance(source, str) or not source or source.startswith("<"):
                 continue
             path = local[i] if i < len(local) else source
@@ -185,9 +134,8 @@ def _media_index(cases: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
 
 def _normalise_case(case: Mapping[str, Any], media: list[dict[str, Any]]) -> dict[str, Any]:
     inputs = found if isinstance(found := case.get("inputs"), dict) else {}
-    prompt = inputs.get("prompt") or case.get("instruction") or case.get("prompt") or ""
-    # Match on either key: the index prefers the in-run copy, and a run without
-    # copies still resolves through the producer's original path.
+    # Match on either key: the index prefers the in-run copy, and a file the
+    # logger could not copy still resolves through the producer's path.
     media_by_path: dict[str, str] = {}
     for item in media:
         media_by_path[item["path"]] = item["id"]
@@ -198,23 +146,23 @@ def _normalise_case(case: Mapping[str, Any], media: list[dict[str, Any]]) -> dic
         if isinstance(path, str) and path in media_by_path and media_by_path[path] not in media_ids:
             media_ids.append(media_by_path[path])
     for kind in ("audio", "image", "video"):
-        value = inputs.get(kind) or case.get(f"{kind}_path") or case.get(kind)
+        value = inputs.get(kind)
         if isinstance(value, str) and value in media_by_path \
                 and media_by_path[value] not in media_ids:
             media_ids.append(media_by_path[value])
     return {
-        "id": str(case.get("id") or case.get("case_id") or f"case-{id(case)}"),
-        "status": str(case.get("status") or case.get("label") or "unknown").lower(),
-        "prompt": prompt,
+        "id": str(case.get("id") or f"case-{id(case)}"),
+        "status": str(case.get("label") or "unknown").lower(),
+        "prompt": inputs.get("prompt") or "",
         "expected": case.get("expected"),
-        "observed": case.get("observed", case.get("output")),
+        "observed": case.get("observed"),
         "choices": case.get("choices") or [],
-        "tags": case.get("tags") or case.get("probe_flags") or [],
-        "task": case.get("task") or (case.get("metadata") or {}).get("category") or "",
+        "tags": case.get("tags") or [],
+        "task": (case.get("metadata") or {}).get("category") or "",
         "media_ids": media_ids,
         "trajectory": case.get("trajectory"),
-        # explore / confirm / test, as the loop logged it; None until
-        # _assign_partitions has had a chance to infer it.
+        # explore / confirm / test, as the loop logged it; None when the run
+        # held nothing back.
         "split": case.get("_split") if isinstance(case.get("_split"), str) else None,
     }
 
@@ -238,53 +186,16 @@ _TWO_WAY_ROLE = ("Withheld from M1-M3. M4 adjudicated the hypotheses here and th
                  "serving as both the held-out and the confirm set.")
 
 
-def _assign_partitions(
-    cases: list[dict[str, Any]],
-    *,
-    logged_ids: "Sequence[str]",
-    n_explore: Any,
-    final_ids: "set[str]",
-) -> list[dict[str, Any]]:
-    """Put every case in its partition and summarise the partitions.
+def _assign_partitions(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Summarise the partitions the run put its cases in.
 
-    ``case["split"]`` is filled in place (``explore`` / ``confirm`` / ``test``)
-    and the summary rows come back in drawing order, each with the subscript
-    the loop figure uses (E, H, C), its size and what the run used it for.
+    The rows come back in drawing order, each with the subscript the loop
+    figure uses (E, H, C), its size and what the run used it for. With a
+    two-way split the withheld pool is both the held-out set M4 adjudicates on
+    and the confirm set M5 scores on, so it is one row labelled as both.
 
-    A run that tagged its case records is read as recorded. A run from before
-    the tag existed is inferred from what its log still says: ``run_start``'s
-    ``n_cases`` is the explore partition (the loop narrows ``data`` to it before
-    recording the start), and the loop logs explore first, then confirm, then
-    test -- so the first ``n_explore`` logged ids are explore and the rest were
-    withheld. Whether the withheld pool was further divided (train/val/test
-    mode) is recovered from M5's per-case scoring: the cases it scored the
-    frozen repair on are the test partition when they are a strict subset of
-    what was withheld, and the whole pool otherwise. Cases the report merged
-    in from a manifest rather than the log stay untagged -- their order says
-    nothing.
-
-    Returns ``[]`` when there is no split to show: no case carries one and none
-    can be inferred (a run without a confirm split, or a legacy manifest).
+    Returns ``[]`` when there is no split to show: the run held nothing back.
     """
-    by_id = {str(case.get("id")): case for case in cases}
-    inferred = False
-    if not any(case.get("split") for case in cases):
-        ids = [cid for cid in logged_ids if cid and cid in by_id]
-        try:
-            n_head = int(n_explore or 0)
-        except (TypeError, ValueError):
-            n_head = 0
-        if not ids or n_head <= 0 or n_head >= len(ids):
-            return []
-        withheld = ids[n_head:]
-        final = {cid for cid in final_ids if cid in set(withheld)}
-        three_way = bool(final) and len(final) < len(withheld)
-        for cid in ids[:n_head]:
-            by_id[cid]["split"] = "explore"
-        for cid in withheld:
-            by_id[cid]["split"] = "test" if three_way and cid in final else "confirm"
-        inferred = True
-
     present = {str(case.get("split")) for case in cases if case.get("split")}
     if not present:
         return []
@@ -292,8 +203,7 @@ def _assign_partitions(
 
     def row(split: str, code: str, label: str, role: str) -> dict[str, Any]:
         return {"split": split, "code": code, "label": label,
-                "n": sum(1 for case in cases if case.get("split") == split),
-                "role": role, "inferred": inferred}
+                "n": sum(1 for case in cases if case.get("split") == split), "role": role}
 
     rows = [row("explore", "E", "Explore", _EXPLORE_ROLE)]
     if three_way:
@@ -304,42 +214,5 @@ def _assign_partitions(
     n_unknown = sum(1 for case in cases if not case.get("split"))
     if n_unknown:
         rows.append({"split": "", "code": "?", "label": "Unrecorded", "n": n_unknown,
-                     "role": "The run did not record which partition these came from.",
-                     "inferred": False})
+                     "role": "The run did not record which partition these came from."})
     return rows
-
-
-def _merge_recorded_case_evidence(cases: list[dict[str, Any]], root: Path) -> list[dict[str, Any]]:
-    """Supplement legacy manifests with the run's recorded baseline I/O.
-
-    Older benchmark exports often keep prompts/media in a manifest while
-    baseline answers live separately in ``report/discovery_cases.json``.  This
-    is a generic run artifact, not a task-specific fallback.  New JSONL case
-    records already contain both and therefore simply win when populated.
-    """
-    snapshots: list[Mapping[str, Any]] = []
-    for base in (root, root.parent):
-        value = _load_json(base / "report" / "discovery_cases.json")
-        if isinstance(value, list):
-            snapshots = [item for item in value if isinstance(item, Mapping)]
-            if snapshots:
-                break
-    if not snapshots:
-        return cases
-    existing = {str(case.get("id")): case for case in cases}
-    for raw_case in snapshots:
-        case_id = str(raw_case.get("id") or raw_case.get("case_id") or "")
-        if not case_id:
-            continue
-        update = _normalise_case(raw_case, [])
-        target = existing.get(case_id)
-        if target is None:
-            cases.append(update)
-            existing[case_id] = update
-            continue
-        for key in ("prompt", "expected", "observed"):
-            if not target.get(key) and update.get(key):
-                target[key] = update[key]
-        if target.get("status") in {"", "unknown", "unchanged"} and update.get("status"):
-            target["status"] = update["status"]
-    return cases
