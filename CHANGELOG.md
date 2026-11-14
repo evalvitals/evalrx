@@ -365,9 +365,8 @@ reader behind the report and the Langfuse bundle export. Import
 `extract_run_data` from `evalrx.reporting.run_data`; `html_report` itself is
 gone (see the removal above).
 
-The reader is one function per stage now. The analyzer glossary and the M1
-results live in `evalrx.reporting.run_probes`, the benchmark manifest and the
-case rows in `evalrx.reporting.run_cases`. What it returns is unchanged.
+The reader is one function per stage now, and the analyzer glossary and the
+M1 results live in `evalrx.reporting.run_probes`.
 
 ### Changed — FixAgent split into the `stages/fix/` package
 

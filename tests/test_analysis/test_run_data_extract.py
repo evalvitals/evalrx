@@ -159,3 +159,18 @@ def test_the_report_names_the_agent_that_drove_the_run():
     assert _diagnosed_by({"coder": "codex"}) == "Codex"
     assert _diagnosed_by({"coder": "some_new_cli:m"}) == "some_new_cli · m"
     assert _diagnosed_by({}) == ""
+
+
+def test_a_log_without_the_event_sequence_is_refused_by_name(tmp_path):
+    import pytest
+
+    from evalrx.reporting.run_events import read_run_events
+
+    root = _run(tmp_path / "outputs", [_event(1, "run_start"), _event(2, "probe", "M1", analyzers=[])])
+    path = root / "logs" / "M1" / "log.json"
+    doc = json.loads(path.read_text())
+    del doc["probe"][0]["event_seq"]
+    path.write_text(json.dumps(doc))
+
+    with pytest.raises(ValueError, match="written by an earlier log format"):
+        read_run_events(root)

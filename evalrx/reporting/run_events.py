@@ -27,11 +27,11 @@ def read_run_events(root: str | Path) -> list[dict[str, Any]]:
     The log stores them bucketed (``run.json`` plus one document per stage);
     report code reads this flat view and never rewrites the files.
     """
-    v2_root = resolve_run_root(root)
-    if v2_root is None:
+    run_root = resolve_run_root(root)
+    if run_root is None:
         return []
     try:
-        run = json.loads((v2_root / "run.json").read_text(encoding="utf-8"))
+        run = json.loads((run_root / "run.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return []
 
@@ -68,7 +68,7 @@ def read_run_events(root: str | Path) -> list[dict[str, Any]]:
             append(event_name, row)
 
     for stage in _STAGES:
-        path = v2_root / stage / "log.json"
+        path = run_root / stage / "log.json"
         if not path.is_file():
             continue
         try:
@@ -85,6 +85,11 @@ def read_run_events(root: str | Path) -> list[dict[str, Any]]:
 
     # The logger stamps a global sequence at write time, so the order holds
     # even when calls finish concurrently or the wall clock moves backwards.
+    if any(not isinstance(event.get("event_seq"), int) for event in events):
+        raise ValueError(
+            f"{run_root} is not a readable run log: its events carry no event_seq, "
+            "so it was written by an earlier log format. Re-run it to open it here."
+        )
     events.sort(key=lambda event: event["event_seq"])
     return events
 
