@@ -22,7 +22,7 @@ import type { Chart, ReportData, Stage } from "./types";
 import { ZoomableImage } from "./lightbox";
 import { CaseStudySheet as CaseStudySection } from "./caseStudy";
 import { LoopFigureView } from "./loopFigure";
-import { chartValue, outcomeColors, stageCode } from "./reportAccess";
+import { chartValue, outcomeColors } from "./reportAccess";
 
 const ids = z.array(z.string()).optional();
 export const reportCatalog = defineCatalog(schema, {
@@ -81,7 +81,7 @@ function StageNode({ data }: NodeProps<Node<{ stage: Stage }>>) {
   return (
     <div className={`stage-node stage-${stage.status}`}>
       <Handle type="target" position={Position.Left} />
-      <div className="stage-code">{stageCode(stage.code)}</div>
+      <div className="stage-code">{stage.code}</div>
       <strong>{stage.title}</strong>
       <small>{stage.status.replaceAll("-", " ")}</small>
       <Handle type="source" position={Position.Right} />

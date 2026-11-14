@@ -51,10 +51,7 @@ function repairRefs(report: ReportData): Map<string, FixAttemptWire> {
 
 function refFor(report: ReportData, name?: string | null) {
   if (!name) return "";
-  const row = repairRefs(report).get(name);
-  if (row?.ref) return row.ref;
-  const order = [...repairRefs(report).keys()].indexOf(name);
-  return order >= 0 ? `R${order + 1}` : "";
+  return repairRefs(report).get(name)?.ref || "";
 }
 
 function headlineFor(report: ReportData, name?: string | null) {
@@ -64,10 +61,10 @@ function headlineFor(report: ReportData, name?: string | null) {
 /**
  * The candidates a run tried while CHOOSING one, from the contract.
  *
- * These never reached the legacy stage view, which carries only what was
- * confirmed. A run that swept seven candidates across L1 and L2 and confirmed
- * one L1 therefore displayed a single L1 row, and every reader concluded L2 was
- * never attempted. What got ruled out is part of what the run found.
+ * The stage view carries only what was confirmed. Shown alone, a run that
+ * swept seven candidates across L1 and L2 and confirmed one L1 displays a
+ * single L1 row, and every reader concludes L2 was never attempted. What got
+ * ruled out is part of what the run found.
  *
  * Kept visually apart from the confirmation, and labelled, because these
  * numbers CHOSE the candidate and so cannot also test it — presenting them in
@@ -143,7 +140,7 @@ function SelectionSweep({ report }: { report: ReportData }) {
                     <span className="dot" />
                   </span>
                 </td>
-                <td className="repair-ref">{r.ref || `R${i + 1}`}</td>
+                <td className="repair-ref">{r.ref}</td>
                 <td>{r.tier}</td>
                 {anyHeadline && (
                   <td className="txt">{r.headline || <em className="muted">not described</em>}</td>
@@ -635,7 +632,7 @@ export function briefM5(report: ReportData, detail: Partial<M5StageDetail>): Bri
         : [],
       points: sweep
         .slice(0, 4)
-        .map((row) => `${row.ref || row.name}${row.headline ? ` — ${row.headline}` : ""}`),
+        .map((row) => `${row.ref}${row.headline ? ` — ${row.headline}` : ""}`),
     };
   }
 
@@ -651,7 +648,7 @@ export function briefM5(report: ReportData, detail: Partial<M5StageDetail>): Bri
   const pairs = Number(winner?.n_pairs || 0);
   const odds = oddsPhrase(winner?.e_value);
   // The e-value gate this candidate was judged against (1/alpha), when the
-  // run recorded it; older runs did not, and the note then names no bar.
+  // run recorded it; without it the note names no bar.
   const gate = oddsValue(winner?.e_threshold);
   // The plain description of a repair can live in either place. A "floor"
   // candidate carries it on the stage row; one the judge authored carries it

@@ -35,8 +35,8 @@ import { StageBanner, StageKpis, ExampleSection, ExampleMedia } from "./layout";
 /**
  * Hypotheses M3 proposed with no test_design, from the contract.
  *
- * The legacy card renders "No test design was retained", which says the design
- * existed and was lost. It did not exist: the judge proposed a mechanism and no
+ * A card saying "No test design was retained" would say the design existed
+ * and was lost. It did not exist: the judge proposed a mechanism and no
  * way to be wrong about it. That distinction decides how to read M4 — such a
  * claim returns INCONCLUSIVE however much evidence the next cycle gathers, and
  * without saying so the reader concludes "needs more data" and runs it again.

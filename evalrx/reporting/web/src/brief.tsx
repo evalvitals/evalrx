@@ -19,7 +19,7 @@
  * existed. Derivation has the opposite failure mode: it degrades to a shorter
  * sentence instead of a blank one. Each stage's builder (`briefMx` in
  * `stages/mx.tsx`) reads `stage_detail` (present on every run) first and treats
- * `contract` (absent on older runs, and on runs whose emission failed) as
+ * `contract` (absent on a run that emitted none or whose emission failed) as
  * enrichment it can do without.
  *
  * This module is the rendering the builders share.

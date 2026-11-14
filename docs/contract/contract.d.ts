@@ -227,7 +227,7 @@ export interface FixAttemptWire {
   /**
    * The reader-facing identifier, e.g. `R3`. Assigned by the producer over the whole run and STABLE across `selection` and `attempted`, so a reader who sees R3 in the sweep can find R3's card and know it is the same repair.
    *
-   * This exists because `name` cannot do the job. Consumers that numbered rows by list position gave the same repair two different numbers in the two lists, which is worse than no number at all. Empty means the producer assigned none; a consumer may then number by position, but only within one list and never as a cross-list identity.
+   * This exists because `name` cannot do the job. Consumers that numbered rows by list position gave the same repair two different numbers in the two lists, which is worse than no number at all.
    */
   ref?: string;
   /**

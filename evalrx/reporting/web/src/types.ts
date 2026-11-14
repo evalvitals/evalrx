@@ -348,9 +348,9 @@ export type ReportData = {
     broken_cases: number;
   }>;
   /** The full record behind each stage, compiled from the run's logs. Read it
-   *  through `stageDetail()`: older payloads can lack any block or key. */
+   *  through `stageDetail()`: a run that stopped early lacks the later blocks. */
   stage_detail?: StageDetail;
-  /** Contract-validated stage payloads. Absent on runs from before emission existed. */
+  /** Contract-validated stage payloads. Absent on a run that emitted none. */
   contract?: ContractPayloads;
   /** The run as one sheet. Null when it produced no probe or stats artifacts. */
   case_study?: CaseStudy | null;
