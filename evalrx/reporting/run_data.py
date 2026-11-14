@@ -13,132 +13,8 @@ import re
 from pathlib import Path
 from typing import Any
 
-ANALYZER_GLOSSARY: dict[str, tuple[str, str, str, list[tuple[str, str, str]]]] = {
-    "answer_extraction_audit": (
-        "Answer Extraction Audit",
-        "Did the model actually answer wrong, or did our parser fail to extract its response?",
-        "Checks whether formatting quirks (e.g. missing tags, preamble chatter) prevented the parser from extracting the answer even when the model understood the problem.",
-        [
-            ("Extraction Failure Rate on Errors", "suspect_rate", "pct"),
-            ("Missing Format Tag Rate", "missing_tag_rate", "pct"),
-        ],
-    ),
-    "termination_audit": (
-        "Truncation & Early Stop Audit",
-        "Did the model finish its thought, or was it abruptly cut off by length caps?",
-        "Identifies whether premature token limits or sudden EOS tokens clipped the model's reasoning chain mid-sentence.",
-        [
-            ("Suspected Truncation Rate", "truncation_rate", "pct"),
-            ("Recovery Rate upon Continuation", "recovered_rate", "pct"),
-        ],
-    ),
-    "calibration": (
-        "Confidence & Overconfidence (ECE)",
-        "When the model sounds certain, is its actual correctness probability truly high?",
-        "Measures Expected Calibration Error (ECE) across token logprobs and verbalized confidence. High ECE indicates dangerous overconfidence on incorrect answers.",
-        [
-            ("Token Logprob Calibration Error (ECE)", "logprob_channel.ece", "num"),
-            ("Verbalized Confidence Error (ECE)", "verbalized_channel.ece", "num"),
-        ],
-    ),
-    "format_sensitivity": (
-        "Option Order Sensitivity (Position Bias)",
-        "If we shuffle choices (A/B/C/D), does the model arbitrarily flip its answer?",
-        "Permutes multiple-choice options across variants. If answer flips across orderings, the model suffers from severe positional shortcutting rather than semantic understanding.",
-        [
-            ("Answer Flip Rate after Shuffling", "mean_flip_rate", "pct"),
-        ],
-    ),
-    "coverage_verification_gap": (
-        "Pass@k Knowledge Blindspot (Coverage)",
-        "Over 5 repeat attempts, does the model ever produce the right answer even once?",
-        "Samples temperature completions k=5 times. If pass@5 is 0%, the capability is completely missing from weights; if pass@5 is high but greedy fails, the model suffers from search/ranking misalignment.",
-        [
-            ("Persistent Failure Rate (0/5 correct)", "no_coverage_rate", "pct"),
-            ("Pass@5 Coverage Rate", "mean_pass_at_k", "pct"),
-        ],
-    ),
-    "self_consistency": (
-        "Sampling Consistency",
-        "When sampled repeatedly with temperature, does the answer waver wildly?",
-        "Measures whether model predictions stabilize on a single consensus choice or disperse across inconsistent alternatives.",
-        [
-            ("Majority Answer Agreement Rate", "consistency", "pct"),
-        ],
-    ),
-    "self_repair": (
-        "Self-Repair on Re-ask",
-        "When asked to check its own answer, does the model catch and fix its mistakes?",
-        "Asks the model to critique and revise its first answer. Reports how often it detects a real error, how often it raises a false alarm on a correct answer, and how often the revision actually repairs a failure.",
-        [
-            ("Error Detection Accuracy", "detection_accuracy", "pct"),
-            ("False Alarm Rate on Correct Answers", "false_alarm_rate", "pct"),
-            ("Repair Rate on Failures", "repair_rate", "pct"),
-        ],
-    ),
-    "cot_faithfulness": (
-        "Chain-of-Thought Faithfulness",
-        "Does the written reasoning actually drive the final answer, or is it decoration?",
-        "Compares the answer the model commits to early in its reasoning with the one it ends on: reasoning that drifts away from a correct early answer, or rescues a wrong one late, is unfaithful to the final output.",
-        [
-            ("Early Answer Matches Final", "mean_early_match_rate", "pct"),
-            ("Drift-Away Rate", "drift_away_rate", "pct"),
-            ("Late Rescue Rate", "late_rescue_rate", "pct"),
-        ],
-    ),
-    "perturbation_battery": (
-        "Perturbation Invariance",
-        "Do meaning-preserving edits to the prompt change the answer?",
-        "Rewrites each prompt in ways that should not change the answer (paraphrase, whitespace, ordering) and counts how often the answer breaks anyway; a no-op edit that breaks the answer points at memorisation or brittleness.",
-        [
-            ("Invariance Break Rate", "mean_invariance_break_rate", "pct"),
-            ("No-op Break Rate", "noop_break_rate", "pct"),
-        ],
-    ),
-    "step_rollout_value": (
-        "Step Rollout Value",
-        "At which reasoning step does the model's chance of finishing correctly collapse?",
-        "Rolls out completions from successive prefixes of the reasoning and scores each; the point where the success rate drops is where the reasoning went wrong.",
-        [
-            ("Success Rate from the First Step", "mean_initial_value", "pct"),
-            ("Success Rate from the Last Step", "mean_final_value", "pct"),
-            ("Mean Break Depth", "mean_break_depth", "num"),
-        ],
-    ),
-    "logprob_entropy": (
-        "Predictive Uncertainty (Output Entropy)",
-        "Is the model confident or internally hesitating when generating key tokens?",
-        "Computes Shannon entropy across the top candidate tokens to measure decision ambivalence.",
-        [
-            ("Top-Token Prediction Entropy", "mean_top_entropy", "num"),
-            ("Model Perplexity", "perplexity", "num"),
-        ],
-    ),
-    "selfcheck_consistency": (
-        "Self-Contradiction Detection",
-        "Does the model contradict its own claims across repeat samplings?",
-        "Probes whether the model generates assertions in one sample that directly contradict its claims in another sample.",
-        [
-            ("Self-Contradiction Index", "mean_inconsistency", "num"),
-        ],
-    ),
-    "hallucination": (
-        "Hallucination Probe",
-        "Does the model generate details unsupported by the source stimulus?",
-        "Measures semantic grounding against the audible stimulus to catch fabricated details.",
-        [
-            ("Hallucination Deviation Score", "hallucination_score", "num"),
-        ],
-    ),
-    "qwen_attention": (
-        "Attention Focus & Sparsity",
-        "Does model attention properly focus on critical prompt and media cues?",
-        "Examines cross-attention maps between audio tokens and query tokens to verify sensory uptake.",
-        [
-            ("Core Cue Attention Share", "focus_share", "pct"),
-        ],
-    ),
-}
+from evalrx.reporting.run_cases import case_rows, find_manifest
+from evalrx.reporting.run_probes import probe_section
 
 
 def clean_model_display_name(raw: str) -> str:
@@ -172,15 +48,6 @@ def clean_benchmark_name(protocol: str, manifest_path: str) -> str:
     if "chair" in text:
         return "CHAIR (Captioning Hallucination)"
     return "Evaluation Benchmark"
-
-
-def _dig(d: dict, path: str) -> Any:
-    cur: Any = d
-    for part in path.split("."):
-        if not isinstance(cur, dict):
-            return None
-        cur = cur.get(part)
-    return cur
 
 
 #: What an explore step writes as its report: ``evalrx explore`` / run-codebase
@@ -222,44 +89,6 @@ def resolve_run_dirs(run_dir: Path) -> tuple[Path, Path | None, Path | None]:
         fixes_dir = None
 
     return logs_dir, explore_dir, fixes_dir
-
-
-def find_manifest(example_dir: Path, logs_dir: Path) -> tuple[Path | None, dict[str, dict[str, Any]]]:
-    """Find and load benchmark manifest (.jsonl / .json)."""
-    candidates = []
-    if example_dir:
-        candidates.extend(sorted(example_dir.glob("data/*.jsonl")))
-        candidates.extend(sorted(example_dir.glob("data/*.json")))
-        candidates.extend(sorted(example_dir.glob("*.jsonl")))
-    candidates.extend(sorted(logs_dir.glob("data/*.jsonl")))
-    candidates.extend(sorted(logs_dir.parent.glob("data/*.jsonl")))
-
-    for p in candidates:
-        if p.name.endswith(".result.json") or p.name.endswith("results.json"):
-            continue
-        try:
-            rows = {}
-            if p.suffix == ".jsonl":
-                for line in p.open(encoding="utf-8"):
-                    line = line.strip()
-                    if line:
-                        obj = json.loads(line)
-                        cid = str(obj.get("id") or obj.get("case_id") or "")
-                        if cid:
-                            rows[cid] = obj
-            elif p.suffix == ".json":
-                data = json.loads(p.read_text(encoding="utf-8"))
-                recs = data if isinstance(data, list) else (data.get("records") or data.get("cases") or [])
-                for obj in recs:
-                    if isinstance(obj, dict):
-                        cid = str(obj.get("id") or obj.get("case_id") or "")
-                        if cid:
-                            rows[cid] = obj
-            if rows:
-                return p, rows
-        except Exception:
-            continue
-    return None, {}
 
 
 def _extract_agent_layer(logs_dir: Path, explore_dir: "Path | None") -> dict[str, Any]:
@@ -442,31 +271,29 @@ def _snapshot_explore_report(explore_event: dict[str, Any]) -> dict[str, Any]:
     return report
 
 
-def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str, Any]:
-    """Parse all run artifacts dynamically into a unified dictionary."""
-    logs_dir, explore_dir, fixes_dir = resolve_run_dirs(run_dir)
-    manifest_path, manifest = find_manifest(example_dir or logs_dir.parent, logs_dir)
-
+def _latest_run_events(logs_dir: Path) -> list[dict[str, Any]]:
+    """The run log's events, from the latest run only when a directory was reused."""
     from evalrx.reporting.run_events import read_v2_events
 
     events: list[dict[str, Any]] = read_v2_events(logs_dir)
-
-    all_run_starts = [e for e in events if e.get("event") == "run_start"]
-    run_start = all_run_starts[-1] if all_run_starts else {}
-    active_trace_id = run_start.get("trace_id")
+    run_starts = [e for e in events if e.get("event") == "run_start"]
+    trace_id = run_starts[-1].get("trace_id") if run_starts else None
     # Directories are commonly reused.  Keep a report internally consistent by
     # selecting the events from the latest run's trace only.
-    if active_trace_id:
-        scoped_events = [e for e in events if e.get("trace_id") == active_trace_id]
+    if trace_id:
+        scoped = [e for e in events if e.get("trace_id") == trace_id]
         # Keep compatibility with pre-trace legacy logs, where only run_start
         # may have a trace id (or none of the events do).
-        if len(scoped_events) > 1:
-            events = scoped_events
+        if len(scoped) > 1:
+            return scoped
+    return events
 
-    def by_event(event: str) -> list[dict[str, Any]]:
-        return [e for e in events if e.get("event") == event]
 
-    loop_end = by_event("loop_end")[-1] if by_event("loop_end") else {}
+def _run_section(
+    run_start: dict[str, Any], loop_end: dict[str, Any], logs_dir: Path,
+    manifest_path: Path | None, n_manifest: int,
+) -> dict[str, Any]:
+    """What ran: the model, the benchmark, its size and how the loop ended."""
     manifest_json = logs_dir / "manifest.json"
     cfg = json.loads(manifest_json.read_text()) if manifest_json.exists() else {}
 
@@ -477,8 +304,6 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
         or "Target Model"
     )
     clean_model = clean_model_display_name(raw_model_name)
-    n_cases = run_start.get("n_cases") or len(manifest) or 0
-    label_dist = run_start.get("label_distribution") or {}
     protocol = run_start.get("protocol") or {}
     protocol_desc = (
         protocol.get("description") or ""
@@ -508,116 +333,34 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
             or (folder if folder not in {"outputs", "logs", ""} else "")
             or benchmark_name
         )
+    return {
+        # "loop" for a diagnose loop's run log, "explore" for the report
+        # an explore step wrote on its own.
+        "kind": "loop",
+        "model": clean_model,
+        "raw_model": raw_model_name,
+        "benchmark_name": benchmark_name,
+        "n_cases": run_start.get("n_cases") or n_manifest or 0,
+        "label_distribution": run_start.get("label_distribution") or {},
+        "protocol": protocol_desc,
+        "cycles": loop_end.get("cycles", 1),
+        "stopped_by": loop_end.get("stopped_by", "completed"),
+        "duration_sec": loop_end.get("total_duration_sec", 0),
+        "version": run_start.get("evalrx_version", "0.2.0"),
+        "data_fingerprint": run_start.get("data_fingerprint", ""),
+        "logs_dir": str(logs_dir),
+        "manifest_path": str(manifest_path) if manifest_path else "",
+    }
 
-    # Pre-M1
-    probe_searches = by_event("probe_search")
-    pre_m1_ran = bool(probe_searches)
-    pre_m1_cases = probe_searches[0].get("n_synthesized") if pre_m1_ran else 0
 
-    # Probe Case Map for reverse-lookup of anomalies per sample
-    probe_case_flags: dict[str, list[str]] = {}
+def _m2_stats(analysis: dict[str, Any], probe: dict[str, Any], logs_dir: Path) -> list[dict[str, Any]]:
+    """The analysis step's test rows, rejected nulls first, largest effect first.
 
-    # M1: Measurements & Per-case probe drilldowns
-    probes = by_event("probe")
-    p0 = probes[-1] if probes else {}
-    m1_cycle = int(p0.get("cycle", 0) or 0)
-    analyzers = p0.get("analyzers") or p0.get("selected_analyzers") or []
-    m1_duration = p0.get("duration_sec")
-
-    # An agent-written probe ("generated:probe1") has no glossary entry; the
-    # need it was written for is the only description that exists, and the
-    # codegen event carries it verbatim.
-    generated_need: dict[str, str] = {}
-    for event in by_event("tool_codegen"):
-        tool = str(event.get("tool_name") or "")
-        if tool and event.get("need"):
-            generated_need[tool] = str(event["need"])
-    m1_results = []
-    for name in analyzers:
-        result_paths = p0.get("result_paths") or {}
-        p = logs_dir / str(result_paths.get(name) or f"artifacts/c{m1_cycle}_{name}.result.json")
-        findings, n = {}, None
-        per_case_rows: list[Any] = []
-        # V1 externalised each analyzer's result to artifacts/; RunLoggerV2
-        # keeps the findings inline on the probe entry itself.
-        inline = (p0.get("findings") or {}).get(name)
-        if not p.exists() and isinstance(inline, dict):
-            findings = inline
-            n = findings.get("n_cases") or findings.get("n_scored")
-            per_case_rows = findings.get("per_case") or []
-        if p.exists():
-            try:
-                raw = json.loads(p.read_text())
-                findings = raw.get("findings") or {}
-                n = findings.get("n_cases") or findings.get("n_scored")
-                per_case_rows = findings.get("per_case") or []
-                for pc in per_case_rows:
-                    sid = str(pc.get("sample_id", ""))
-                    if sid:
-                        if sid not in probe_case_flags:
-                            probe_case_flags[sid] = []
-                        if pc.get("format_flip_rate", 0) > 0:
-                            probe_case_flags[sid].append(f"Option Order Flip ({pc['format_flip_rate']:.0%})")
-                        if pc.get("conf_logprob", 0) > 0.8 and pc.get("correct") == 0:
-                            probe_case_flags[sid].append(f"Overconfident on Error ({pc['conf_logprob']:.0%})")
-                        if pc.get("pass_at_k") == 1.0:
-                            probe_case_flags[sid].append("Pass@5 Capable")
-                        elif pc.get("pass_at_k") == 0.0:
-                            probe_case_flags[sid].append("Pass@5 Zero-Coverage")
-            except Exception:
-                pass
-        meta = ANALYZER_GLOSSARY.get(
-            name, (name.replace("_", " ").title(), "Measures model behavior across this dimension", "Standard diagnostic probe.", [])
-        )
-        if name.startswith("generated:"):
-            # No glossary can know a probe the agent wrote during this run: the
-            # need it was written for is its question (first sentence up front,
-            # the whole brief as the description), and its headline is whatever
-            # scalar findings it reported, under their own names.
-            need = generated_need.get(name.split(":", 1)[1], "")
-            first = re.split(r"(?<=[.;])\s+", need.strip(), maxsplit=1)[0] if need else "Agent-written probe"
-            if len(first) > 180:
-                first = first[:177].rstrip() + "…"
-            scalar = [
-                (key.replace("_", " "), key, "pct" if key.endswith(("_rate", "_frac")) else "num")
-                for key, value in findings.items()
-                if isinstance(value, (int, float)) and not isinstance(value, bool)
-                and key not in {"n_cases", "n_scored", "n_graded", "n_samples"}
-            ][:5]
-            meta = (f"Agent-written probe · {name.split(':', 1)[1]}", first, need or "Agent-written probe.", scalar)
-        headline = []
-        for label, path, fmt in meta[3]:
-            v = _dig(findings, path)
-            if isinstance(v, (int, float)):
-                headline.append({
-                    "label": label,
-                    "value": f"{v:.1%}" if fmt == "pct" else f"{v:.3f}".rstrip("0").rstrip("."),
-                })
-            else:
-                headline.append({"label": label, "value": None})
-        m1_results.append({
-            "name": name,
-            "display_name": meta[0],
-            "question": meta[1],
-            "description": meta[2],
-            "n": n,
-            "headline": headline,
-            "findings": findings,
-            "per_case": per_case_rows,
-        })
-    m1_results.sort(key=lambda r: -(r["n"] or 0))
-
-    # M2: Explore & Screening
-    analyses = by_event("analysis")
-    a0 = analyses[-1] if analyses else {}
-    m2_conclusion = a0.get("conclusion") or ""
-    m2_narrative = a0.get("narrative") or ""
-    m2_severity = a0.get("severity") or "medium"
-    m2_duration = a0.get("duration_sec")
-
-    m2_cycle = int(a0.get("cycle", m1_cycle) or 0)
-    stats_path = logs_dir / f"artifacts/c{m2_cycle}_m2_stats_results.json"
-    stats_ref = a0.get("stats_results")
+    An analysis event that names no cycle ran in the probe's.
+    """
+    cycle = int(analysis.get("cycle", probe.get("cycle", 0)) or 0)
+    stats_path = logs_dir / f"artifacts/c{cycle}_m2_stats_results.json"
+    stats_ref = analysis.get("stats_results")
     if isinstance(stats_ref, dict) and stats_ref.get("path"):
         stats_path = logs_dir / str(stats_ref["path"])
     try:
@@ -628,9 +371,8 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
         # RunLoggerV2 keeps the M2 rows inline on the analysis entry rather
         # than externalising them to artifacts/.
         raw_stats = [row for row in stats_ref if isinstance(row, dict)]
-    stats = []
-    for s in raw_stats:
-        stats.append({
+    stats = [
+        {
             "tool": s.get("tool"),
             "config": s.get("config") or {},
             "summary": s.get("summary") or "",
@@ -639,72 +381,83 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
             "reject": bool(s.get("reject")),
             "p_value": s.get("p_value"),
             "underpowered": bool(s.get("underpowered")),
-        })
+        }
+        for s in raw_stats
+    ]
     stats.sort(key=lambda s: (not s["reject"], -abs(s.get("effect") or 0)))
+    return stats
 
-    explore_data: dict[str, Any] = {}
+
+def _explore_from_sentences(explore_event: dict[str, Any], analysis: dict[str, Any]) -> dict[str, Any]:
+    """An explore report shaped from what the run log kept as sentences.
+
+    With no report to read, the events still carry observations and caveats
+    as sentences and figures as paths under logs/. Shaping those the way the
+    explore report is shaped lets the M2 record render either.
+    """
+    takeaways = []
+    for text in analysis.get("findings") or []:
+        if isinstance(text, str) and text.strip():
+            # "[MEDIUM] self_consistency.consistency=0.2 < 0.5: low self-consistency — …"
+            body = re.sub(r"^\[[A-Z]+\]\s*", "", text.strip())
+            head = body.split(": ", 1)[1] if ": " in body else body
+            takeaways.append({"title": head[:110], "plain_title": head[:110],
+                              "analysis": body, "chart_names": [], "table_names": []})
+    for text in explore_event.get("observations") or []:
+        if isinstance(text, str) and text.strip():
+            head = text.strip().split(";")[0].split(". ")[0]
+            takeaways.append({"title": head[:90], "plain_title": head[:90],
+                              "analysis": text.strip(), "chart_names": [], "table_names": []})
+    if not (takeaways or explore_event):
+        return {}
+    return {
+        "takeaways": takeaways,
+        "caveats": [c for c in explore_event.get("caveats") or [] if isinstance(c, str)],
+        "observations": [o for o in explore_event.get("observations") or [] if isinstance(o, str)],
+        "figures": [f for f in explore_event.get("figures") or [] if isinstance(f, str)],
+        "adjudication": explore_event.get("adjudication") or {},
+        "candidate_signals": [], "hypotheses": [],
+    }
+
+
+def _explore_report(
+    explore_dir: Path | None, explore_event: dict[str, Any], analysis: dict[str, Any],
+) -> dict[str, Any]:
+    """The explore step's report, from the best source the run has.
+
+    The report file it wrote, else the copy inlined in the explore event's
+    workspace snapshot (RunLoggerV2 records the explore step as an M2 event),
+    else the events' own sentences.
+    """
+    report: dict[str, Any] = {}
     report_path = next((explore_dir / name for name in EXPLORE_REPORTS
                         if explore_dir and (explore_dir / name).exists()), None)
     if report_path is not None:
         try:
-            explore_data = json.loads(report_path.read_text())
+            report = json.loads(report_path.read_text())
         except Exception:
             pass
-    # RunLoggerV2 records the explore step as an M2 event; both fallbacks
-    # below read from it.
-    explores = by_event("explore")
-    e0 = explores[-1] if explores else {}
-    if not explore_data:
-        # The explorer's own report -- takeaways and the charts they cite --
-        # rides along inlined in the event's workspace snapshot; read that
-        # back first.
-        explore_data = _snapshot_explore_report(e0)
-    if not explore_data:
-        # No snapshot report: the event still carries observations and caveats
-        # as sentences and figures as paths under logs/. Shape those the way
-        # the explore report is shaped, so the M2 record renders either.
-        takeaways = []
-        for text in a0.get("findings") or []:
-            if isinstance(text, str) and text.strip():
-                # "[MEDIUM] self_consistency.consistency=0.2 < 0.5: low self-consistency — …"
-                body = re.sub(r"^\[[A-Z]+\]\s*", "", text.strip())
-                head = body.split(": ", 1)[1] if ": " in body else body
-                takeaways.append({"title": head[:110], "plain_title": head[:110],
-                                  "analysis": body, "chart_names": [], "table_names": []})
-        for text in e0.get("observations") or []:
-            if isinstance(text, str) and text.strip():
-                head = text.strip().split(";")[0].split(". ")[0]
-                takeaways.append({"title": head[:90], "plain_title": head[:90],
-                                  "analysis": text.strip(), "chart_names": [], "table_names": []})
-        if takeaways or e0:
-            explore_data = {
-                "takeaways": takeaways,
-                "caveats": [c for c in e0.get("caveats") or [] if isinstance(c, str)],
-                "observations": [o for o in e0.get("observations") or [] if isinstance(o, str)],
-                "figures": [f for f in e0.get("figures") or [] if isinstance(f, str)],
-                "adjudication": e0.get("adjudication") or {},
-                "candidate_signals": [], "hypotheses": [],
-            }
+    return report or _snapshot_explore_report(explore_event) or _explore_from_sentences(explore_event, analysis)
 
-    # M3: Hypotheses
-    diagnoses = by_event("diagnosis")
-    dg = diagnoses[-1] if diagnoses else {}
-    hypotheses = dg.get("hypotheses") or []
+
+def _hypotheses(diagnosis: dict[str, Any], logs_dir: Path) -> list[Any]:
+    """The diagnosis event's hypotheses, else the ones an older run wrote to report/."""
+    hypotheses = diagnosis.get("hypotheses") or []
     if not hypotheses and (logs_dir / "report" / "hypotheses.json").exists():
         try:
             hypotheses = json.loads((logs_dir / "report" / "hypotheses.json").read_text())
         except Exception:
             pass
+    return hypotheses
 
-    # M4: Adjudication
-    surgeries = by_event("surgery")
-    m4_surgeries = [s for s in surgeries if s.get("module") == "m4" or s.get("adjudication")]
+
+def _m4_results(m4_surgeries: list[dict[str, Any]], logs_dir: Path) -> list[Any]:
+    """One verdict row per hypothesis M4 adjudicated."""
     m4_results_file = logs_dir / "report" / "m4_results.json"
     try:
         m4_results = json.loads(m4_results_file.read_text()) if m4_results_file.exists() else []
     except (OSError, json.JSONDecodeError):
         m4_results = []
-    m4_event = m4_surgeries[-1] if m4_surgeries else {}
     if m4_surgeries:
         # The JSONL event is trace-scoped; a report artifact can be stale when
         # the same run directory is appended to later. One hypothesis can be
@@ -721,17 +474,15 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
             "evidence_grade": (event.get("evidence") or {}).get("m4_evidence_grade"),
             "protocol_consistent": (event.get("evidence") or {}).get("m4_protocol_consistent"),
         } for event in m4_surgeries]
+    return m4_results
 
-    # M5-Surgery
-    m5_surgeries = [s for s in surgeries if s.get("module") != "m4"]
-    m5_surgery_ran = bool(m5_surgeries)
 
-    # M5-Fix: Repair
-    fixes = by_event("fix")
-    f0 = fixes[-1] if fixes else {}
-    best_fix = f0.get("best") or {}
-    fix_attempts = f0.get("selection_attempted") or f0.get("attempted") or []
+def _confirmed_fix(fixes_dir: Path | None, best_fix: Any) -> tuple[dict[str, Any], Path | None]:
+    """(the fix result to report, the fixes/ candidate directory it came from).
 
+    The first candidate under fixes/ that fixed the failure, else the last
+    one tried; a run with no fixes/ directory reports its fix event's best.
+    """
     confirmed_fix: dict[str, Any] = {}
     fix_dir = None
     if fixes_dir:
@@ -754,219 +505,106 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
 
     if not confirmed_fix and isinstance(best_fix, dict):
         confirmed_fix = best_fix
+    return confirmed_fix, fix_dir
 
-    cases: list[dict[str, Any]] = []
-    output_files = []
-    if fix_dir and (fix_dir / "outputs.jsonl").exists():
-        output_files.append(fix_dir / "outputs.jsonl")
-    output_files.extend(sorted(logs_dir.glob("**/outputs.jsonl")))
-    if logs_dir.parent != logs_dir:
-        output_files.extend(sorted(logs_dir.parent.glob("**/outputs.jsonl")))
 
-    seen_case_ids = set()
-    if output_files:
-        target_out = output_files[0]
-        for line in target_out.open(encoding="utf-8"):
-            line = line.strip()
-            if line:
-                try:
-                    r = json.loads(line)
-                    cid = str(r.get("case_id") or r.get("id") or "")
-                    if not cid:
-                        continue
-                    seen_case_ids.add(cid)
-                    m = manifest.get(cid) or {}
-                    instruction = (
-                        m.get("instruction")
-                        or m.get("question")
-                        or m.get("prompt")
-                        or m.get("query")
-                        or ""
-                    )
-                    choices = m.get("choices") or m.get("options") or m.get("candidates") or []
-                    expected = m.get("expected") or m.get("answer") or m.get("label") or m.get("gt") or ""
-                    audio_p = (
-                        m.get("audio_path")
-                        or m.get("audio")
-                        or m.get("wav_path")
-                        or m.get("audio_file")
-                        or ""
-                    )
-                    image_p = (
-                        m.get("image")
-                        or m.get("image_path")
-                        or m.get("image_file")
-                        or ""
-                    )
-                    if isinstance(image_p, (list, tuple)):
-                        image_p = image_p[0] if image_p else ""
+def _mark_explore_output(data: dict[str, Any], report: dict[str, Any]) -> None:
+    """Describe ``data`` as an explore output rather than a loop run.
 
-                    cases.append({
-                        "id": cid,
-                        "status": r.get("status", "unchanged"),
-                        "output": str(r.get("output", "")),
-                        "instruction": instruction,
-                        "choices": choices,
-                        "expected": str(expected),
-                        "audio_path": audio_p,
-                        "image_path": image_p,
-                        "duration": float(m.get("duration_sec") or 0.0),
-                        "task": (m.get("metadata") or {}).get("mmau_task") or (m.get("metadata") or {}).get("category") or "",
-                        "probe_flags": probe_case_flags.get(cid, []),
-                    })
-                except Exception:
-                    pass
+    Its report sits at the top with no run log, so the stages that ran, the
+    question and the data explored are all read off the report.
+    """
+    data["m2"]["ran"] = True
+    data["m3"]["ran"] = bool(report.get("hypotheses"))
+    profile = report.get("data_profile") or {}
+    source = Path(str(profile.get("source_path") or "")).name
+    data["run"].update(
+        kind="explore",
+        benchmark_name=source or data["run"]["benchmark_name"],
+        protocol=data["run"]["protocol"] or str(
+            report.get("plain_question") or report.get("question") or ""),
+    )
 
-    # Fallback to manifest + baseline
-    if not cases and manifest:
-        fixed_set = set(confirmed_fix.get("fixed_cases") or [])
-        broken_set = set(confirmed_fix.get("broken_cases") or [])
-        baseline_map = {}
-        for bp in [logs_dir / "artifacts" / "baseline.json", *logs_dir.glob("**/baseline.json")]:
-            if bp.exists():
-                try:
-                    bdata = json.loads(bp.read_text())
-                    for bc in (bdata.get("cases") or []):
-                        if isinstance(bc, dict) and bc.get("id"):
-                            baseline_map[str(bc["id"])] = bc
-                except Exception:
-                    pass
 
-        for cid, m in manifest.items():
-            st = "unchanged"
-            if cid in fixed_set:
-                st = "fixed"
-            elif cid in broken_set:
-                st = "broken"
+def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str, Any]:
+    """Parse all run artifacts dynamically into a unified dictionary."""
+    logs_dir, explore_dir, fixes_dir = resolve_run_dirs(run_dir)
+    manifest_path, manifest = find_manifest(example_dir or logs_dir.parent, logs_dir)
+    events = _latest_run_events(logs_dir)
 
-            b_out = baseline_map.get(cid, {}).get("output", "")
-            instruction = (
-                m.get("instruction")
-                or m.get("question")
-                or m.get("prompt")
-                or m.get("query")
-                or ""
-            )
-            choices = m.get("choices") or m.get("options") or m.get("candidates") or []
-            expected = m.get("expected") or m.get("answer") or m.get("label") or m.get("gt") or ""
-            audio_p = (
-                m.get("audio_path")
-                or m.get("audio")
-                or m.get("wav_path")
-                or m.get("audio_file")
-                or ""
-            )
-            image_p = (
-                m.get("image")
-                or m.get("image_path")
-                or m.get("image_file")
-                or ""
-            )
-            if isinstance(image_p, (list, tuple)):
-                image_p = image_p[0] if image_p else ""
+    def named(event: str) -> list[dict[str, Any]]:
+        return [e for e in events if e.get("event") == event]
 
-            cases.append({
-                "id": cid,
-                "status": st,
-                "output": str(b_out),
-                "instruction": instruction,
-                "choices": choices,
-                "expected": str(expected),
-                "audio_path": audio_p,
-                "image_path": image_p,
-                "duration": float(m.get("duration_sec") or 0.0),
-                "task": (m.get("metadata") or {}).get("mmau_task") or (m.get("metadata") or {}).get("category") or "",
-                "probe_flags": probe_case_flags.get(cid, []),
-            })
+    def last(event: str) -> dict[str, Any]:
+        found = named(event)
+        return found[-1] if found else {}
 
-    order = {"fixed": 0, "broken": 1, "unchanged": 2, "untested": 3}
-    cases.sort(key=lambda c: (order.get(c["status"], 9), c["id"]))
+    run = _run_section(last("run_start"), last("loop_end"), logs_dir, manifest_path, len(manifest))
+    probe_searches = named("probe_search")
+    probe, analysis, diagnosis, fix = last("probe"), last("analysis"), last("diagnosis"), last("fix")
+    m1, probe_flags = probe_section(probe, named("tool_codegen"), logs_dir)
+    explore_report = _explore_report(explore_dir, last("explore"), analysis)
+    surgeries = named("surgery")
+    m4_surgeries = [s for s in surgeries if s.get("module") == "m4" or s.get("adjudication")]
+    m4_results = _m4_results(m4_surgeries, logs_dir)
+    m5_surgeries = [s for s in surgeries if s.get("module") != "m4"]
+    best_fix = fix.get("best") or {}
+    confirmed_fix, fix_dir = _confirmed_fix(fixes_dir, best_fix)
 
     data: dict[str, Any] = {
-        "run": {
-            # "loop" for a diagnose loop's run log, "explore" for the report
-            # an explore step wrote on its own.
-            "kind": "loop",
-            "model": clean_model,
-            "raw_model": raw_model_name,
-            "benchmark_name": benchmark_name,
-            "n_cases": n_cases,
-            "label_distribution": label_dist,
-            "protocol": protocol_desc,
-            "cycles": loop_end.get("cycles", 1),
-            "stopped_by": loop_end.get("stopped_by", "completed"),
-            "duration_sec": loop_end.get("total_duration_sec", 0),
-            "version": run_start.get("evalrx_version", "0.2.0"),
-            "data_fingerprint": run_start.get("data_fingerprint", ""),
-            "logs_dir": str(logs_dir),
-            "manifest_path": str(manifest_path) if manifest_path else "",
-        },
+        "run": run,
         "pre_m1": {
-            "ran": pre_m1_ran,
-            "n_cases": pre_m1_cases,
+            "ran": bool(probe_searches),
+            "n_cases": probe_searches[0].get("n_synthesized") if probe_searches else 0,
         },
-        "m1": {
-            "analyzers": analyzers,
-            "duration": m1_duration,
-            "results": m1_results,
-        },
+        "m1": m1,
         "m2": {
-            "conclusion": m2_conclusion,
-            "narrative": m2_narrative,
-            "severity": m2_severity,
-            "duration": m2_duration,
-            "stats": stats,
-            "explore": explore_data,
+            "conclusion": analysis.get("conclusion") or "",
+            "narrative": analysis.get("narrative") or "",
+            "severity": analysis.get("severity") or "medium",
+            "duration": analysis.get("duration_sec"),
+            "stats": _m2_stats(analysis, probe, logs_dir),
+            "explore": explore_report,
             # The analysis step's own figures (V2 paths under logs/).
-            "figures": [f for f in a0.get("figures") or [] if isinstance(f, str)],
+            "figures": [f for f in analysis.get("figures") or [] if isinstance(f, str)],
         },
         "m3": {
-            "hypotheses": hypotheses,
+            "hypotheses": _hypotheses(diagnosis, logs_dir),
             # The proposer's own list, kept beside the (possibly reordered and
             # critic-annotated) accepted list. It is the only place a run
             # recorded before the log writer carried `plain_statement` on
             # `hypotheses` still has the judge's plain sentence, and the report
             # compiler joins the two on the statement to recover it.
-            "proposed_hypotheses": dg.get("proposed_hypotheses") or [],
-            "duration": dg.get("duration_sec"),
+            "proposed_hypotheses": diagnosis.get("proposed_hypotheses") or [],
+            "duration": diagnosis.get("duration_sec"),
         },
         "m4": {
             "ran": bool(m4_surgeries or m4_results),
             "results": m4_results,
-            "event": m4_event,
+            "event": m4_surgeries[-1] if m4_surgeries else {},
         },
         "m5_surgery": {
-            "ran": m5_surgery_ran,
+            "ran": bool(m5_surgeries),
             "surgeries": m5_surgeries,
         },
         "m5_fix": {
-            "ran": bool(fixes or confirmed_fix),
-            "fixed": bool(f0.get("fixed") or confirmed_fix.get("fixed")),
-            "selection": fix_attempts,
+            "ran": bool(fix or confirmed_fix),
+            "fixed": bool(fix.get("fixed") or confirmed_fix.get("fixed")),
+            "selection": fix.get("selection_attempted") or fix.get("attempted") or [],
             "confirm": confirmed_fix,
             "best": best_fix,
             "prompt_template": (confirmed_fix.get("payload") or {}).get("prompt_template") or "",
         },
-        "cases": cases,
+        "cases": case_rows(logs_dir, fix_dir, manifest, confirmed_fix, probe_flags),
         "agents": _extract_agent_layer(logs_dir, explore_dir),
         "logs_dir": logs_dir,
         "explore_dir": explore_dir,
         "example_dir": example_dir or logs_dir.parent,
     }
-    if not events and explore_data and explore_dir == logs_dir:
-        # An explore output: its report at the top and no run log, so the
-        # stages that ran, the question and the data explored are all read
-        # off the report. (A loop run's explore/ child is not one.)
-        data["m2"]["ran"] = True
-        data["m3"]["ran"] = bool(explore_data.get("hypotheses"))
-        profile = explore_data.get("data_profile") or {}
-        source = Path(str(profile.get("source_path") or "")).name
-        data["run"].update(
-            kind="explore",
-            benchmark_name=source or data["run"]["benchmark_name"],
-            protocol=data["run"]["protocol"] or str(
-                explore_data.get("plain_question") or explore_data.get("question") or ""),
-        )
+    if not events and explore_report and explore_dir == logs_dir:
+        # A loop run's explore/ child is not an explore output; only a report
+        # at the top of a directory with no run log is.
+        _mark_explore_output(data, explore_report)
     # Keep the audience-first semantic layer independent from HTML.  The same
     # object can later drive a different renderer without reinterpreting logs.
     from evalrx.reporting.compiler import compile_reader_report
