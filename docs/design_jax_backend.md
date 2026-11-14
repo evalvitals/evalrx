@@ -454,10 +454,9 @@ What exists in the repo:
 - `evalrx/models/backends/jax/`: `protocol.py` (the contract above),
   `boundary.py` (jax -> CPU torch, bf16 bit-exact; a torch RMSNorm rebuilt
   from the JAX norm), `adapters/gemma.py` (the reference adapter: text, image
-  and audio inputs). The pre-0.1.2 `evalrx/models/jax/` paths are deprecated
-  aliases.
+  and audio inputs).
 - `evalrx/models/_media.py`: image / audio resolution shared by `hf_local`
-  and `jax_local` (moved out of `hf_local.py`, whose private names stay bound).
+  and `jax_local`.
 - `evalrx/models/backends/jax/backend.py`: `JaxLocalModel` / `JaxLocalBackend`,
   registered as `BACKENDS["jax_local"]`; `evalrx.wrap_jax(adapter)` mirrors
   `wrap()`.

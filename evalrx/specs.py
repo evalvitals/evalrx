@@ -707,7 +707,7 @@ __all__ = ["REGISTRY", "get_spec", "list_specs"]
 # ----------------------------------------------------------------------
 # examples/benchmark family: Gemini (Google Gen AI API, closed weights) (2026-08-25)
 # ----------------------------------------------------------------------
-# ``api_only``: the ``api`` backend with ``gemini_compat.gemini_runtime`` (the
+# ``api_only``: the ``api`` backend with ``backends.api.gemini.gemini_runtime`` (the
 # official google-genai SDK); the spec key IS the API model id (``hf_repo`` is
 # empty, ``APIModel`` sends ``spec.hf_repo or spec.key``). Every model below
 # lists text, image, video, audio and PDF as inputs on its model card, so one

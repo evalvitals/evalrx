@@ -402,9 +402,7 @@ concept for stay at their default (`None` / empty):
 | `final_hypotheses: list[Hypothesis]` | all | All M3 proposals across every cycle. |
 | `verified_hypotheses: list[HypothesisTestResult]` | VL / agentic (M4) | SUPPORTED + protocol-consistent, highest confidence first — feed into `run_m5`. |
 | `all_test_results: list[HypothesisTestResult]` | VL / agentic (M4) | All M4 test results across every cycle. |
-| `final_results: dict[str, Result]` | — | Left empty by both loops (it was the removed `AutoDiagnoseLoop`'s); M1's results are in the run log and `final_analysis`. |
-| `final_analysis: AnalysisReport \| None` | all | Last M2 report. Auto-populated from `final_stats_report` when only that was set (`StatsAnalysisReport` is an `AnalysisReport` subclass), so this field works regardless of which loop produced the report. |
-| `final_stats_report: StatsAnalysisReport \| None` | VL / agentic | Last M2 report (same object as `final_analysis` when set). |
+| `final_stats_report: StatsAnalysisReport \| None` | VL / agentic | Last M2 report. |
 | `fix_proposal` / `fix_outcome` | post-loop | Populated by `run_m5` / `run_fix` after `run()` returns. |
 | `store` | all | Accumulated results and hypotheses. |
 

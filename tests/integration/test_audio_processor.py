@@ -19,11 +19,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from evalrx.models.backends.hf.model import (
-    AUDIO_SAMPLE_RATE,
-    _check_audio_duration,
-    _resolve_audio,
-)
+from evalrx.models._media import resolve_audio as _resolve_audio
+from evalrx.models.backends.hf.model import AUDIO_SAMPLE_RATE, _check_audio_duration
 
 pytestmark = pytest.mark.network
 

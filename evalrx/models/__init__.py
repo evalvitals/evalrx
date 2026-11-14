@@ -19,9 +19,6 @@ from evalrx.core.model import Model
 
 # Backend layer + agent loop (torch-free at import; heavy deps are lazy in build/load).
 from evalrx.core.tool import ChatTurn, Tool, ToolCall
-from evalrx.models import (
-    _moved,  # noqa: F401  (registers the pre-0.1.2 module paths: backends.hf_local, models.jax, ...)
-)
 from evalrx.models.agent import Agent, APIToolHandlerExecutor, ToolExecutor
 from evalrx.models.backends import BACKENDS, RuntimeConfig, call_vision_api_chat_fn
 from evalrx.models.base import BaseAgent

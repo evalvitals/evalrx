@@ -48,7 +48,6 @@ Usage::
 
 from __future__ import annotations
 
-import json
 import re
 import shutil
 import tempfile
@@ -98,14 +97,6 @@ class Trial:
         else:
             path.write_text(content, encoding="utf-8")
         return path
-
-    def write_record(self, markdown: str) -> Path:
-        """Write the human-readable summary to ``<trial>/record.md``."""
-        return self.write("record.md", markdown)
-
-    def write_result(self, data: "dict[str, Any]") -> Path:
-        """Write the machine-readable outcome to ``<trial>/result.json``."""
-        return self.write("result.json", json.dumps(data, indent=2, default=str))
 
     def __repr__(self) -> str:
         return f"Trial(root={str(self.root)!r})"

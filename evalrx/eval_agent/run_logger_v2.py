@@ -61,8 +61,6 @@ if TYPE_CHECKING:
     from evalrx.eval_agent.stages.diagnosis import DiagnosisResult
     from evalrx.eval_agent.stages.surgery import InterventionResult
 
-RUN_LOGGER_V2_VERSION = 1
-
 _STAGES = ("M1", "M2", "M3", "M4", "M5")
 
 #: A tag string not matching this falls back to _STAGE_ALIASES, then to the

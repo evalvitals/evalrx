@@ -167,7 +167,7 @@ def _fix_context_from_report(
             lines.append(f"    - {stmt}{conf_s} grade={grade}")
             if verdict:
                 lines.append(f"        evidence: {verdict}")
-    stats = getattr(report, "final_stats_report", None) or getattr(report, "final_analysis", None)
+    stats = getattr(report, "final_stats_report", None)
     if stats is not None:
         conclusion = str(getattr(stats, "conclusion", "") or getattr(stats, "narrative", "") or "")
         if conclusion:

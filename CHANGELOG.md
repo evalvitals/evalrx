@@ -90,6 +90,19 @@ working. They are gone, with no forwarding name left behind.
   `evalrx export-langfuse`.
 - `evalrx.cli.serve_report` and the hidden `evalrx serve --no-audio` flag,
   which did nothing.
+- The pre-0.1.2 module paths (`evalrx.models.backends.hf_local`,
+  `.jax_local`, `.openai_compat`, `.gemini_compat`,
+  `evalrx.models.blackbox.gemini`, `evalrx.models._discover`,
+  `evalrx.models.inference`, `evalrx.models.jax*`): import from
+  `evalrx.models.backends.{hf,jax,api}`.
+- `AutoDiagnoseReport.final_results` (always empty) and `final_analysis`
+  (a mirror of `final_stats_report`).
+- `Trial.write_record` / `Trial.write_result`, `RUN_LOGGER_V2_VERSION`,
+  `HFLocalModel._vcd_next_token_logits`, and the `_resolve_image` /
+  `_resolve_audio` names in `backends.hf.model` (use
+  `evalrx.models._media`): nothing called them.
+- The held-out M4 probe no longer retries without `analyzers=` when a probe
+  agent raises `TypeError`.
 
 ## [0.2.0] — 2026-11-13
 

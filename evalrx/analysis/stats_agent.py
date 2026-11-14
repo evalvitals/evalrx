@@ -460,20 +460,6 @@ class StatsAnalysisAgent:
     # Statistical tool layer
     # ------------------------------------------------------------------
 
-    def _run_stats_tools(
-        self,
-        results: "dict[str, Result]",
-        data: "CaseBatch | None",
-        protocol: "ExperimentProtocol | None",
-    ) -> tuple[list[StatsToolResult], list[dict[str, Any]], dict[str, Any], list[str]]:
-        """Build input, select and run tools, FDR-correct, and plot.
-
-        Returns ``(stats_results, stats_plan, corrected, figures)``.  All empty
-        when there is no labeled/grouped data to test (pure backward compat).
-        """
-        inp = build_stats_input(results, data)
-        return self._run_stats_tools_input(inp, protocol)
-
     def _run_stats_tools_input(
         self,
         inp: StatsInput,

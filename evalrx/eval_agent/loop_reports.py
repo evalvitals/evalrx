@@ -12,9 +12,7 @@ from typing import TYPE_CHECKING, Any
 from evalrx.eval_agent.store import InMemoryStore, Store
 
 if TYPE_CHECKING:
-    from evalrx.analysis.analysis_module import AnalysisReport
     from evalrx.analysis.stats_agent import StatsAnalysisReport
-    from evalrx.core.result import Result
     from evalrx.eval_agent.hypothesis import Hypothesis
     from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTestResult
 
@@ -25,17 +23,16 @@ class AutoDiagnoseReport:
     :class:`~evalrx.eval_agent.loop.VLDiagnoseLoop.run` and
     :class:`~evalrx.eval_agent.agentic.AgenticDiagnoseLoop.run` both return
     this one class. Every field below is populated by both loops except
-    where noted "M4-only" (or ``final_results``), which stay at their default
-    (``None`` / empty) when the producing loop has no equivalent concept.
+    where noted "M4-only", which stay at their default (``None`` / empty)
+    when the producing loop has no equivalent concept.
 
     Attributes:
         cycles:               Number of M1→M4/M5 cycles executed (or agentic
                               decision steps taken).
         resolved:             ``True`` once the diagnosis is considered
-                              closed — M5 surgery confirmed a fix (legacy
-                              loop), or M4 found at least one supported,
-                              protocol-consistent hypothesis (``bool(verified_hypotheses)``,
-                              current/agentic loops).
+                              closed — M4 found at least one supported,
+                              protocol-consistent hypothesis
+                              (``bool(verified_hypotheses)``).
         stopped_by:           M4-path only. Why the loop stopped: ``"criteria_met"``,
                               ``"max_cycles"``, ``"budget"``, ``"no_hypotheses"``,
                               ``"no_probe_results"``, ``"analysis_complete"``
@@ -43,22 +40,13 @@ class AutoDiagnoseReport:
                               without confirming them) — or, for the agentic
                               loop, ``"agent_stop"`` / ``"max_actions"`` /
                               ``"time_budget"`` / ``"invalid_actions"``. ``"diagnosis_error"``
-                              means M3 failed after bounded retries; it is not an empty finding. ``None``
-                              for the legacy M5-per-cycle loop, which has no
-                              single stopping-reason concept.
+                              means M3 failed after bounded retries; it is not an empty finding.
         final_hypotheses:      All M3 proposals across every cycle.
         verified_hypotheses:  M4-only. Statistically supported, protocol-consistent
                               test results — sorted highest confidence first.
                               Feed into ``run_m5``.
         all_test_results:     M4-only. All M4 test results across every cycle.
-        final_results:        Left empty by both loops (the removed AutoDiagnoseLoop
-                              filled it with the last M1 probe's raw results).
-        final_analysis:       Structured M2 report from the last cycle. Mirrors
-                              ``final_stats_report`` when only that was set
-                              (``StatsAnalysisReport`` is an ``AnalysisReport``
-                              subclass), so this field works for every loop.
-        final_stats_report:   M2 report from the last cycle (M4-path shape;
-                              same object as ``final_analysis`` when set).
+        final_stats_report:   M2 report from the last cycle.
         fix_proposal:         Populated by ``run_m5`` when called after ``run``.
         m4_holdout:           Held-out M4 confirmation status (see field note).
         fix_outcome:          Populated by ``run_fix`` — tiered fix attempts +
@@ -72,8 +60,6 @@ class AutoDiagnoseReport:
     final_hypotheses: "list[Hypothesis]" = field(default_factory=list)
     verified_hypotheses: "list[HypothesisTestResult]" = field(default_factory=list)
     all_test_results: "list[HypothesisTestResult]" = field(default_factory=list)
-    final_results: "dict[str, Result]" = field(default_factory=dict)
-    final_analysis: "AnalysisReport | None" = None
     final_stats_report: "StatsAnalysisReport | None" = None
     fix_proposal: "Any | None" = None
     fix_outcome: "Any | None" = None
@@ -87,9 +73,3 @@ class AutoDiagnoseReport:
     m4_holdout: "str | None" = None
     # Internal — the run id the loop ran under
     _run_id: str = field(default="", repr=False)
-
-    def __post_init__(self) -> None:
-        # StatsAnalysisReport IS-A AnalysisReport, so a report built from the
-        # M4 path can satisfy readers that only know the Auto-shaped field.
-        if self.final_analysis is None and self.final_stats_report is not None:
-            self.final_analysis = self.final_stats_report

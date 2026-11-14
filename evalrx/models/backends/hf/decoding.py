@@ -269,26 +269,6 @@ class ContrastiveDecodingMixin:
         return tok.decode(_new_tokens(out[0], enc["input_ids"][0]), skip_special_tokens=True)
 
 
-    def _vcd_next_token_logits(
-        self,
-        inputs: Any,
-        *,
-        noise_step: int,
-        noise_seed: int,
-    ) -> tuple[Any, Any]:
-        """Return clean/noisy next-token logits for the legacy binary route."""
-        import torch
-
-        model, _ = self._loaded
-        enc, noisy_enc = self._vcd_encodings(
-            inputs, noise_step=noise_step, noise_seed=noise_seed
-        )
-        with torch.no_grad():
-            clean = model(**enc).logits[0, -1]
-            noisy = model(**noisy_enc).logits[0, -1]
-        return clean, noisy
-
-
     def generate_vcd(
         self,
         inputs: Any,

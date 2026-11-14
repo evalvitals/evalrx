@@ -473,7 +473,7 @@ toy adapter; point its fixtures at yours for a cheap first check, then a real
 weights check with `--limit 2 --device cpu`.
 
 After the adapter: a `ModelSpec` with `jax=JaxSpec(framework=..., checkpoint=...,
-tokenizer=..., adapter="evalrx.models.jax.<module>:make_adapter")`, then steps
+tokenizer=..., adapter="evalrx.models.backends.jax.adapters.<module>:make_adapter")`, then steps
 2 to 4 of case A. If the model is not Gemma, its runtime stack probably differs
 too; the design rule in `README.md` is one Dockerfile stage per stack, so give
 it a stage and a leaf of its own rather than growing `gemma_jax`.

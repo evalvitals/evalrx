@@ -993,19 +993,12 @@ class VLDiagnoseLoop:
         if self.run_logger:
             self.run_logger.current_cycle = -1
         _t0 = time.monotonic()
-        try:
-            if pinned:
-                probe_results = self.probe_agent.probe(
-                    self.model, confirm, protocol=self.protocol,
-                    prior_hypotheses=hypotheses or None, analyzers=pinned,
-                )
-            else:
-                probe_results = self.probe_agent.probe(
-                    self.model, confirm, protocol=self.protocol,
-                    prior_hypotheses=hypotheses or None,
-                )
-        except TypeError:
-            # A custom probe agent that predates the ``analyzers=`` hook.
+        if pinned:
+            probe_results = self.probe_agent.probe(
+                self.model, confirm, protocol=self.protocol,
+                prior_hypotheses=hypotheses or None, analyzers=pinned,
+            )
+        else:
             probe_results = self.probe_agent.probe(
                 self.model, confirm, protocol=self.protocol,
                 prior_hypotheses=hypotheses or None,

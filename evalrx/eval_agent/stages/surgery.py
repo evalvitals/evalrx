@@ -233,7 +233,7 @@ class SurgeryAgent:
         run_context:     Optional :class:`~evalrx.eval_agent.run_context.RunContext`.
                          When set (and *sandbox_dir* is not), each ``operate()``
                          call allocates its own self-contained *trial* under
-                         ``experiments/`` (code + sandbox + record.md, see
+                         ``experiments/`` (code + sandbox, see
                          :meth:`RunContext.new_trial`) instead of every M5
                          experiment sharing — and overwriting — one sandbox.
     """
