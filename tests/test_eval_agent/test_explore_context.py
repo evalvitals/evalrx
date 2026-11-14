@@ -253,6 +253,6 @@ def test_log_diagnosis_persists_the_critic_prompt_beside_its_response(tmp_path):
     # both record shapes travel together: the critic prompt/response and the review list
     assert entry["proposed_hypotheses"][0]["statement"] == "h1"
     assert entry["review"]["n_rejected"] == 1 and entry["review"]["decisions"][0]["decision"] == "reject"
-    # Inlined directly (no sibling .prompt.txt/.response.txt files under V2).
+    # Inlined directly (no sibling .prompt.txt/.response.txt files).
     assert entry["critic_raw_output"] == "REJECT: h1\nREASON: n=30"
     assert "LABEL SUMMARY" in entry["critic_prompt"]

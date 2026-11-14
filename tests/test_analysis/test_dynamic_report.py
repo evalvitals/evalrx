@@ -459,12 +459,12 @@ def test_stage_figures_embed_everywhere_they_are_cited(tmp_path):
 
 
 def _v2_run_with_explore_snapshot(tmp_path, report: dict, figure_names: list[str]):
-    """A V2 run whose explore step left its workdir to be inlined on the event."""
+    """A run whose explore step left its workdir to be inlined on the event."""
     from types import SimpleNamespace
 
     from evalrx.eval_agent.run_logger import RunLogger
 
-    # Not beside logs/: a sibling explore/ would be read as a V1 layout.
+    # Not beside logs/: the logger inlines it from the runtime tree.
     workdir = tmp_path / "sandbox" / "explore"
     (workdir / "figures").mkdir(parents=True)
     for name in figure_names:

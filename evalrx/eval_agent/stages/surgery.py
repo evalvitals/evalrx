@@ -226,8 +226,8 @@ class SurgeryAgent:
         sandbox_dir:     Directory for sandbox script files.  A temp dir is
                          created automatically when ``None``.  Sets up ONE
                          shared sandbox for the agent's lifetime — pass this
-                         (or omit ``run_context``) to keep that legacy
-                         behaviour even when a ``RunContext`` is given.
+                         (or omit ``run_context``) to keep one shared
+                         sandbox even when a ``RunContext`` is given.
         writer_config:   :class:`~evalrx.eval_agent.experiment_writer.ExperimentWriterConfig`
                          controlling phases and limits.
         run_context:     Optional :class:`~evalrx.eval_agent.run_context.RunContext`.
@@ -458,7 +458,7 @@ class SurgeryAgent:
             "model_calls": writer_result.model_calls,
             "workdir": writer_result.workdir,
             # Self-contained trial folder (see RunContext.new_trial) — None
-            # when no RunContext is in play (legacy flat layout).
+            # when no RunContext is in play.
             "trial_root": str(trial.root) if trial is not None else None,
         }
 

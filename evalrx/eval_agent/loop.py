@@ -931,7 +931,7 @@ class VLDiagnoseLoop:
             if split_label and isinstance(getattr(tr, "evidence", None), dict):
                 tr.evidence["split"] = split_label
         if log and self.run_logger:
-            # Reuse the surgery log slot for M4 results (backward compat).
+            # M4 results are logged through the surgery slot.
             for tr in test_results:
                 _iv = _make_intervention_result_from_test(tr)
                 self.run_logger.log_surgery(

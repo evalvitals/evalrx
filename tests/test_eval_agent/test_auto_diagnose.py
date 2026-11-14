@@ -489,9 +489,9 @@ def test_m5_experiment_gets_its_own_trial_with_kept_sandbox(tmp_path):
         # the whole point of giving the experiment its own durable folder,
         # not one shared/overwritten sandbox. Checked before finalize(),
         # which inlines and deletes the ephemeral runtime tree trials live
-        # under — V2 keeps no per-trial main.py/record.md on disk at all
-        # (that was a V1-only artifact); the generated code is captured
-        # inline into M5/log.json's "experiment" entry instead.
+        # under — no per-trial main.py/record.md stays on disk; the
+        # generated code is captured inline into M5/log.json's "experiment"
+        # entry instead.
         assert list((p / "workspace").glob("exp_*.py")), \
             f"sandbox script should be kept in {p / 'workspace'}"
 

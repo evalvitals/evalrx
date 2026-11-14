@@ -542,8 +542,7 @@ class PipelineCoder:
 
         With a *trial* (a ``RunContext`` is in play), each candidate gets its
         own durable ``<trial>/workspace/`` — no cross-attempt overwriting.
-        Without one (legacy / no ``RunContext``), falls back to a single
-        shared sandbox for the agent's lifetime, exactly as before.
+        Without one, a single shared sandbox serves the agent's lifetime.
         """
         if trial is not None:
             return str(trial.workspace)

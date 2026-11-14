@@ -429,7 +429,7 @@ class StatsAnalysisAgent:
                 # produce the SAME downstream run: threshold narrative, M3 with
                 # nothing to hypothesise from, stopped_by=no_hypotheses, rc=0.
                 # The reason has to travel with the report — a logger.warning
-                # here reached neither the console nor run_log.jsonl, so an
+                # here reached neither the console nor the run log, so an
                 # OSError(E2BIG) on the prompt left no trace anywhere in the run.
                 fallback_reason = f"{type(exc).__name__}: {exc}"
                 logger.warning("LLM-guided M2 analysis failed, falling back: %s", exc)

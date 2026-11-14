@@ -127,8 +127,8 @@ class DiagnosticTracer:
     def record_event(self, event: dict[str, Any], *, event_seq: int) -> None:
         """Queue one complete EvalRX event for durable Langfuse delivery.
 
-        This is called after the JSONL write has received its timestamp and
-        trace id.  The deterministic event id makes repeated process startup
+        This is called after the run logger has stamped the event with its
+        timestamp and trace id.  The deterministic event id makes repeated process startup
         and manual backfill safe.
         """
         artifact_refs = (

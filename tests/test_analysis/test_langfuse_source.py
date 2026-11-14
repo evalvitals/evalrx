@@ -39,7 +39,7 @@ def test_langfuse_source_paginates_and_orders_events(tmp_path):
 
     assert [event["event"] for event in events] == ["run_start", "analysis"]
     assert calls[0]["trace_id"] == "00000000000000000000000000000001"
-    # materialize() writes a V2-shaped bundle (run.json + M*/log.json), not a
+    # materialize() writes a run-log bundle (run.json + M*/log.json), not a
     # flat run_log.jsonl — recovered events with no "stage" tag route by their
     # own event name to the canonical stage doc ("analysis" -> M2).
     run = json.loads((root / "run.json").read_text())
@@ -103,7 +103,7 @@ def test_materialized_langfuse_run_builds_the_report(tmp_path):
     )))
 
     root = LangfuseRunSource(client).materialize("trace", tmp_path / "cache")
-    # A real V2 root, not just a stray run.json: read_run_events (the same
+    # A real run root, not just a stray run.json: read_run_events (the same
     # read path the report uses) must recover both events, not silently
     # nothing — resolve_run_root requires a real M<n>/log.json too.
     events = read_run_events(root)

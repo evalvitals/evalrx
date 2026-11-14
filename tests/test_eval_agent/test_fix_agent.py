@@ -3246,9 +3246,9 @@ def test_bridged_attend_enables_coded_l3a(tmp_path):
 
 def test_declarative_candidate_gets_record_and_result_but_no_workspace(tmp_path):
     """A template/spec candidate never touches a sandbox — its trial folder
-    never gets a workspace/ subdir. Under V2 there is no per-trial
-    record.md/result.json either (that was a V1-only artifact); the same
-    outcome data lives inline in M5/log.json's "fix" entry instead."""
+    never gets a workspace/ subdir. There is no per-trial
+    record.md/result.json either; the outcome data lives inline in
+    M5/log.json's "fix" entry."""
     from evalrx.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
@@ -3284,8 +3284,8 @@ def test_deduped_candidate_in_round_two_leaves_no_trial_folder(tmp_path):
     """A judge that keeps proposing the SAME failing candidate is deduped
     before a trial is ever allocated for it — round 2 must not produce a
     second (duplicate) attempt. A declarative candidate's trial is never
-    materialized on disk at all under V2 (lazy, and record.md/result.json
-    are V1-only artifacts), so the dedup guarantee is checked against the
+    materialized on disk at all (it is lazy, and nothing writes a
+    record.md/result.json), so the dedup guarantee is checked against the
     returned attempt list and the inlined M5/log.json record instead of a
     directory listing."""
     from evalrx.eval_agent.run_context import RunContext
@@ -3409,9 +3409,8 @@ def test_two_coded_fix_attempts_get_separate_trial_workspaces(tmp_path):
     ctx.finalize()
     assert not runtime_root.exists()
 
-    # Each attempt's own outcome — not a shared/overwritten one. Under V2
-    # there's no per-trial record.md/result.json (V1-only); the same data is
-    # inlined per-candidate in M5/log.json's "fix" entry instead.
+    # Each attempt's own outcome — not a shared/overwritten one. It is
+    # inlined per-candidate in M5/log.json's "fix" entry.
     fix = json.loads((tmp_path / "run1" / "M5" / "log.json").read_text())["fix"][-1]
     coded_entries = [a for a in fix["attempted"] if a["kind"] == "code"]
     assert len(coded_entries) == 2

@@ -324,7 +324,7 @@ def _repair_candidate(value: Any) -> dict[str, Any]:
     return {
         "tier": value.get("tier"), "name": value.get("name"), "kind": value.get("kind"),
         # `ref` and `headline` are what a reader sees; `name` is only the join
-        # key. Both are carried here so the legacy report path shows the same
+        # key. Both are carried here so the stage view shows the same
         # identifier and the same sentence as the contract-backed views.
         "ref": value.get("ref") or "", "headline": _repair_headline(value),
         "source": value.get("source"), "verdict": value.get("verdict"),

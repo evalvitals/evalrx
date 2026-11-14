@@ -308,8 +308,7 @@ def test_probe_artifacts_land_under_that_stages_artifacts_dir(tmp_path):
 
 
 def test_model_calls_are_recorded_and_probe_events_stay_intact_alongside(tmp_path):
-    """Wiring parity with the V1 InstrumentedModel fix: ProbeAgent + RunLogger
-    together must still capture every target-model call."""
+    """ProbeAgent + RunLogger together must capture every target-model call."""
     from evalrx.core.capability import Capability
     from evalrx.core.case import CaseBatch, FailureCase, Inputs
     from evalrx.eval_agent.run_logger import RunLogger
@@ -360,8 +359,8 @@ def test_full_loop_run_is_a_drop_in_replacement_for_run_logger(tmp_path):
     exercises against RunLogger — with RunLogger constructed directly
     (bypassing RunContext, a known, documented scope cut) instead of
     ctx.logger, and confirm no other loop/stage code needed to change AND the
-    held-out split's cases still get logged (the exact regression that test
-    guards against for V1)."""
+    held-out split's cases still get logged (the regression that test guards
+    against)."""
     from evalrx.core.capability import Capability
     from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
     from evalrx.eval_agent import DiagnosisAgent, VLDiagnoseLoop
@@ -514,12 +513,12 @@ def test_run_context_v2_root_holds_no_v1_named_directories(tmp_path):
     ctx.finalize()
 
     top_level = {p.name for p in root.iterdir()}
-    v1_only = {"explore", "figures", "report", "tools", "workspace", "fixes",
-               "experiments", "run_log.jsonl", "manifest.json", "README.txt"}
-    assert not (top_level & v1_only), top_level
+    loose_files = {"explore", "figures", "report", "tools", "workspace", "fixes",
+                   "experiments", "run_log.jsonl", "manifest.json", "README.txt"}
+    assert not (top_level & loose_files), top_level
     assert top_level <= {"run.json", "M1", "M2", "M3", "M4", "M5", "artifacts", "contract",
                           "langfuse_trace.json"}
-    # figures_dir/artifacts_dir's file did land under the V2 mapping (M2/artifacts),
+    # figures_dir/artifacts_dir's file did land under M2/artifacts,
     # not disappear — this isn't just an absence check.
     assert (root / "M2" / "artifacts" / "effect.png").is_file()
 

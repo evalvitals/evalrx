@@ -102,11 +102,9 @@ def _repair_operation_previews(
         preferred_ids = [str(item) for item in (candidate.get("fixed_cases") or candidate.get("broken_cases") or [])]
         case = next((item for item in image_cases if str(item.get("id")) in preferred_ids), None)
         case = case or next((item for item in image_cases if str(item.get("status")) == "fail"), None)
-        # A legacy run can retain its generated baseline answers in a separate
-        # artifact whose ids no longer line up with the saved image manifest.
-        # In that case an arbitrary corpus image is still useful to explain the
-        # *declared transform*, provided the UI calls it a preview and never a
-        # validated before/after result.
+        # With no failing image case to show, an arbitrary corpus image is
+        # still useful to explain the *declared transform*, provided the UI
+        # calls it a preview and never a validated before/after result.
         case = case or (image_cases[0] if image_cases else None)
         if case is None:
             continue

@@ -255,9 +255,9 @@ def test_explore_persists_beside_logs_and_m3_sees_the_rendered_chart(tmp_path):
     events = read_run_events(tmp_path / "logs")
     ex = next(e for e in events if e["event"] == "explore")
     assert ex["ok"] is True and ex["n_charts"] == 1 and ex["n_charts_rendered"] == 1
-    # V2 inlines the ephemeral explore workspace into M2/artifacts (a
+    # The logger inlines the ephemeral explore workspace into M2/artifacts (a
     # content-hashed copy) instead of leaving a report_path pointer at the
-    # original workdir — there's no sibling report_path under V2.
+    # original workdir.
     assert "report_path" not in ex
     assert len(ex["figures"]) == 1 and ex["figures"][0].endswith(".png")
     assert ex["observations"] == _report().observations
@@ -361,7 +361,7 @@ def test_real_m3_gets_the_explore_notes_and_the_rendered_png(tmp_path):
 def test_default_explore_dir_with_a_run_context_stays_off_the_run_root(tmp_path):
     """Regression test for the bug where _explore_out_dir() hand-derived
     ctx.root/"explore" instead of calling ctx.explore_dir — which would have
-    left real files outside V2's JSON-only run artifact, never cleaned up
+    left real files outside the JSON-only run artifact, never cleaned up
     by finalize()'s runtime_root rmtree."""
     from evalrx.eval_agent.run_context import RunContext
 
@@ -375,7 +375,7 @@ def test_default_explore_dir_with_a_run_context_stays_off_the_run_root(tmp_path)
         assert ctx.runtime_root in out_dir.parents
         assert out_dir != ctx.root / "explore"
         loop.run(_batch())
-    # V2 never leaves real files at <root>/explore; the runtime tree that held
+    # No real files stay at <root>/explore; the runtime tree that held
     # them was captured into M2/log.json and then deleted by finalize().
     assert not (tmp_path / "run" / "explore").exists()
     assert (tmp_path / "run" / "M2" / "log.json").is_file()

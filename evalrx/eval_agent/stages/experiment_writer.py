@@ -26,12 +26,10 @@ CLI agent path (``provider != "llm"``)
     (or first .py file) and run once via ``sandbox.run_project()``.
     No exec-fix loop — the agent self-repairs during its own run.
 
-Backward compatibility
-    The public ``write_and_run(hypothesis, model_context, cases_json, sandbox)``
-    signature is unchanged.  With default config the LLM path runs Phase 2
-    (single-pass write) → Phase 3 → Phase 4, identical to the previous 3-phase
-    implementation.  ``result.code`` always equals ``result.files["main.py"]``
-    (or the single-file code) so existing callers are unaffected.
+Defaults
+    With default config the LLM path runs Phase 2 (single-pass write) →
+    Phase 3 → Phase 4.  ``result.code`` always equals
+    ``result.files["main.py"]`` (or the single-file code).
 """
 
 from __future__ import annotations
@@ -128,7 +126,7 @@ class ExperimentWriterConfig:
     # Phase 6: review dialog (off by default)
     review_max_rounds: int = 0
 
-    # CLI agent dispatch — None → LLM path (backward-compatible default)
+    # CLI agent dispatch — None → LLM path
     cli_agent: Any = None
 
 
@@ -143,7 +141,6 @@ class ExperimentWriterResult:
 
     Attributes:
         code:              ``files["main.py"]`` or the single-file code.
-                           Kept for backward compatibility.
         files:             Multi-file output dict.  ``{}`` in single-file mode.
         blueprint:         YAML spec produced in Phase 1; empty if disabled.
         metrics:           ``{name: float}`` parsed from stdout.

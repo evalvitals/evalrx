@@ -5,7 +5,7 @@ so the description was free to drift from the thing described — which is the
 failure it was written to prevent, one level up.  This module is the missing
 half: every M1-M5 stage runs its result through the matching wire model and
 writes the validated JSON under ``<run>/contract/``, so a frontend reads ONE
-shape per stage instead of re-deriving it from ``run_log.jsonl`` with defensive
+shape per stage instead of re-deriving it from the run log with defensive
 ``.get(x) or y`` chains.
 
 Two rules govern everything here.
