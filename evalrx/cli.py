@@ -10,22 +10,6 @@ from evalrx.analysis.explore_run import run_explore
 from evalrx.analysis.run_codebase import run_codebase_cli
 
 
-def serve_report(
-    run_dir: str | Path | None,
-    *,
-    port: int,
-    no_audio: bool = False,
-    open_browser: bool = True,
-    block: bool = True,
-    runs_root: str | Path | None = None,
-) -> int:
-    """CLI seam for the dynamic UI (signature kept for compatibility/tests)."""
-    del no_audio, block
-    from evalrx.reporting.server import serve_dynamic_report
-
-    return serve_dynamic_report(run_dir, port=port, open_browser=open_browser, runs_root=runs_root)
-
-
 def _langfuse_cache(trace_id: str) -> Path:
     """Stable local cache for a Langfuse-backed static report, not run storage."""
     safe_id = "".join(char for char in trace_id if char.isalnum() or char in "-_")
@@ -290,7 +274,6 @@ def _add_serve(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None
     )
     serve.add_argument("run_dir", nargs="?", default=None, help="Run directory. Omit to start empty and drop a zipped run on the page.")
     serve.add_argument("--port", type=int, default=8501, help="Loopback port (default: 8501).")
-    serve.add_argument("--no-audio", action="store_true", help=argparse.SUPPRESS)
     serve.add_argument("--no-browser", action="store_true", help="Do not open a browser automatically.")
     serve.add_argument("--source", choices=["auto", "local", "langfuse"], default="auto", help="Run data source (default: Langfuse when --trace-id is set, otherwise local).")
     serve.add_argument("--trace-id", default=None, help="Langfuse trace id (required for --source langfuse).")
@@ -303,12 +286,13 @@ def _serve(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         source_dir = _resolve_report_source(args.source, args.trace_id, args.run_dir)
     except (ImportError, LookupError, RuntimeError, ValueError) as exc:
         parser.error(str(exc))
+    from evalrx.reporting.server import serve_dynamic_report
+
     try:
-        return serve_report(
-            source_dir, port=args.port, no_audio=args.no_audio,
-            open_browser=not args.no_browser, runs_root=args.runs_root,
+        return serve_dynamic_report(
+            source_dir, port=args.port, open_browser=not args.no_browser, runs_root=args.runs_root,
         )
-    except ImportError as exc:
+    except ImportError as exc:  # the [ui] extra is not installed
         parser.error(str(exc))
 
 
@@ -385,10 +369,7 @@ def _add_export_langfuse(sub: argparse._SubParsersAction[argparse.ArgumentParser
 
 
 def _export_langfuse(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
-    from evalrx.reporting.langfuse_exporter import (
-        export_to_langfuse_bundle,
-        sync_to_langfuse_live,
-    )
+    from evalrx.observability import export_to_langfuse_bundle, sync_to_langfuse_live
 
     if args.sync:
         return 0 if sync_to_langfuse_live(args.run_dir) else 1

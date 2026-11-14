@@ -21,6 +21,13 @@ working. They are gone, with no forwarding name left behind.
 - `evalrx.stats.sample_subset` (use `stratified_subset`) and `ab_test` (use
   `compare`).
 - A leading `call_` on `analysis:` in a config file is no longer stripped.
+- `VLDiagnoseReport` (use `AutoDiagnoseReport`, the same class) and the
+  report's `all_hypotheses` property (use `final_hypotheses`).
+- `evalrx.reporting.langfuse_exporter`: import `export_to_langfuse_bundle` /
+  `sync_to_langfuse_live` from `evalrx.observability`, or run
+  `evalrx export-langfuse`.
+- `evalrx.cli.serve_report` and the hidden `evalrx serve --no-audio` flag,
+  which did nothing.
 
 ## [0.2.0] — 2026-11-13
 

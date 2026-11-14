@@ -68,19 +68,17 @@ def test_top_level_serve_help(capsys):
 
 
 def test_top_level_serve_dispatch(monkeypatch):
-    import evalrx.cli as cli_mod
+    import evalrx.reporting.server as server_mod
 
     captured = {}
 
-    def _fake_serve(run_dir, *, port, no_audio, open_browser, block=True, runs_root=None):
-        captured.update(run_dir=run_dir, port=port, no_audio=no_audio,
-                        open_browser=open_browser, block=block, runs_root=runs_root)
+    def _fake_serve(run_dir, *, port, open_browser, runs_root=None):
+        captured.update(run_dir=run_dir, port=port, open_browser=open_browser, runs_root=runs_root)
         return 0
 
-    monkeypatch.setattr(cli_mod, "serve_report", _fake_serve)
-    assert main(["serve", "my_run", "--port", "8500", "--no-audio", "--no-browser"]) == 0
-    assert captured == {"run_dir": "my_run", "port": 8500, "no_audio": True,
-                        "open_browser": False, "block": True, "runs_root": None}
+    monkeypatch.setattr(server_mod, "serve_dynamic_report", _fake_serve)
+    assert main(["serve", "my_run", "--port", "8500", "--no-browser"]) == 0
+    assert captured == {"run_dir": "my_run", "port": 8500, "open_browser": False, "runs_root": None}
 
 
 def test_langfuse_report_source_materializes_a_cache(monkeypatch, tmp_path):
@@ -228,12 +226,12 @@ def test_run_codebase_dispatch(monkeypatch):
 
 
 def test_serve_reports_a_missing_ui_extra_as_a_usage_error(monkeypatch, capsys):
-    import evalrx.cli as cli_mod
+    import evalrx.reporting.server as server_mod
 
     def _no_ui(*args, **kwargs):
         raise ImportError("install evalrx[ui]")
 
-    monkeypatch.setattr(cli_mod, "serve_report", _no_ui)
+    monkeypatch.setattr(server_mod, "serve_dynamic_report", _no_ui)
     with pytest.raises(SystemExit) as exc:
         main(["serve", "out"])
     assert exc.value.code == 2
@@ -283,7 +281,7 @@ def test_publish_report_failure_is_a_usage_error(monkeypatch, capsys):
 def test_export_langfuse_writes_beside_the_run_or_syncs(monkeypatch):
     from pathlib import Path
 
-    import evalrx.reporting.langfuse_exporter as exporter_mod
+    import evalrx.observability as exporter_mod
 
     written = []
     synced = []

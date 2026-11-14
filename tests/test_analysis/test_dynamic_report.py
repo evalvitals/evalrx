@@ -786,7 +786,7 @@ def test_report_reads_model_m1_and_m4_status(tmp_path):
 
 def test_langfuse_bundle_export(tmp_path):
     from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
-    from evalrx.reporting.langfuse_exporter import export_to_langfuse_bundle
+    from evalrx.observability import export_to_langfuse_bundle
 
     logger = RunLoggerV2(tmp_path / "run", observability_mode="offline")
     logger.log_run_start({"model": "demo-model", "protocol": {}, "n_cases": 1})
