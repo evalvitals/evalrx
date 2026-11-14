@@ -6,6 +6,8 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-11-14
+
 ### Changed — the run logger and its readers lose their "V2" names
 
 There has been one run logger since 0.1.2, so its names no longer carry a
@@ -64,10 +66,10 @@ beside the log are gone:
 - The contract no longer maps the spellings `ebh` / `bh` (correction method)
   or `env` / `critic` (trajectory step role) onto the current ones.
 
-A run directory from an earlier version has to be brought up to the current
-log format before it is opened.
+A run logged by an earlier version is refused with a message that says so.
+Re-run it to open it with this version.
 
-### Fixed — two report fields read from files no run writes any more
+### Fixed — report fields that still looked for files no run writes
 
 - The Case Studio and M5's worked example show what the repair answered on
   each case again. They read `outputs.jsonl` from a trial folder that is gone
@@ -146,8 +148,6 @@ working. They are gone, with no forwarding name left behind.
   for fields only the flat logger wrote: `judge_io`, `model_calls_path`,
   `code_paths`, `output_paths`, `record`.
 
-## [0.2.0] — 2026-11-13
-
 ### Added — follow a run while it is written
 
 `evalrx serve` on a run still in progress follows it: the top bar says "run in
@@ -157,12 +157,13 @@ A run that goes quiet without ending says so, with how long it has been quiet,
 instead of "report complete". The report carries `setting.finished` and
 `setting.last_event_at`, so an export of an unfinished run says the same.
 
-### Changed — run log schema 7: `run_end`
+### Changed — the run log records when a run ends: `run_end`
 
-`RunLoggerV2.close()` writes a `run_end` event, the run-level completion
+`RunLogger.close()` writes a `run_end` event, the run-level completion
 signal. `loop_end` ends M1–M4 only (M5 and the fix step log after it), which
-is why it could not serve. A new event type bumps `RUN_LOG_SCHEMA_VERSION` to 7;
-logs from before it are read as finished at `loop_end`.
+is why it could not serve. A run whose log has no `run_end` is read as
+unfinished. The new event type made the log schema 7; the removal of two
+`analysis` fields (above) makes it 8.
 
 ### Added — compare two runs in `evalrx serve`
 
@@ -421,7 +422,7 @@ unchanged. Visible differences:
   (non-`FixOutcome`) result is returned as-is, as the held-out ladder
   already did, instead of raising `AttributeError`.
 
-### Fixed — RunLoggerV2 outbox on multi-user hosts
+### Fixed — the Langfuse outbox on multi-user hosts
 
 The Langfuse outbox lived in a single shared `/tmp/evalrx-v2-outbox`, owned by
 whichever user created it first; every other user's run then failed with
