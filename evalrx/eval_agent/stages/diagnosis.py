@@ -40,7 +40,6 @@ from evalrx.eval_agent.prompts.diagnosis import (
 if TYPE_CHECKING:
     from evalrx.analysis.analysis_module import AnalysisReport
     from evalrx.core.model import Judge
-    from evalrx.core.result import Result
 
 def _format_prior_section(prior_cycles: list[dict]) -> str:
     """Render prior cycle history as a context block for the diagnosis prompt."""
@@ -790,8 +789,7 @@ class DiagnosisAgent:
 
     def diagnose(
         self,
-        analysis: "AnalysisReport | dict[str, Result]",
-        model_name: str = "",
+        analysis: "AnalysisReport",
         prior_cycles: list[dict] | None = None,
         explore_context: "ExploreContext | None" = None,
         failure_modes: "Any | None" = None,
@@ -800,11 +798,9 @@ class DiagnosisAgent:
         """Synthesize *analysis* into a set of falsifiable hypotheses.
 
         Args:
-            analysis:     An :class:`~evalrx.eval_agent.analysis.AnalysisReport`
-                          from M2, or (for backward compatibility) a plain
-                          ``{analyzer_name: Result}`` dict.
-            model_name:   Ignored when *analysis* is an ``AnalysisReport``
-                          (the name is taken from the report).
+            analysis:     The M2 report: an
+                          :class:`~evalrx.analysis.analysis_module.AnalysisReport`
+                          (``StatsAnalysisAgent`` returns a subclass).
             prior_cycles: Summary of previous M1→M5 cycles, from the caller.
                           Each entry is ``{"cycle": int, "severity": str,
                           "hypotheses": [{"statement", "failure_mode", "status"}]}``.
@@ -823,13 +819,7 @@ class DiagnosisAgent:
         Returns:
             :class:`DiagnosisResult` with zero or more hypotheses.
         """
-        from evalrx.analysis.analysis_module import AnalysisModule, AnalysisReport
-
         self._model_calls: list[dict[str, Any]] = []
-
-        if not isinstance(analysis, AnalysisReport):
-            # Backward compat: wrap raw results in a minimal AnalysisReport.
-            analysis = AnalysisModule().analyze(analysis, model_name)
 
         summary = {name: r.findings for name, r in analysis.raw_results.items()}
 
@@ -883,7 +873,7 @@ class DiagnosisAgent:
 
         prompt = _DIAGNOSE_PROMPT.format(
             prior_section=_format_prior_section(prior_cycles or []),
-            model_name=analysis.model_name or model_name,
+            model_name=analysis.model_name,
             severity=analysis.severity,
             protocol_section=protocol_section,
             conclusion=conclusion,
@@ -923,13 +913,13 @@ class DiagnosisAgent:
             "output": str(raw), "error": None,
             "duration_sec": time.perf_counter() - started,
         })
-        proposed_hypotheses = _parse_hypotheses(str(raw), analysis.model_name or model_name)
+        proposed_hypotheses = _parse_hypotheses(str(raw), analysis.model_name)
         if not proposed_hypotheses:
             raw, proposed_hypotheses = self._reask_for_format(
-                str(raw), analysis.model_name or model_name,
+                str(raw), analysis.model_name,
             )
         proposed_hypotheses = self._repair_plain_language(
-            str(raw), proposed_hypotheses, analysis.model_name or model_name,
+            str(raw), proposed_hypotheses, analysis.model_name,
         )
         hypotheses = list(proposed_hypotheses)
 
@@ -988,12 +978,12 @@ class DiagnosisAgent:
                             f"The model {finding.message} "
                             f"({finding.analyzer}.{finding.metric}={finding.value:.3g})"
                         ),
-                        target_model=analysis.model_name or model_name,
+                        target_model=analysis.model_name,
                         predicted_failure_mode=finding.analyzer,
                     ))
 
         return DiagnosisResult(
-            model_name=analysis.model_name or model_name,
+            model_name=analysis.model_name,
             hypotheses=hypotheses,
             findings_summary=summary,
             raw_judge_output=str(raw),

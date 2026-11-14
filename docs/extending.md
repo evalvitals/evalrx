@@ -227,7 +227,9 @@ loop  = VLDiagnoseLoop(model=my_model, protocol=protocol,
 The judge receives a JSON dump of all analyzer findings and must reply with lines
 of the form `HYPOTHESIS: ...` / `FAILURE_MODE: ...` (one pair per hypothesis) or
 `NO_ISSUE`.  You can use `evalrx.eval_agent.prompts.diagnosis._DIAGNOSE_PROMPT` as a
-starting point and override it by subclassing `DiagnosisAgent`:
+starting point and override it by subclassing `DiagnosisAgent`. `diagnose` takes
+the M2 report (an `AnalysisReport`; `raw_results` holds each analyzer's `Result`)
+and the earlier cycles' summary:
 
 ```python
 from evalrx.eval_agent.stages.diagnosis import DiagnosisAgent, _parse_hypotheses, DiagnosisResult
@@ -236,17 +238,17 @@ import json
 class MyDiagnosisAgent(DiagnosisAgent):
     _PROMPT = "Your custom prompt with {model_name} and {findings_json}."
 
-    def diagnose(self, results, model_name):
-        summary = {name: r.findings for name, r in results.items()}
+    def diagnose(self, analysis, prior_cycles=None):
+        summary = {name: r.findings for name, r in analysis.raw_results.items()}
         raw = self.judge.generate(
             self._PROMPT.format(
-                model_name=model_name,
+                model_name=analysis.model_name,
                 findings_json=json.dumps(summary, indent=2, default=str),
             )
         )
         return DiagnosisResult(
-            model_name=model_name,
-            hypotheses=_parse_hypotheses(str(raw), model_name),
+            model_name=analysis.model_name,
+            hypotheses=_parse_hypotheses(str(raw), analysis.model_name),
             findings_summary=summary,
             raw_judge_output=str(raw),
         )

@@ -366,16 +366,6 @@ def test_diagnosis_no_issue_returns_empty():
     assert "NO_ISSUE" in diag.raw_judge_output
 
 
-def test_diagnosis_backward_compat_accepts_results_dict():
-    """Passing a raw results dict (old API) still works via AnalysisModule wrapping."""
-    from evalrx.analyzers.attention.summary import AttentionAnalyzer
-    model = FakeModel()
-    results = {"attention": AttentionAnalyzer().run(model, "probe")}
-    judge = ScriptedModel(answers=["NO_ISSUE"], capabilities={Capability.GENERATE})
-    diag = DiagnosisAgent(judge=judge).diagnose(results, model_name="m")
-    assert isinstance(diag, DiagnosisResult)
-
-
 def test_diagnosis_prompt_includes_severity_and_narrative():
     captured: list[str] = []
 

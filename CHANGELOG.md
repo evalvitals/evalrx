@@ -152,6 +152,9 @@ working. They are gone, with no forwarding name left behind.
   `evalrx.models._media`): nothing called them.
 - The held-out M4 probe no longer retries without `analyzers=` when a probe
   agent raises `TypeError`.
+- `DiagnosisAgent.diagnose` takes the M2 report only. It no longer wraps a
+  bare `{analyzer: Result}` dict, and its `model_name` argument (used only for
+  that dict) is gone: pass `AnalysisModule().analyze(results, model_name)`.
 - `RunLogger.inline_text_artifacts` and `.preserve_full_model_io`. Both were
   always true: they let a producer ask which logger it had, and there is one.
   With them go the branches for the other answer, in which a model call's
