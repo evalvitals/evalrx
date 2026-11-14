@@ -471,6 +471,7 @@ def main() -> int:
         DiagnosisAgent,
         FixAgent,
         HypothesisTester,
+        ModelKind,
         ProbeAgent,
         RunContext,
         StatsAnalysisAgent,
@@ -501,7 +502,7 @@ def main() -> int:
 
     # M1 pinned static selection -- see PINNED_M1_ANALYZERS' comment above for why.
     probe_agent = ProbeAgent(
-        probe=StrategyProbe(priority_override={k: PINNED_M1_ANALYZERS for k in ("vlm", "agent", "llm")}),
+        probe=StrategyProbe(priority_override={kind: PINNED_M1_ANALYZERS for kind in ModelKind}),
         judge=None,
         max_analyzers=args.max_analyzers,
     )

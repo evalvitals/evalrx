@@ -651,12 +651,12 @@ def main() -> None:
     _m1_codegen = args.allow_codegen and not args.analysis_only
     if args.analyzers.strip():
         # Pinned analyzer list — deterministic M1 for reproducible experiments.
-        from evalrx.eval_agent import StrategyProbe
+        from evalrx.eval_agent import ModelKind, StrategyProbe
 
         pinned = [a.strip() for a in args.analyzers.split(",") if a.strip()]
         print(f"  M1 pinned analyzers: {pinned}")
         probe_agent = ProbeAgent(
-            probe=StrategyProbe(priority_override={k: pinned for k in ("vlm", "agent", "llm")}),
+            probe=StrategyProbe(priority_override={kind: pinned for kind in ModelKind}),
             judge=None,  # bypass LLM selection
             max_analyzers=len(pinned),
         )

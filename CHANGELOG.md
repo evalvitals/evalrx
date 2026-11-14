@@ -86,6 +86,11 @@ Re-run it to open it with this version.
 - Each M4 verdict card shows its own test statistics. With several
   hypotheses, every card borrowed the last verdict's interval.
 
+- The pinned-M1 examples (`mmau_qwen2_audio`,
+  `audiocaps_hallucination_qwen2_audio`, `musicavqa_videollama2` and the three
+  VLM ones) keyed their analyzer list on `vlm` / `agent` / `llm` only, so an
+  audio model, which is routed as `alm` or `avlm`, was handed an empty list
+  and M1 ran nothing. They key it on every `ModelKind`.
 - A case with more than one media slot shows each file in its own slot. The
   report paired a case's inputs with the copies the logger made by position,
   in a different slot order than the logger wrote them, so an image-and-audio

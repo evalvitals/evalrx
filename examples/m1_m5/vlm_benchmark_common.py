@@ -186,6 +186,7 @@ def main(config: BenchmarkConfig) -> None:
         ExperimentProtocol,
         FixAgent,
         HypothesisTester,
+        ModelKind,
         ProbeAgent,
         RunContext,
         StatsAnalysisAgent,
@@ -280,7 +281,7 @@ def main(config: BenchmarkConfig) -> None:
         "coverage_verification_gap",
     ]
     probe_agent = ProbeAgent(
-        probe=StrategyProbe(priority_override={key: pinned for key in ("vlm", "agent", "llm")}),
+        probe=StrategyProbe(priority_override={kind: pinned for kind in ModelKind}),
         judge=None,
         max_analyzers=len(pinned),
     )
