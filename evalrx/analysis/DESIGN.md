@@ -88,7 +88,7 @@ def compile_recipe(recipe, records) -> dict[str, float]:
     产物进 Result.findings["per_case"] → build_stats_input 自动收进 inp.per_case。"""
 ```
 
-**注册进 M2**：编译出的信号塞进合成 analyzer 的 per_case finding → 扩展 `default_plan` 为新信号加一条已验证工具 → 在 CONFIRM split 上跑 `fdr_correct`，把【catalog 信号 + 桥接信号】放进**同一个 e-BH family**（"多提候选→多付多重性"自动成立）→ M4 `_decisive` 不变。
+**注册进 M2**：编译出的信号塞进合成 analyzer 的 per_case finding → 扩展 `plan_stats_input` 为新信号加一条已验证工具 → 在 CONFIRM split 上跑 `fdr_correct`，把【catalog 信号 + 桥接信号】放进**同一个 e-BH family**（"多提候选→多付多重性"自动成立）→ M4 `_decisive` 不变。
 
 **关键不变量**：信号在 **EXPLORE split** 被发现/选中，在 **CONFIRM split** 被编译求值 + 确证；case id 不相交。
 

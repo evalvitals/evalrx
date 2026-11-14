@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from evalrx.analysis import StatsAnalysisAgent, profile_records
-from evalrx.analysis.stats_tools import StatsInput, default_plan
+from evalrx.analysis.planner import plan_stats_input
+from evalrx.analysis.stats_tools import StatsInput
 
 
 def test_profile_records_infers_roles_and_grain():
@@ -21,7 +22,7 @@ def test_profile_records_infers_roles_and_grain():
     assert profile.columns["score"].dtype == "numeric"
 
 
-def test_default_plan_ranks_signals_before_applying_cap():
+def test_plan_ranks_signals_before_applying_cap():
     labels = {f"f{i}": True for i in range(6)}
     labels.update({f"p{i}": False for i in range(6)})
     weak = {cid: 0.5 for cid in labels}
@@ -31,10 +32,10 @@ def test_default_plan_ranks_signals_before_applying_cap():
     }
     inp = StatsInput(labels=labels, per_case={"zzz_constant": weak, "aaa_strong": strong})
 
-    plan = default_plan(inp, max_signals=1)
+    plan = plan_stats_input(inp, max_signals=1)
 
-    assert plan[0][0] == "signal_label_assoc"
-    assert plan[0][1]["signal"] == "aaa_strong"
+    assert plan[0].tool == "signal_label_assoc"
+    assert plan[0].config["signal"] == "aaa_strong"
 
 
 def test_stats_analysis_agent_tests_more_than_four_signals_by_default():

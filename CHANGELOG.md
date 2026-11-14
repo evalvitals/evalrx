@@ -152,6 +152,9 @@ working. They are gone, with no forwarding name left behind.
   `evalrx.models._media`): nothing called them.
 - The held-out M4 probe no longer retries without `analyzers=` when a probe
   agent raises `TypeError`.
+- `evalrx.analysis.default_plan` and `AnalysisPlanItem.as_legacy_tuple`: call
+  `plan_stats_input`, which returns the `AnalysisPlanItem`s (`.tool`,
+  `.config`, `.rationale`) the tuples were made from.
 - `compile_diagnostic_report` with `DiagnosticReport`, `Claim`, `Evidence`
   and `ReportStep` (exported from `evalrx.reporting` and `evalrx.analysis`),
   `evalrx.reporting.stages` (`STAGE_SPECS`, `StageSpec`,

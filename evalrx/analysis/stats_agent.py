@@ -48,6 +48,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from evalrx.analysis.analysis_module import AnalysisModule, AnalysisReport
+from evalrx.analysis.planner import AnalysisPlanItem, plan_stats_input
 from evalrx.analysis.prompts.stats_agent import _ANALYSIS_PROMPT, _TOOL_SELECT_PROMPT
 from evalrx.analysis.stats_tools import (
     STATS_TOOL_CATALOG,
@@ -55,7 +56,6 @@ from evalrx.analysis.stats_tools import (
     StatsToolResult,
     build_stats_input,
     build_stats_input_from_records,
-    default_plan,
     describe_data,
     fdr_correct,
     has_testable_data,
@@ -464,20 +464,21 @@ class StatsAnalysisAgent:
         plan = self._select_plan(inp, protocol)
 
         stats_results: list[StatsToolResult] = []
-        for tool, cfg, rationale in plan:
+        for item in plan:
             try:
-                r = run_stats_tool(tool, inp, cfg)
+                r = run_stats_tool(item.tool, inp, item.config)
             except Exception as exc:  # never let one tool sink the analysis
-                logger.warning("stats tool %r failed: %s", tool, exc)
+                logger.warning("stats tool %r failed: %s", item.tool, exc)
                 r = StatsToolResult(
-                    tool=tool, config=cfg, ok=False,
-                    error=str(exc), summary=f"{tool}: {exc}",
+                    tool=item.tool, config=item.config, ok=False,
+                    error=str(exc), summary=f"{item.tool}: {exc}",
                 )
-            r.details.setdefault("rationale", rationale)
+            r.details.setdefault("rationale", item.rationale)
             stats_results.append(r)
 
         stats_plan = [
-            {"tool": t, "config": c, "rationale": rat} for t, c, rat in plan
+            {"tool": item.tool, "config": item.config, "rationale": item.rationale}
+            for item in plan
         ]
 
         # Tier (b)/(c): reuse previously generated tools, then generate a new one
@@ -574,14 +575,14 @@ class StatsAnalysisAgent:
         self,
         inp: StatsInput,
         protocol: "ExperimentProtocol | None",
-    ) -> list[tuple[str, dict, str]]:
+    ) -> list[AnalysisPlanItem]:
         """Select tools: LLM picks from the catalog, deterministic plan otherwise.
 
         The deterministic plan is always the backbone (it guarantees coverage);
         when a judge + protocol are present, the LLM *narrows* it to the chosen
         tools.  Any failure or empty selection falls back to the full plan.
         """
-        plan = default_plan(inp, max_signals=self._max_signal_tools)
+        plan = plan_stats_input(inp, max_signals=self._max_signal_tools)
         if self._judge is None or protocol is None or not plan:
             return plan
         try:
@@ -597,7 +598,7 @@ class StatsAnalysisAgent:
         # the plan when their inputs exist — they carry causal / tensor-level
         # verdicts and must never be silently dropped by name-based narrowing.
         _mandatory = {"mcnemar_evalue", "friedman_nemenyi", "attention_decoding"}
-        filtered = [p for p in plan if p[0] in chosen or p[0] in _mandatory]
+        filtered = [item for item in plan if item.tool in chosen or item.tool in _mandatory]
         return filtered or plan
 
     # ------------------------------------------------------------------

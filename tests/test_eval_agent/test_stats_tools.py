@@ -4,7 +4,7 @@ Covers:
   - build_stats_input: per-case signals / labels / scalars / strategy groups
   - each catalog tool on synthetic data (signal_label_assoc, bootstrap_diff,
     mcnemar_evalue, friedman_nemenyi, single_rate_evalue, rank_corr)
-  - default_plan shape from the data
+  - the deterministic plan's shape from the data
   - fdr_correct (e-BH across e-values)
   - StatsAnalysisAgent orchestration + backward compat (no data → threshold only)
 """
@@ -12,10 +12,10 @@ Covers:
 from __future__ import annotations
 
 import evalrx.analysis as public_analysis
+from evalrx.analysis.planner import plan_stats_input
 from evalrx.analysis.stats_tools import (
     StatsInput,
     StatsToolResult,
-    default_plan,
     run_stats_tool,
 )
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
@@ -202,17 +202,16 @@ def test_rank_corr_on_continuous_signal():
 # ── planner + FDR ───────────────────────────────────────────────────────────
 
 
-def test_default_plan_picks_relevant_tools():
+def test_plan_picks_relevant_tools():
     inp = build_stats_input({"attention": _attention_result()}, _labeled_cases())
-    plan = default_plan(inp)
-    tools = {t for t, _, _ in plan}
+    tools = {item.tool for item in plan_stats_input(inp)}
     assert "signal_label_assoc" in tools
     assert "single_rate_evalue" in tools
 
 
-def test_default_plan_empty_without_labels_or_groups():
+def test_plan_empty_without_labels_or_groups():
     inp = StatsInput()  # nothing testable
-    assert default_plan(inp) == []
+    assert plan_stats_input(inp) == []
 
 
 def test_fdr_correct_with_evalues():

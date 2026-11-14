@@ -54,7 +54,6 @@ from evalrx.analysis.stats_tools import (
     StatsToolResult,
     build_stats_input,
     build_stats_input_from_records,
-    default_plan,
     fdr_correct,
     run_stats_tool,
 )
@@ -113,7 +112,6 @@ __all__ = [
     "STATS_TOOL_CATALOG",
     "build_stats_input",
     "build_stats_input_from_records",
-    "default_plan",
     "fdr_correct",
     "run_stats_tool",
     "DatasetBundle",

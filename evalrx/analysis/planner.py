@@ -29,9 +29,6 @@ class AnalysisPlanItem:
     family: str = "confirmatory"
     priority: float = 0.0
 
-    def as_legacy_tuple(self) -> tuple[str, dict[str, Any], str]:
-        return self.tool, self.config, self.rationale
-
     def to_dict(self) -> dict[str, Any]:
         return {
             "tool": self.tool,

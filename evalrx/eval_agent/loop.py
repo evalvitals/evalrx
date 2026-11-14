@@ -549,7 +549,7 @@ class VLDiagnoseLoop:
         probe_results[name] = synth
         self.store.add_result(synth)
         # The bridged signals ARE the discovered candidates — they must be tested,
-        # not optional. default_plan caps at the stats agent's max_signal_tools and
+        # not optional. The plan caps at the stats agent's max_signal_tools and
         # appends bridged signals LAST, so a low cap silently drops them. Raise the
         # cap to cover the expanded family (more multiplicity = more conservative,
         # never less — e-BH still controls FDR over whatever is tested).
