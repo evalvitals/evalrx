@@ -58,6 +58,19 @@ from evalrx.eval_agent.run_log_files import (
     inline_workspace,
     save_artifact_figure,
 )
+from evalrx.eval_agent.run_log_tracing import (
+    trace_agent_decision,
+    trace_analysis,
+    trace_diagnosis,
+    trace_experiment,
+    trace_explore,
+    trace_fix,
+    trace_probe,
+    trace_run_start,
+    trace_stage_skipped,
+    trace_surgery,
+    trace_tool_codegen,
+)
 
 if TYPE_CHECKING:
     from evalrx.analysis.analysis_module import AnalysisReport
@@ -496,14 +509,7 @@ class RunLogger:
         elif self.verbose:
             print(_EventLine.line(None, "run_start", entry))
 
-        model_name = str(entry.get("model") or "Target Model")
-        proto = entry.get("protocol") or {}
-        proto_desc = proto.get("description", "") if isinstance(proto, dict) else str(proto)
-        bench_name = str(entry.get("benchmark_name") or proto_desc or "Benchmark")
-        self.tracer.start_trace(
-            model=model_name, benchmark=bench_name,
-            n_cases=int(entry.get("n_cases", 0) or 0), metadata=entry,
-        )
+        trace_run_start(self.tracer, entry)
 
     @staticmethod
     def _git_commit() -> "str | None":
@@ -830,60 +836,11 @@ class RunLogger:
             if png.exists():
                 png_figures.append(png)
 
-        m1_span = self.tracer.start_span(
-            name=f"M1: Multi-Dimensional Checkup (Cycle {cycle})",
-            stage="M1",
-            input_data={"analyzers": list(results.keys()), "selected_analyzers": entry.get("selected_analyzers", [])},
-            metadata={"duration_sec": duration_sec, "artifacts": {
-                "artifact_paths": artifact_paths, "figures": [str(p) for p in png_figures],
-            }},
+        trace_probe(
+            self.tracer, cycle, results, entry, artifact_paths=artifact_paths, figures=png_figures,
+            judge_prompt=judge_prompt, judge_raw=judge_raw, duration_sec=duration_sec,
+            model_calls=pending_calls,
         )
-        if judge_prompt or judge_raw:
-            self.tracer.log_generation(
-                name="M1 Analyzer Selection", model="judge",
-                prompt=judge_prompt or "", completion=judge_raw or "", span_id=m1_span,
-            )
-        for name, r in results.items():
-            findings = getattr(r, "findings", {}) or {}
-            per_case = findings.get("per_case") or []
-            probe_span = self.tracer.start_span(
-                name=f"Probe: {name}", stage=f"M1_{name}", input_data={"probe": name},
-                parent_id=m1_span,
-                metadata={
-                    "n_scored": len(per_case) if per_case else (findings.get("n_cases") or findings.get("n_scored")),
-                },
-            )
-            calls_for_analyzer = [c for c in pending_calls if c.get("analyzer") == name]
-            for call in calls_for_analyzer[:50]:
-                self.tracer.log_generation(
-                    name=f"{name} · {call.get('method')} #{call.get('call_index')}",
-                    model="target_model", prompt=call.get("inputs"),
-                    completion=call.get("error") or call.get("output"),
-                    span_id=probe_span,
-                    metadata={"duration_sec": call.get("duration_sec"), "error": call.get("error")},
-                )
-            self.tracer.end_span(probe_span, output_data={
-                "findings": findings, "n_model_calls": len(calls_for_analyzer),
-            })
-        orphaned = {c["analyzer"] for c in pending_calls} - set(results)
-        for name in orphaned:
-            failed_span = self.tracer.start_span(
-                name=f"Probe: {name} (failed)", stage=f"M1_{name}", input_data={"probe": name},
-                parent_id=m1_span, metadata={"note": "analyzer raised before producing a Result"},
-            )
-            calls_for_analyzer = [c for c in pending_calls if c.get("analyzer") == name]
-            for call in calls_for_analyzer[:50]:
-                self.tracer.log_generation(
-                    name=f"{name} · {call.get('method')} #{call.get('call_index')}",
-                    model="target_model", prompt=call.get("inputs"),
-                    completion=call.get("error") or call.get("output"),
-                    span_id=failed_span,
-                    metadata={"duration_sec": call.get("duration_sec"), "error": call.get("error")},
-                )
-            self.tracer.end_span(failed_span, status="failed", output_data={
-                "n_model_calls": len(calls_for_analyzer),
-            })
-        self.tracer.end_span(m1_span, output_data={"n_probes": len(results)})
         return png_figures
 
     # ------------------------------------------------------------------
@@ -941,27 +898,10 @@ class RunLogger:
                 duration_sec=duration_sec,
             )
 
-        m2_span = self.tracer.start_span(
-            name=f"M2: Screening & Confirmatory Signals (Cycle {cycle})", stage="M2",
-            input_data={"severity": report.severity, "n_findings": len(report.findings)},
-            metadata={"duration_sec": duration_sec, "stats_tool": stats_tool,
-                      "artifacts": {"figures": [str(f) for f in (figures or [])]}},
+        trace_analysis(
+            self.tracer, cycle, report, stats_tool=stats_tool, figures=figures, llm_prompt=llm_prompt,
+            llm_raw=llm_raw, stats_results=stats_results, conclusion=conclusion, duration_sec=duration_sec,
         )
-        if llm_prompt or llm_raw:
-            self.tracer.log_generation(
-                name="M2 Statistical Screening Analysis", model="judge",
-                prompt=llm_prompt or "", completion=llm_raw or "", span_id=m2_span,
-            )
-        for s in (stats_results or []):
-            s_dict = s.to_dict() if hasattr(s, "to_dict") else (s if isinstance(s, dict) else {})
-            sig_name = s_dict.get("config", {}).get("signal") or s_dict.get("tool") or "signal"
-            eff = s_dict.get("effect")
-            if eff is not None:
-                self.tracer.log_score(
-                    name=f"m2_effect_{sig_name}", value=float(eff),
-                    comment=f"p={s_dict.get('p_value')}", span_id=m2_span,
-                )
-        self.tracer.end_span(m2_span, output_data={"conclusion": conclusion or ""})
 
     def log_explore(
         self, cycle: int, report: "Any | None", *,
@@ -1029,29 +969,10 @@ class RunLogger:
                 metadata=dict(call.get("metadata") or {}), cycle=cycle,
             )
 
-        exp_span = self.tracer.start_span(
-            name=f"Explore: Free-form EDA (Cycle {cycle})", stage="EXPLORE",
-            input_data={"ok": ok, "attempts": entry.get("attempts", 0)},
-            metadata={"duration_sec": duration_sec, "artifacts": {
-                "out_dir": str(out_dir) if out_dir is not None else None,
-                "report_path": entry.get("report_path"), "figures": rendered,
-            }},
+        trace_explore(
+            self.tracer, cycle, report, entry, ok=ok, out_dir=out_dir, rendered=rendered,
+            duration_sec=duration_sec,
         )
-        if report is not None:
-            for i, raw in enumerate(getattr(report, "raw_outputs", None) or []):
-                self.tracer.log_generation(
-                    name=f"Explore Coder Agent (attempt {i + 1})", model="coder_agent",
-                    prompt=None, completion=str(raw), span_id=exp_span,
-                )
-            if getattr(report, "code", None):
-                self.tracer.log_generation(
-                    name="Explore Analysis Code (analysis.py)", model="coder_agent",
-                    prompt=None, completion=str(report.code), span_id=exp_span,
-                )
-        self.tracer.end_span(exp_span, output_data={
-            "n_observations": entry.get("n_observations", 0),
-            "n_candidate_signals": entry.get("n_candidate_signals", 0),
-        })
 
     # ------------------------------------------------------------------
     # M3 — diagnosis
@@ -1148,29 +1069,11 @@ class RunLogger:
                     output=critic_raw or review_raw, cycle=cycle,
                 )
 
-        m3_span = self.tracer.start_span(
-            name=f"M3: Root-Cause Diagnosis (Cycle {cycle})", stage="M3",
-            input_data={"model_name": diag.model_name, "n_hypotheses": len(diag.hypotheses)},
-            metadata={"duration_sec": duration_sec},
+        trace_diagnosis(
+            self.tracer, cycle, diag, entry, m3_prompt=m3_prompt, review_prompt=review_prompt,
+            review_raw=review_raw, review_decisions=review_decisions, proposed=proposed,
+            duration_sec=duration_sec,
         )
-        self.tracer.log_generation(
-            name="AI Doctor Diagnostician",
-            model=str(self.tracer.trace_metadata.get("judge") or "diagnosis_judge"),
-            prompt=m3_prompt, completion=diag.raw_judge_output or "", span_id=m3_span,
-            metadata={"hypotheses": [h.statement for h in diag.hypotheses]},
-        )
-        if review_prompt or review_raw:
-            self.tracer.log_generation(
-                name="M3 Adversarial Evidence Review",
-                model=str(self.tracer.trace_metadata.get("judge") or "diagnosis_judge"),
-                prompt=review_prompt, completion=review_raw, span_id=m3_span,
-                metadata={"decisions": review_decisions},
-            )
-        self.tracer.end_span(m3_span, output_data={
-            "n_hypotheses": len(diag.hypotheses),
-            "n_proposed": len(proposed) or len(diag.hypotheses),
-            "review": entry.get("review"),
-        })
 
     # ------------------------------------------------------------------
     # M4/M5 — hypothesis verification & intervention
@@ -1227,24 +1130,7 @@ class RunLogger:
                 duration_sec=duration_sec,
             )
 
-        stage_title = "M4 Adjudication" if is_m4 else "M5 Intervention"
-        surg_span = self.tracer.start_span(
-            name=f"{stage_title}: {hypothesis.statement[:60]}",
-            stage="M4" if is_m4 else "M5_SURGERY",
-            input_data={"hypothesis": hypothesis.statement, "failure_mode": hypothesis.predicted_failure_mode},
-            metadata={"status": iv.status.value, "fixed": iv.fixed, "confidence_score": iv.confidence_score},
-        )
-        if judge_prompt or judge_raw:
-            self.tracer.log_generation(
-                name=f"{stage_title}: Protocol Consistency Judge", model="judge",
-                prompt=judge_prompt or "", completion=judge_raw or "", span_id=surg_span,
-            )
-        if iv.confidence_score is not None:
-            self.tracer.log_score(
-                name="adjudication_confidence", value=float(iv.confidence_score),
-                comment=f"status={iv.status.value}, fixed={iv.fixed}", span_id=surg_span,
-            )
-        self.tracer.end_span(surg_span, output_data={"evidence": iv.evidence or {}})
+        trace_surgery(self.tracer, hypothesis, iv, is_m4=is_m4, judge_prompt=judge_prompt, judge_raw=judge_raw)
 
     def log_experiment(
         self, cycle: int, hypothesis: "Hypothesis", iv: "InterventionResult", *,
@@ -1309,27 +1195,7 @@ class RunLogger:
                     metadata=call.get("metadata"),
                 )
 
-        exp_span = self.tracer.start_span(
-            name=f"{stage}: Experiment — {hypothesis.statement[:60]}",
-            stage=f"{stage}_EXPERIMENT",
-            input_data={"hypothesis": hypothesis.statement, "failure_mode": hypothesis.predicted_failure_mode},
-            metadata={"provider": exp.get("provider"), "returncode": exp.get("returncode")},
-        )
-        cli_raw = exp.get("cli_raw_output")
-        if cli_raw:
-            self.tracer.log_generation(
-                name=f"{module.upper()} Coder Agent", model=str(exp.get("provider") or "coder_agent"),
-                prompt=None, completion=str(cli_raw), span_id=exp_span,
-            )
-        vlog = exp.get("validation_log")
-        if vlog:
-            self.tracer.log_generation(
-                name=f"{module.upper()} Validation Log", model=str(exp.get("provider") or "coder_agent"),
-                prompt=None, completion="\n".join(str(x) for x in vlog), span_id=exp_span,
-            )
-        self.tracer.end_span(exp_span, output_data={
-            "status": entry.get("status"), "fixed": entry.get("fixed"), "verdict": entry.get("verdict"),
-        })
+        trace_experiment(self.tracer, hypothesis, exp, entry, stage=stage, module=module)
 
     def log_fix(self, outcome: "Any") -> None:
         """Post-loop fix module: the tiered repair attempt + recommendation.
@@ -1359,23 +1225,7 @@ class RunLogger:
         entry["best"] = best
         self._append_stage("M5", "fix", entry)
 
-        fix_span = self.tracer.start_span(
-            name="M5: Targeted Repair & Confirmation", stage="M5_FIX",
-            input_data={"candidates_evaluated": len(d.get("attempted", []))},
-        )
-        if best.get("effect") is not None:
-            self.tracer.log_score(
-                name="repair_net_accuracy_gain", value=float(best.get("effect", 0.0)),
-                comment=f"cured={best.get('n_fixed')}, broken={best.get('n_broken')}",
-                span_id=fix_span,
-            )
-        if (best.get("payload") or {}).get("prompt_template"):
-            self.tracer.log_generation(
-                name="Winning Repair Patch", model="evalrx_repair",
-                prompt="Repair Candidate Search",
-                completion=best["payload"]["prompt_template"], span_id=fix_span,
-            )
-        self.tracer.end_span(fix_span, output_data={"selected": best.get("name")})
+        trace_fix(self.tracer, d, best)
 
     # ------------------------------------------------------------------
     # AgenticDiagnoseLoop dispatch layer — run-level, not stage content
@@ -1403,17 +1253,11 @@ class RunLogger:
             entry["duration_sec"] = round(duration_sec, 3)
         self._append_run("agent_decisions", entry)
 
-        decision_span = self.tracer.start_span(
-            name=f"Agent Decision: step {step}", stage="AGENT_DECISION",
-            input_data={"action": action, "params": params or {}},
-            metadata={"valid": valid, "repair_attempts": repair_attempts, "fallback_used": fallback_used},
+        trace_agent_decision(
+            self.tracer, step, action=action, params=params, rationale=rationale, valid=valid,
+            repair_attempts=repair_attempts, fallback_used=fallback_used,
+            judge_prompt=judge_prompt, judge_raw=judge_raw,
         )
-        if judge_prompt or judge_raw:
-            self.tracer.log_generation(
-                name="Agent Decision Judge", model="judge",
-                prompt=judge_prompt or "", completion=judge_raw or "", span_id=decision_span,
-            )
-        self.tracer.end_span(decision_span, output_data={"action": action, "rationale": rationale})
 
     def log_agent_tool(
         self, step: int, *, tool: str, ok: bool, summary: str = "",
@@ -1431,11 +1275,7 @@ class RunLogger:
     def log_stage_skipped(self, stage: str, reason_code: str, *, cycle: int = -1, detail: str = "") -> None:
         entry = {"ts": self._ts(), "stage": stage, "cycle": cycle, "reason_code": reason_code, "detail": detail}
         self._append_stage(stage, "stage_skipped", entry)
-        span = self.tracer.start_span(
-            name=f"{stage}: skipped", stage=stage,
-            input_data={"reason_code": reason_code}, metadata={"detail": detail},
-        )
-        self.tracer.end_span(span, output_data={"reason_code": reason_code}, status="skipped")
+        trace_stage_skipped(self.tracer, stage, reason_code, detail)
 
     def log_loop_end(
         self, report: "AutoDiagnoseReport", *,
@@ -1503,17 +1343,10 @@ class RunLogger:
                 metadata={"tool_name": name, "ok": ok},
             )
 
-        cg_span = self.tracer.start_span(
-            name=f"Tool Codegen: {module}/{name}", stage=f"CODEGEN_{module}",
-            input_data={"need": need, "source": source},
-            metadata={"ok": ok, "error": error or None},
+        trace_tool_codegen(
+            self.tracer, module=module, name=name, need=need, source=source, ok=ok, error=error,
+            prompt=prompt, raw_output=raw_output, raw_stream=raw_stream, code=code,
         )
-        if prompt or raw_output:
-            self.tracer.log_generation(
-                name=f"Tool Synthesis: {name}", model=source,
-                prompt=prompt or "", completion=raw_stream or raw_output or code, span_id=cg_span,
-            )
-        self.tracer.end_span(cg_span, output_data={"ok": ok, "code_chars": len(code or "")})
 
     def log_tool_registry(self, cycle: int, module: str, generated: "list[Any]") -> None:
         if not generated:
