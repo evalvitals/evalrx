@@ -176,8 +176,9 @@ working. They are gone, with no forwarding name left behind.
   always true: they let a producer ask which logger it had, and there is one.
   With them go the branches for the other answer, in which a model call's
   text was cut at 8000 characters and a coded repair's prompt and code were
-  written as files in its trial folder. A stage records its model calls
-  whenever it has a run logger.
+  written as files in its trial folder, and the checks for whether the
+  logger has `log_model_exchange`. A stage records its model calls whenever
+  it has a run logger.
 - `rejected_tools` in the multiplicity report (`fdr_correct`,
   `StatsAnalysisReport.corrected_rejections`, `FusedReport.adjudication`):
   read `rejected_result_keys`. A tool name stood for every result of that
@@ -462,15 +463,11 @@ unchanged. Visible differences:
 - After `run_fix(max_tier=...)` or an `auto_escalate` run, the agent keeps
   its configured `max_tier`; it used to keep the requested or last-tried
   tier, which leaked into the next `run_fix` call.
-- A custom fix agent whose `propose_and_validate` cannot take
-  `max_tier`/`min_tier` now raises `TypeError` under `auto_escalate` or an
-  explicit `max_tier`, instead of running every rung at its own tier.
-- A custom fix agent whose `propose_and_validate` does not take `record`
-  is no longer silenced during the search (the loop used to set its
-  `run_logger` to `None`); it logs whatever it logs per round.
-- Under `auto_escalate` without a held-out split, a custom agent's opaque
-  (non-`FixOutcome`) result is returned as-is, as the held-out ladder
-  already did, instead of raising `AttributeError`.
+- A replacement fix agent is called with these keywords and must return a
+  `FixOutcome`: see "A replacement fix agent" in `docs/stage_io.md`. One
+  whose `propose_and_validate` cannot take `max_tier` / `min_tier` /
+  `record` raises `TypeError` at the call, instead of running every rung at
+  its own tier.
 
 ### Fixed — the Langfuse outbox on multi-user hosts
 

@@ -241,8 +241,7 @@ verdicts must never look the same to the reader.
 
 ### `DiagnosisAgent` (loop-internal)
 
-**Input:** `analysis: AnalysisReport | StatsAnalysisReport | dict[str, Result]`
-(M2's output — dict form is accepted for backward compatibility),
+**Input:** `analysis: AnalysisReport | StatsAnalysisReport` (M2's output),
 `prior_cycles: list[dict] | None` (summaries of earlier M1→M5 cycles, so the
 judge avoids re-proposing tested hypotheses), `explore_context`,
 `failure_modes` (optional, descriptive-only context from clustering).
