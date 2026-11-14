@@ -85,12 +85,6 @@ Re-run it to open it with this version.
   `report/discovery_cases.json`.
 - Each M4 verdict card shows its own test statistics. With several
   hypotheses, every card borrowed the last verdict's interval.
-
-- The pinned-M1 examples (`mmau_qwen2_audio`,
-  `audiocaps_hallucination_qwen2_audio`, `musicavqa_videollama2` and the three
-  VLM ones) keyed their analyzer list on `vlm` / `agent` / `llm` only, so an
-  audio model, which is routed as `alm` or `avlm`, was handed an empty list
-  and M1 ran nothing. They key it on every `ModelKind`.
 - A case with more than one media slot shows each file in its own slot. The
   report paired a case's inputs with the copies the logger made by position,
   in a different slot order than the logger wrote them, so an image-and-audio
@@ -101,6 +95,14 @@ Re-run it to open it with this version.
   datasets without categories.
 
 Report data is version 23.
+
+### Fixed — the pinned-M1 examples ran no analyzer on an audio model
+
+`mmau_qwen2_audio`, `audiocaps_hallucination_qwen2_audio`,
+`musicavqa_videollama2` and the three VLM examples keyed their pinned
+analyzer list on `vlm` / `agent` / `llm` only. An audio model is routed as
+`alm` or `avlm`, so it was handed an empty list and M1 ran nothing. They key
+the list on every `ModelKind`.
 
 ### Changed — the explore agent's record shows for loop runs too
 
