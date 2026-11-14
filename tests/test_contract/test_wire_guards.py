@@ -140,7 +140,7 @@ def test_descriptive_report_may_not_ship_a_verdict():
         StatsReportWire(
             **_envelope("m2"), descriptive_only=True,
             corrected_rejections=CorrectedRejections(
-                method="ebh", deferred=False, rejected_result_keys=["k1"],
+                method="e-BH", deferred=False, rejected_result_keys=["k1"],
             ),
         )
 

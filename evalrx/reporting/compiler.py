@@ -84,7 +84,7 @@ def compile_reader_report(data: dict[str, Any]) -> ReaderReport:
     m4_ran = bool(m4.get("ran"))
     hypotheses = m3.get("hypotheses") or []
     repair_ran = bool(m5_fix.get("ran"))
-    repair_effect = (m5_fix.get("confirm") or {}).get("effect")
+    repair_effect = (m5_fix.get("best") or {}).get("effect")
     if m4_ran:
         headline = "A possible explanation was checked on new cases."
         confidence = "Independently checked"

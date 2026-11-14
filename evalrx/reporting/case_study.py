@@ -344,7 +344,7 @@ class _Run:
 
     def __init__(self, root: Path, events: Sequence[Mapping[str, Any]]):
         root = Path(root)
-        if (root / "run.json").exists() or (root / "artifacts").is_dir():
+        if (root / "run.json").exists():
             self.logs, self.run_dir = root, root.parent
         else:
             self.logs = next((p for p in sorted(root.glob("logs*")) if p.is_dir()), root)
@@ -358,11 +358,6 @@ class _Run:
             for event in self.events
             if event.get("event") == "case_record" and event.get("case_id")
         }
-        self.all_cases = {
-            case["id"]: case
-            for case in (_load(self.logs / "report" / "discovery_cases.json", []) or [])
-            if isinstance(case, dict) and "id" in case
-        }
 
     def event(self, name: str) -> "Mapping[str, Any] | None":
         return next((e for e in self.events if e.get("event") == name), None)
@@ -370,44 +365,23 @@ class _Run:
     def events_of(self, name: str) -> "list[Mapping[str, Any]]":
         return [e for e in self.events if e.get("event") == name]
 
-    def per_case(self, analyzer: str, cycle_prefix: str = "c0") -> "list[dict[str, Any]]":
-        blob = _load(self.logs / "artifacts" / f"{cycle_prefix}_{analyzer}.result.json", {}) or {}
-        rows = (blob.get("findings") or {}).get("per_case") or []
-        if not rows:
-            # V1 externalised each analyzer's result to artifacts/; RunLoggerV2
-            # keeps every analyzer's findings inline on the M1 probe entry,
-            # one entry per pass (cycle 0 = explore, -1 = the held-out re-run).
-            want = -1 if cycle_prefix in ("c-1", "post") else 0
-            for entry in self.events_of("probe"):
-                try:
-                    cycle = int(entry.get("cycle") or 0)
-                except (TypeError, ValueError):
-                    cycle = 0
-                if cycle != want:
-                    continue
-                findings = (entry.get("findings") or {}).get(analyzer)
-                if isinstance(findings, dict) and findings.get("per_case"):
-                    rows = findings["per_case"]
-                    break
-        return [row for row in rows if isinstance(row, dict)]
+    def per_case(self, analyzer: str) -> "list[dict[str, Any]]":
+        """The analyzer's per-case rows from the explore pass (cycle 0).
 
-    def m2_files(self) -> "list[tuple[str, Path]]":
-        """[(phase, path)] for every M2 results file, explore before held-out."""
-        artifacts = self.logs / "artifacts"
-        if not artifacts.is_dir():
-            return []
-        found = []
-        for path in sorted(artifacts.glob("*_m2_stats_results.json")):
-            name = path.name
-            if name.startswith(("post_", "c-1_")):
-                phase = "heldout"
-            elif name.startswith("c0_"):
-                phase = "explore"
-            else:
-                phase = name.split("_m2_")[0]
-            found.append((phase, path))
-        found.sort(key=lambda item: 0 if item[0] == "explore" else 1)
-        return found
+        The logger keeps every analyzer's findings inline on the M1 probe
+        entry, one entry per pass.
+        """
+        for entry in self.events_of("probe"):
+            try:
+                cycle = int(entry.get("cycle") or 0)
+            except (TypeError, ValueError):
+                cycle = 0
+            if cycle != 0:
+                continue
+            findings = (entry.get("findings") or {}).get(analyzer)
+            if isinstance(findings, dict) and findings.get("per_case"):
+                return [row for row in findings["per_case"] if isinstance(row, dict)]
+        return []
 
     def measurements(self, analyzers: Iterable[str]) -> "list[dict[str, Any]]":
         """Every numeric per-case field a probe produced, with why it was kept."""
@@ -607,17 +581,10 @@ def _signal_curve(run: _Run, signals: Sequence[str]) -> "dict[str, Any] | None":
 def _m2_sources(run: _Run) -> "list[tuple[str, list]]":
     """[(phase, stats rows)], explore before held-out.
 
-    RunLoggerV2 keeps these rows inline as ``stats_results`` on the M2
+    The logger keeps these rows inline as ``stats_results`` on the M2
     ``analysis`` entry, with the pass told apart by cycle (0 = explore, -1 =
-    the held-out re-run). ``run.m2_files()`` (an externalised
-    ``artifacts/<prefix>_m2_stats_results.json`` per pass) is a predecessor
-    format nothing currently produces; kept as a read path in case it's ever
-    reintroduced for oversized results, harmless since it degrades to the
-    inline fallback below when empty.
+    the held-out re-run).
     """
-    files = run.m2_files()
-    if files:
-        return [(phase, _load(path, []) or []) for phase, path in files]
     found = []
     for entry in run.events_of("analysis"):
         rows = entry.get("stats_results")
@@ -837,17 +804,17 @@ def _example_case(run: _Run, curve: "Mapping[str, Any] | None") -> "dict[str, An
     if not failing:
         return None
     case_id = max(failing, key=score)
-    case = run.all_cases.get(case_id, {})
-    record = run.case_records.get(case_id, {})
+    record = run.case_records.get(case_id) or {}
+    case = record.get("case") or {}
     return {
         "case_id": case_id,
         "split": "explore",
-        "question": case.get("prompt") or ((record.get("case") or {}).get("inputs") or {}).get("prompt"),
+        "question": (case.get("inputs") or {}).get("prompt"),
         "gold": case.get("expected"),
         "baseline_output": case.get("observed"),
         # what it answered, separately from everything it said on the way there
         "baseline_answer": final_answer(case.get("observed")),
-        "label": case.get("label") or (record.get("case") or {}).get("label"),
+        "label": case.get("label"),
         "signal": curve.get("signal") if curve else None,
         "signal_values": signals.get(case_id),
         "media_paths": record.get("media_paths") or [],
@@ -958,7 +925,7 @@ def build_case_study(
         "headline": {
             "model": prefer("model"),
             "dataset": prefer("dataset"),
-            "n_cases": run.summary.get("n_cases") or setting.get("n_cases") or len(run.all_cases),
+            "n_cases": run.summary.get("n_cases") or setting.get("n_cases") or len(run.case_records),
             "baseline_accuracy": baseline,
             # From the report's partition table when the caller built one:
             # ``case_records`` holds every partition the loop logged, so its
@@ -966,8 +933,7 @@ def build_case_study(
             "n_explore": (partition_n.get("explore") if partition_n
                           else len(run.case_records)),
             "n_heldout": (sum(n for split, n in partition_n.items() if split and split != "explore")
-                          if partition_n
-                          else max(len(run.all_cases) - len(run.case_records), 0)),
+                          if partition_n else 0),
             "judge": str(start.get("judge")) if start.get("judge") else None,
             "repair": (repair or {}).get("name"),
             "repair_tier": (repair or {}).get("tier"),

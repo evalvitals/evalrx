@@ -5,15 +5,12 @@ contract (:class:`evalrx.contract.stage_detail.StageDetail`) the UI renders.
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from evalrx.reporting.plain_labels import PLAIN_LABELS, _plain_label, _plain_mapping, _stat_label
-from evalrx.reporting.report_inputs import _load_json
 from evalrx.reporting.stage_examples import (
     _attach_example_media,
-    _m1_examples,
     _m4_examples,
     _m5_examples,
     _operation_examples,
@@ -62,17 +59,12 @@ def _stage_detail(
     explore = dict(m2.get("explore") or {})
     # M3 starts from M2's evidence, so both stages read the same figures and stats.
     figures = _m2_figures(raw, m2, explore, logs_dir, root)
-    stats = [
-        _display_stat(item)
-        for item in _enrich_m2_stats(
-            [item for item in m2.get("stats") or [] if isinstance(item, Mapping)], logs_dir
-        )
-    ]
+    stats = [_display_stat(item) for item in m2.get("stats") or [] if isinstance(item, Mapping)]
     return {
         "m1": _m1_detail(dict(raw.get("m1") or {}), cases, events),
         "m2": _m2_detail(m2, explore, figures, stats, (raw.get("agents") or {}).get("explore")),
         "m3": _m3_detail(raw, explore, figures, stats),
-        "m4": _m4_detail(dict(raw.get("m4") or {}), logs_dir, cases, events),
+        "m4": _m4_detail(dict(raw.get("m4") or {}), cases, events),
         "m5": _m5_detail(raw, cases, events),
     }
 
@@ -115,7 +107,7 @@ def _m1_detail(
         item for event in events if event.get("event") == "probe"
         for item in (event.get("examples") or []) if isinstance(item, Mapping)
     ]
-    examples = [dict(item) for item in logged_examples[:2]] or _m1_examples(probes, cases)
+    examples = [dict(item) for item in logged_examples[:2]]
     calls, n_calls = _m1_calls(events)
     return {
         "duration": m1.get("duration"), "probes": probes,
@@ -177,27 +169,10 @@ def _m3_detail(
     raw: Mapping[str, Any], explore: Mapping[str, Any],
     figures: list[dict[str, Any]], stats: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    judges = list((raw.get("agents") or {}).get("judge_calls") or [])
-    m3_call: dict[str, Any] = next((call for call in judges if "M3" in str(call.get("stage") or "")), {})
-    agent_response = str(m3_call.get("response") or "")
     m3 = dict(raw.get("m3") or {})
     hypotheses = list(m3.get("hypotheses") or explore.get("hypotheses") or [])
-    # Runs recorded before the log writer carried `plain_statement` on this list
-    # still have it on `proposed_hypotheses`, which the critic step copies from.
-    # Joining on the statement recovers the plain sentence the judge did write,
-    # instead of leaving the report showing only the technical line. A run with
-    # neither is left exactly as it is — nothing is paraphrased into existence.
-    proposed = {str(h.get("statement") or ""): h
-                for h in (m3.get("proposed_hypotheses") or []) if isinstance(h, Mapping)}
-    for h in hypotheses:
-        if isinstance(h, dict) and not h.get("plain_statement"):
-            recovered = proposed.get(str(h.get("statement") or ""), {}).get("plain_statement")
-            if recovered:
-                h["plain_statement"] = recovered
     return {
         "mode": "proposal", "hypotheses": hypotheses,
-        "unparsed_proposals": _recover_unparsed_hypotheses(agent_response) if not hypotheses else [],
-        "agent_response": agent_response,
         "candidate_signals": list(explore.get("candidate_signals") or []),
         "recommended_tests": list(explore.get("recommended_confirmatory_tests") or []),
         "evidence_figures": figures[:3], "evidence_stats": stats[:6],
@@ -205,11 +180,9 @@ def _m3_detail(
 
 
 def _m4_detail(
-    m4: Mapping[str, Any], logs_dir: Path, cases: list[dict[str, Any]],
-    events: Sequence[Mapping[str, Any]],
+    m4: Mapping[str, Any], cases: list[dict[str, Any]], events: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
-    saved = _load_json(logs_dir / "report" / "m4_results.json")
-    results = saved if isinstance(saved, list) and saved else list(m4.get("results") or [])
+    results = list(m4.get("results") or [])
     event = dict(m4.get("event") or {})
     logged: Mapping[str, Any] = next((
         item for item in reversed(events)
@@ -236,16 +209,14 @@ def _m5_detail(
     ), {})
     if fix_event:
         attempted = [item for item in fix_event.get("attempted") or [] if isinstance(item, Mapping)]
-        # RunLoggerV2 records `best` as the whole winning candidate (older
-        # producers wrote its bare name); comparing that dict to a name never
-        # matched, so the confirmation stayed empty on every v2 run.
-        best_name = _repair_name(fix_event.get("best"))
+        # The fix event records `best` as the whole winning candidate; the
+        # attempt of the same name carries what it scored on the confirm pool.
+        winner = found if isinstance(found := fix_event.get("best"), Mapping) else {}
+        best_name = str(winner.get("name") or "")
         best = next((item for item in attempted if item.get("name") == best_name), {}) if best_name else {}
-        if not best and best_name and isinstance(fix_event.get("best"), Mapping):
-            best = dict(fix_event["best"])
         m5.update({
             "ran": True, "fixed": bool(fix_event.get("fixed")), "selection": attempted,
-            "best": best, "confirm": best, "recommendation": fix_event.get("recommendation"),
+            "best": best or dict(winner), "recommendation": fix_event.get("recommendation"),
         })
     if skipped_event:
         m5.update({
@@ -255,7 +226,7 @@ def _m5_detail(
             "skip_detail": skipped_event.get("detail") or "",
         })
     candidates = [_repair_candidate(item) for item in m5.get("selection") or [] if isinstance(item, dict)]
-    confirmation = _repair_candidate(m5.get("confirm") or {})
+    confirmation = _repair_candidate(m5.get("best") or {})
     if confirmation.get("name"):
         existing = next((i for i, item in enumerate(candidates) if item.get("name") == confirmation["name"]), None)
         if existing is None:
@@ -304,36 +275,6 @@ def _display_stat(value: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _enrich_m2_stats(stats: Sequence[Mapping[str, Any]], logs_dir: Path) -> list[dict[str, Any]]:
-    """Restore detailed M2 rate fields from durable tool-result artifacts.
-
-    The compact HTML reader deliberately omits bulky ``details``.  Its
-    omission used to leave the dynamic M2 view with only one generic effect
-    chart, despite the run already having stored the two groups needed for a
-    direct error-rate comparison.  This is a local join keyed by the exact
-    test and signal; no values are re-computed or inferred.
-    """
-    artifact_rows: dict[tuple[str, str], Mapping[str, Any]] = {}
-    for path in sorted((logs_dir / "artifacts").glob("*m2_stats_results*.json")):
-        value = _load_json(path)
-        if not isinstance(value, list):
-            continue
-        for item in value:
-            if not isinstance(item, Mapping):
-                continue
-            config = found if isinstance(found := item.get("config"), Mapping) else {}
-            key = (str(item.get("tool") or ""), str(config.get("signal") or item.get("signal") or ""))
-            if key[1]:
-                artifact_rows[key] = item
-    result: list[dict[str, Any]] = []
-    for item in stats:
-        config = found if isinstance(found := item.get("config"), Mapping) else {}
-        key = (str(item.get("tool") or ""), str(config.get("signal") or item.get("signal") or ""))
-        saved = artifact_rows.get(key)
-        result.append({**dict(item), **({"details": saved.get("details")} if saved and saved.get("details") else {})})
-    return result
-
-
 def _compact_mapping(value: Any, *, limit: int = 18) -> dict[str, Any]:
     """Retain readable aggregate findings, excluding unbounded per-case maps."""
     if not isinstance(value, Mapping):
@@ -355,28 +296,6 @@ def _compact_mapping(value: Any, *, limit: int = 18) -> dict[str, Any]:
     return compact
 
 
-def _recover_unparsed_hypotheses(response: str) -> list[dict[str, Any]]:
-    """Recover display-only proposals while preserving the parser failure state."""
-    proposals = []
-    for block in re.split(r"\n\s*\n", response.strip()):
-        fields: dict[str, str] = {}
-        for line in block.splitlines():
-            if ":" not in line:
-                continue
-            key, value = line.split(":", 1)
-            fields[key.strip().lower()] = value.strip()
-        if fields.get("hypothesis"):
-            proposals.append({
-                "statement": fields["hypothesis"],
-                "plain_statement": fields.get("plain_statement", ""),
-                "failure_mode": fields.get("failure_mode", ""),
-                "test_design": fields.get("test", ""),
-                "expected_association": fields.get("expected_association", ""),
-                "accepted_by_pipeline": False,
-            })
-    return proposals[:12]
-
-
 def _repair_headline(value: Mapping[str, Any]) -> str:
     """The candidate's own sentence, or the host's for a candidate it authored.
 
@@ -394,17 +313,6 @@ def _repair_headline(value: Mapping[str, Any]) -> str:
     except Exception:
         return ""
     return BUILTIN_DESCRIPTIONS.get(str(value.get("name") or ""), "")
-
-
-def _repair_name(value: Any) -> str:
-    """A repair candidate's name from either shape a run records it in.
-
-    Early runs wrote the winning candidate as its bare name; RunLoggerV2 and
-    the contract payloads write the whole candidate. Both name the same repair.
-    """
-    if isinstance(value, Mapping):
-        return str(value.get("name") or "")
-    return str(value or "")
 
 
 def _repair_candidate(value: Any) -> dict[str, Any]:

@@ -51,18 +51,13 @@ export type {
   StageDetail,
   StatView,
   StatsReportWire,
-  UnparsedProposal,
   ValidationEventView,
   ValidationEvidence,
   ValidationExample,
   ValidationResultView,
 } from "./contract/contract";
 
-/**
- * What a hypothesis card reads. M3 shows its accepted hypotheses, or -- when
- * the parser rejected them all -- the proposals recovered from the judge's
- * reply, and the card reads the same fields from either.
- */
+/** What a hypothesis card reads. */
 export type Proposal = {
   statement?: string | null;
   plain_statement?: string | null;

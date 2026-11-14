@@ -269,6 +269,8 @@ def _m2_stats(analysis: dict[str, Any]) -> list[dict[str, Any]]:
             "reject": bool(s.get("reject")),
             "p_value": s.get("p_value"),
             "underpowered": bool(s.get("underpowered")),
+            # The two group rates behind an effect, for the rate comparison chart.
+            "details": s.get("details") or {},
         }
         for s in (rows if isinstance(rows, list) else [])
         if isinstance(s, dict)
@@ -345,6 +347,8 @@ def _m4_results(m4_surgeries: list[dict[str, Any]]) -> list[dict[str, Any]]:
         "verdict": (event.get("evidence") or {}).get("m4_verdict"),
         "evidence_grade": (event.get("evidence") or {}).get("m4_evidence_grade"),
         "protocol_consistent": (event.get("evidence") or {}).get("m4_protocol_consistent"),
+        # Each verdict's own test statistics; a card must not borrow another's.
+        "evidence": event.get("evidence") or {},
     } for event in m4_surgeries]
 
 
@@ -388,7 +392,6 @@ def extract_run_data(run_dir: Path) -> dict[str, Any]:
     m4_results = _m4_results(m4_surgeries)
     m5_surgeries = [s for s in surgeries if s.get("module") != "m4"]
     best_fix = fix.get("best") or {}
-    confirmed_fix = best_fix if isinstance(best_fix, dict) else {}
 
     data: dict[str, Any] = {
         "run": run,
@@ -409,12 +412,6 @@ def extract_run_data(run_dir: Path) -> dict[str, Any]:
         },
         "m3": {
             "hypotheses": diagnosis.get("hypotheses") or [],
-            # The proposer's own list, kept beside the (possibly reordered and
-            # critic-annotated) accepted list. It is the only place a run
-            # recorded before the log writer carried `plain_statement` on
-            # `hypotheses` still has the judge's plain sentence, and the report
-            # compiler joins the two on the statement to recover it.
-            "proposed_hypotheses": diagnosis.get("proposed_hypotheses") or [],
             "duration": diagnosis.get("duration_sec"),
         },
         "m4": {
@@ -427,12 +424,11 @@ def extract_run_data(run_dir: Path) -> dict[str, Any]:
             "surgeries": m5_surgeries,
         },
         "m5_fix": {
-            "ran": bool(fix or confirmed_fix),
-            "fixed": bool(fix.get("fixed") or confirmed_fix.get("fixed")),
+            "ran": bool(fix),
+            "fixed": bool(fix.get("fixed") or best_fix.get("fixed")),
             "selection": fix.get("selection_attempted") or fix.get("attempted") or [],
-            "confirm": confirmed_fix,
             "best": best_fix,
-            "prompt_template": (confirmed_fix.get("payload") or {}).get("prompt_template") or "",
+            "prompt_template": (best_fix.get("payload") or {}).get("prompt_template") or "",
         },
         "agents": _extract_agent_layer(logs_dir, explore_dir, last("explore")),
         "logs_dir": logs_dir,

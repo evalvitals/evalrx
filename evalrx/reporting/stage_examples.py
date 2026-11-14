@@ -9,63 +9,6 @@ from typing import Any, Mapping, Sequence
 from evalrx.reporting.plain_labels import _plain_label
 
 
-def _m1_examples(probes: Sequence[Mapping[str, Any]], cases: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    """Pick recorded, human-readable M1 case walk-throughs.
-
-    Recent loggers may include ``examples`` directly on a probe.  Older runs
-    are reconstructed by joining a per-case measurement to the saved baseline
-    case record.  The latter intentionally says *check result*, not
-    *after-answer*: many analyzers do not issue a second generation.
-    """
-    case_by_id = {str(case.get("id")): case for case in cases}
-    result: list[dict[str, Any]] = []
-    used: set[str] = set()
-    for probe in probes:
-        supplied = probe.get("examples")
-        if isinstance(supplied, list):
-            for item in supplied:
-                if isinstance(item, Mapping):
-                    result.append(dict(item))
-                    if len(result) >= 2:
-                        return result
-        rows = [row for row in probe.get("sample_rows") or [] if isinstance(row, Mapping)]
-        # Failures are most intuitive when available.  A pass is still useful
-        # when the run has no labelled failures in this particular probe.
-        rows.sort(key=lambda row: 0 if str(case_by_id.get(str(row.get("sample_id")), {}).get("status")) == "fail" else 1)
-        for row in rows:
-            case_id = str(row.get("sample_id") or row.get("case_id") or "")
-            case = case_by_id.get(case_id)
-            if not case or case_id in used:
-                continue
-            measured = {
-                str(key).replace("_", " "): value
-                for key, value in row.items()
-                if key not in {"sample_id", "case_id"} and isinstance(value, (str, int, float, bool))
-            }
-            if not measured:
-                continue
-            used.add(case_id)
-            result.append({
-                "id": f"m1-{probe.get('id', 'probe')}-{case_id}",
-                "kind": "case_measurement",
-                "case_id": case_id,
-                "probe_title": probe.get("title") or "Behavioral check",
-                "probe_question": probe.get("question") or "",
-                "input": case.get("prompt") or "",
-                "baseline_output": case.get("observed"),
-                "expected": case.get("expected"),
-                "outcome": case.get("status") or "unknown",
-                "media_ids": list(case.get("media_ids") or []),
-                "check_result": measured,
-                "plain_reading": "This one case shows what the check records. The overall pattern comes from every measured case, not this example alone.",
-                "evidence_scope": "one recorded case within M1",
-            })
-            break
-        if len(result) >= 2:
-            break
-    return result
-
-
 def _attach_example_media(examples: list[dict[str, Any]], cases: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     case_by_id = {str(case.get("id")): case for case in cases}
     for example in examples:
@@ -82,42 +25,18 @@ def _attach_example_media(examples: list[dict[str, Any]], cases: Sequence[Mappin
 def _m4_examples(
     results: list[Any], event: Mapping[str, Any], cases: Sequence[Mapping[str, Any]]
 ) -> list[dict[str, Any]]:
-    """Return explicit validation examples, with a truthful aggregate fallback."""
+    """The validation cases the M4 event recorded, named for the hypothesis tested."""
     supplied = event.get("validation_examples") if isinstance(event, Mapping) else None
-    first: Mapping[str, Any] | None
-    if isinstance(supplied, list):
-        first = next((item for item in results if isinstance(item, Mapping)), {})
-        evidence = found if isinstance(found := first.get("evidence"), Mapping) else {}
-        kept = [{
-            **dict(item),
-            "hypothesis": item.get("hypothesis") or first.get("hypothesis") or first.get("statement"),
-            "test": item.get("test") or first.get("test_name") or evidence.get("chosen_tool"),
-            "status": item.get("status") or first.get("status"),
-        } for item in supplied if isinstance(item, Mapping)]
-        if kept:
-            return kept[:2]
-    if not results:
+    if not isinstance(supplied, list):
         return []
-    first = next((item for item in results if isinstance(item, Mapping)), None)
-    if first is None:
-        return []
+    first: Mapping[str, Any] = next((item for item in results if isinstance(item, Mapping)), {})
     evidence = found if isinstance(found := first.get("evidence"), Mapping) else {}
-    # Legacy M4 logs retain the frozen claim and the actual validation statistic
-    # but not a row-level verdict.  That is still a concrete example of the
-    # validation operation; label it as an aggregate test rather than pretend a
-    # case was individually adjudicated.
     return [{
-        "id": "m4-validation-test-1",
-        "kind": "validation_test",
-        "hypothesis": first.get("hypothesis") or first.get("statement") or "Frozen hypothesis",
-        "test": first.get("test_name") or evidence.get("chosen_tool") or "held-out statistical test",
-        "effect": first.get("effect_size", evidence.get("effect_size")),
-        "interval": evidence.get("ci"),
-        "status": first.get("status") or "inconclusive",
-        "verdict": first.get("verdict") or evidence.get("m4_verdict") or "No validation explanation was retained.",
-        "plain_reading": "This is one frozen claim tested on the independent validation evidence. The verdict uses the full validation set, not a single hand-picked case.",
-        "evidence_scope": "aggregate independent-validation test",
-    }]
+        **dict(item),
+        "hypothesis": item.get("hypothesis") or first.get("hypothesis") or first.get("statement"),
+        "test": item.get("test") or first.get("test_name") or evidence.get("chosen_tool"),
+        "status": item.get("status") or first.get("status"),
+    } for item in supplied if isinstance(item, Mapping)][:2]
 
 
 def _operation_examples(cases: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -265,8 +184,8 @@ def _m5_examples(
         # (RunLoggerV2.log_cases dedupes by id) and never updated — it is NOT
         # this candidate's repaired answer, no matter which case_record last
         # touched it. The only place a candidate's own per-case output lives
-        # is `case["repair"]`, which build_report_data attached from that
-        # attempt's trial_root/outputs.jsonl (see _repair_outcomes). Confirm
+        # is `case["repair"]`, which build_report_data attached from the fix
+        # event's confirmation attempts (see _repair_outcomes). Confirm
         # it is THIS candidate's repair, not some other one that also touched
         # this case, before trusting it as "repaired".
         repair_hit = case.get("repair") if isinstance(case.get("repair"), Mapping) else None

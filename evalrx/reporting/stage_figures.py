@@ -14,18 +14,18 @@ def _m2_figures(
     raw: Mapping[str, Any], m2: Mapping[str, Any], explore: Mapping[str, Any],
     logs_dir: Path, root: Path,
 ) -> list[dict[str, Any]]:
-    figure_dir = Path(raw.get("explore_dir") or logs_dir.parent / "explore") / "figures"
-    figures = _explore_figures(explore, figure_dir, root)
+    # An explore output keeps its figures in figures/ beside its report.
+    explore_dir = raw.get("explore_dir")
+    figures = _explore_figures(explore, Path(explore_dir) / "figures", root) if explore_dir else []
     if not figures:
-        # No explore/ directory beside the logs: a V2 run. RunLoggerV2 copied
-        # the explorer's figures into M2/artifacts/ under hashed names and
-        # kept the original name of each beside the copy; that name is what
-        # the takeaways cite, so the join runs on it.
+        # A loop run: the logger copied the explorer's figures into
+        # M2/artifacts/ under hashed names and kept the original name of each
+        # beside the copy; that name is what the takeaways cite, so the join
+        # runs on it.
         figures = _snapshot_figures(explore, logs_dir, root)
     if not figures:
-        # Neither (a run copied as logs/ alone, or one recorded before the
-        # snapshot kept names): the explore and analysis events still name
-        # their figures as paths under logs/.
+        # No explore report to join against: the explore and analysis events
+        # still name their figures as paths under logs/.
         return _logged_figures(
             [*(explore.get("figures") or []), *(m2.get("figures") or [])], logs_dir, root)
     # The analysis step's own chart sits beside the explorer's, as it did
@@ -71,7 +71,7 @@ _EXPLORE_FIGURE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".svg")
 
 
 def _explore_figures(explore: Mapping[str, Any], figure_dir: Path, root: Path) -> list[dict[str, Any]]:
-    """The explorer's figures from a V1 explore/figures/ directory."""
+    """The explorer's figures from the figures/ directory of an explore output."""
     files = sorted(figure_dir.glob("*.png")) if figure_dir.is_dir() else []
     return _planned_figures(explore, [(path.name, path) for path in files], root)
 

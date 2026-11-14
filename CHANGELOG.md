@@ -30,6 +30,15 @@ beside the log are gone:
 - Layouts published before two renderer changes: the `OutcomeCard` component
   is no longer accepted, and elements without `props` are no longer patched
   on load.
+- Events without the envelope the logger stamps. Events are ordered by
+  `event_seq` (a log without it is not readable), and a `surgery` / `fix`
+  event is told apart by its own `module`.
+- M3's `agent_response` and `unparsed_proposals` in `stage_detail` (and the
+  `UnparsedProposal` contract model): they were filled from a `prompts/`
+  directory. The aggregate M4 example shown when a log kept no validation
+  case, and M1 examples rebuilt for logs that recorded none, are gone too.
+- The contract no longer maps the spellings `ebh` / `bh` (correction method)
+  or `env` / `critic` (trajectory step role) onto the current ones.
 
 A run directory from an earlier version has to be brought up to the current
 log format before it is opened.
@@ -43,6 +52,15 @@ log format before it is opened.
 - The header names the agent that drove the run ("Claude Code ·
   claude-opus-5"). It looked for a `manifest.json` beside the log; the
   `run_start` event records it.
+- M2's rate comparison (failure rate with and without a signal) draws again:
+  the two rates are on the analysis event, not in an `artifacts/` file.
+- The case study's example case shows its gold answer and the model's
+  baseline answer, read from the case record instead of
+  `report/discovery_cases.json`.
+- Each M4 verdict card shows its own test statistics. With several
+  hypotheses, every card borrowed the last verdict's interval.
+
+Report data is version 22.
 
 ### Changed — the explore agent's record shows for loop runs too
 

@@ -119,7 +119,21 @@ def make_run(root: Path, *, n_broken: int = 1, verdict_status: str = "supported"
                   "payload": {"name": "self_consistency_5", "strategy": "direct", "n_samples": 5,
                               "generation_kwargs": {"temperature": 0.7}, "prompt_template": "{prompt}"}}},
     ]})
+    _number_events(logs)
     return root
+
+
+def _number_events(logs: Path) -> None:
+    """Give every record the global sequence number the logger stamps."""
+    seq = 0
+    for path in [logs / "run.json", *(logs / f"M{n}" / "log.json" for n in range(1, 6))]:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        for bucket in doc.values():
+            for row in bucket if isinstance(bucket, list) else [bucket]:
+                if isinstance(row, dict) and "config" not in row:  # not the manifest
+                    seq += 1
+                    row["event_seq"] = seq
+        _write(path, doc)
 
 
 def _events(root: Path) -> list[dict]:

@@ -25,9 +25,7 @@ function isRoutable(design?: string): boolean {
 }
 
 export function M3Detail({ data, report }: { data: Partial<M3StageDetail>; report: ReportData }) {
-  const accepted = data.hypotheses || [];
-  const recovered = data.unparsed_proposals || [];
-  const hypotheses: Proposal[] = accepted.length ? accepted : recovered;
+  const hypotheses: Proposal[] = data.hypotheses || [];
   const m3 = findContract<DiagnosisOutput>(report, "m3");
   const untestable = m3 ? (m3.hypotheses || []).filter((h) => !h.test_design?.trim()) : [];
   const unroutable = m3
@@ -77,23 +75,13 @@ export function M3Detail({ data, report }: { data: Partial<M3StageDetail>; repor
       )}
       <StageKpis
         items={[
-          { label: "Accepted proposals", value: accepted.length },
-          { label: "Recovered from transcript", value: recovered.length },
+          { label: "Accepted proposals", value: hypotheses.length },
           {
             label: "Test designs",
             value: hypotheses.filter((item) => item.test_design).length,
           },
         ]}
       />
-      {!accepted.length && recovered.length > 0 && (
-        <div className="parser-warning">
-          <AlertTriangle />
-          <div>
-            <b>The AI Doctor proposed hypotheses, but the pipeline parser rejected their format.</b>
-            <p>They are shown below for audit only and did not unlock M4 or M5.</p>
-          </div>
-        </div>
-      )}
       {!!data.evidence_figures?.length && (
         <section className="m3-evidence">
           <header>
@@ -124,7 +112,7 @@ export function M3Detail({ data, report }: { data: Partial<M3StageDetail>; repor
             <article className="hypothesis-card" key={index}>
               <header>
                 <span>H{index + 1}</span>
-                <em>{accepted.length ? "IDEA TO TEST" : "NOT YET USABLE"}</em>
+                <em>IDEA TO TEST</em>
               </header>
               <h3>{hypothesis.plain_statement || hypothesis.statement || hypothesis.hypothesis}</h3>
               {hypothesis.statement &&
@@ -178,21 +166,13 @@ export function M3Detail({ data, report }: { data: Partial<M3StageDetail>; repor
           ))}
         </details>
       )}
-      {data.agent_response && (
-        <details className="agent-transcript">
-          <summary>AI Doctor raw response</summary>
-          <pre>{data.agent_response}</pre>
-        </details>
-      )}
     </>
   );
 }
 
 // ── M3 brief (L2) ──────────────────────────────────────────────────────────
 export function briefM3(report: ReportData, detail: Partial<M3StageDetail>): Brief {
-  const accepted = detail.hypotheses || [];
-  const recovered = detail.unparsed_proposals || [];
-  const list: Proposal[] = accepted.length ? accepted : recovered;
+  const list: Proposal[] = detail.hypotheses || [];
   const m3 = findContract<DiagnosisOutput>(report, "m3");
   const untestable = (m3?.hypotheses || []).filter((h) => !h.test_design?.trim());
   const withTest = list.filter((h) => String(h.test_design || "").trim()).length;
@@ -232,13 +212,6 @@ export function briefM3(report: ReportData, detail: Partial<M3StageDetail>): Bri
   });
 
   const caveatParts: string[] = [];
-  if (!accepted.length && recovered.length) {
-    caveatParts.push(
-      "The agent did propose explanations, but the pipeline could not read " +
-        "the format it wrote them in, so they never reached the held-out check. They are " +
-        "shown for audit only.",
-    );
-  }
   if (untestable.length) {
     caveatParts.push(
       `${plural(untestable.length, "proposal")} name${untestable.length === 1 ? "s" : ""} ` +
@@ -261,15 +234,6 @@ export function briefM3(report: ReportData, detail: Partial<M3StageDetail>): Bri
         value: withTest,
         note: withTest < list.length ? `${list.length - withTest} without` : "all of them",
       },
-      ...(recovered.length && !accepted.length
-        ? [
-            {
-              label: "Read for audit only",
-              value: recovered.length,
-              note: "the pipeline could not parse these",
-            },
-          ]
-        : []),
     ],
     // Only a figure this step produced. Borrowing the previous step's chart
     // would put the same picture on two screens in a row, which is exactly the

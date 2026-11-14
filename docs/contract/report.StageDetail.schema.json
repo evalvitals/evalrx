@@ -424,17 +424,6 @@
           "title": "Hypotheses",
           "type": "array"
         },
-        "unparsed_proposals": {
-          "items": {
-            "$ref": "#/$defs/UnparsedProposal"
-          },
-          "title": "Unparsed Proposals",
-          "type": "array"
-        },
-        "agent_response": {
-          "title": "Agent Response",
-          "type": "string"
-        },
         "candidate_signals": {
           "items": {
             "$ref": "#/$defs/CandidateSignalView"
@@ -465,8 +454,6 @@
       "required": [
         "mode",
         "hypotheses",
-        "unparsed_proposals",
-        "agent_response",
         "candidate_signals",
         "recommended_tests",
         "evidence_figures",
@@ -1747,46 +1734,6 @@
         "table_names"
       ],
       "title": "TakeawayView",
-      "type": "object"
-    },
-    "UnparsedProposal": {
-      "additionalProperties": false,
-      "description": "A proposal recovered from the judge's raw reply after the parser\nrejected it. Shown for audit only; it never reached M4.",
-      "properties": {
-        "statement": {
-          "title": "Statement",
-          "type": "string"
-        },
-        "plain_statement": {
-          "title": "Plain Statement",
-          "type": "string"
-        },
-        "failure_mode": {
-          "title": "Failure Mode",
-          "type": "string"
-        },
-        "test_design": {
-          "title": "Test Design",
-          "type": "string"
-        },
-        "expected_association": {
-          "title": "Expected Association",
-          "type": "string"
-        },
-        "accepted_by_pipeline": {
-          "title": "Accepted By Pipeline",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "statement",
-        "plain_statement",
-        "failure_mode",
-        "test_design",
-        "expected_association",
-        "accepted_by_pipeline"
-      ],
-      "title": "UnparsedProposal",
       "type": "object"
     },
     "ValidationEventView": {

@@ -436,8 +436,6 @@ export interface M2StageDetail {
 export interface M3StageDetail {
   mode: string;
   hypotheses: (HypothesisView)[];
-  unparsed_proposals: (UnparsedProposal)[];
-  agent_response: string;
   candidate_signals: (CandidateSignalView)[];
   recommended_tests: (unknown)[];
   evidence_figures: (FigureView)[];
@@ -913,19 +911,6 @@ export interface TestEvidence {
   fail_rate_signal?: number | null;
   fail_rate_control?: number | null;
   details?: { [key: string]: unknown };
-}
-
-/**
- * A proposal recovered from the judge's raw reply after the parser
- * rejected it. Shown for audit only; it never reached M4.
- */
-export interface UnparsedProposal {
-  statement: string;
-  plain_statement: string;
-  failure_mode: string;
-  test_design: string;
-  expected_association: string;
-  accepted_by_pipeline: boolean;
 }
 
 /**

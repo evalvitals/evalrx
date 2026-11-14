@@ -237,23 +237,9 @@ class HypothesisView(OpenWireModel):
     status: str | None = None
 
 
-class UnparsedProposal(WireModel):
-    """A proposal recovered from the judge's raw reply after the parser
-    rejected it. Shown for audit only; it never reached M4."""
-
-    statement: str
-    plain_statement: str
-    failure_mode: str
-    test_design: str
-    expected_association: str
-    accepted_by_pipeline: bool
-
-
 class M3StageDetail(WireModel):
     mode: str
     hypotheses: list[HypothesisView]
-    unparsed_proposals: list[UnparsedProposal]
-    agent_response: str
     candidate_signals: list[CandidateSignalView]
     recommended_tests: list[Any]
     evidence_figures: list[FigureView]
@@ -463,7 +449,6 @@ __all__ = [
     "StageDetail",
     "StatView",
     "TakeawayView",
-    "UnparsedProposal",
     "ValidationEventView",
     "ValidationEvidence",
     "ValidationExample",

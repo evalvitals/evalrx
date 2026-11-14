@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, model_validator
 
 from evalrx.contract.common import (
     ArtifactRef,
@@ -171,12 +171,6 @@ class StatsToolResultWire(WireModel):
         return True
 
 
-#: Legacy spellings this contract shipped before it was checked against the
-#: producer. ``evalrx.stats.multiplicity`` writes the hyphenated names and
-#: has a fourth value the contract had no member for.
-_LEGACY_CORRECTION_METHODS = {"ebh": "e-BH", "bh": "BH"}
-
-
 class CorrectedRejections(WireModel):
     """Family-level multiplicity control across every tested signal.
 
@@ -198,13 +192,6 @@ class CorrectedRejections(WireModel):
     rejected_result_keys: list[str] = Field(
         default_factory=list, description="analysis_key values that survived. The source of truth."
     )
-
-    @field_validator("method", mode="before")
-    @classmethod
-    def _normalise_method(cls, v: Any) -> Any:
-        if isinstance(v, str):
-            return _LEGACY_CORRECTION_METHODS.get(v.lower(), v)
-        return v
 
 
 class StatsReportWire(StageEnvelope):

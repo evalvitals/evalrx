@@ -242,20 +242,10 @@ class InputsWire(OpenWireModel):
         return present
 
 
-#: Legacy role names this contract shipped before it was aligned to
-#: :class:`evalrx.core.case.StepRole`. Mapped rather than rejected so a
-#: trajectory written by an older producer still validates.
-_LEGACY_STEP_ROLES = {"env": "tool", "critic": "verifier"}
-
-
 class StepWire(OpenWireModel):
     """One step of an agent trajectory.
 
-    ``role`` is exactly :class:`evalrx.core.case.StepRole`. It was not, and
-    the divergence was not cosmetic: ``planner`` / ``verifier`` / ``memory`` /
-    ``system`` are values the producer emits every multi-agent run, and every one
-    of them failed validation here, while ``env`` / ``critic`` named steps no
-    producer can emit.
+    ``role`` is exactly :class:`evalrx.core.case.StepRole`.
     """
 
     idx: int
@@ -273,9 +263,7 @@ class StepWire(OpenWireModel):
 
     @field_validator("role", mode="before")
     @classmethod
-    def _map_legacy_role(cls, v: Any) -> Any:
-        if isinstance(v, str):
-            return _LEGACY_STEP_ROLES.get(v, v)
+    def _role_value(cls, v: Any) -> Any:
         return getattr(v, "value", v)
 
 

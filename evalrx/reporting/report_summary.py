@@ -8,7 +8,6 @@ from typing import Any, Mapping
 
 from evalrx.reporting.plain_labels import _plain_signal, _stat_label
 from evalrx.reporting.report_inputs import _contract_stats
-from evalrx.reporting.stage_views import _repair_name
 
 
 def _findings(reader: Mapping[str, Any], raw: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -79,17 +78,14 @@ def _repairs(raw: Mapping[str, Any], m5_detail: Mapping[str, Any] | None) -> lis
     fix = raw.get("m5_fix") or {}
     if not fix.get("ran"):
         return []
-    confirm = found if isinstance(found := fix.get("confirm"), Mapping) else {}
+    best = found if isinstance(found := fix.get("best"), Mapping) else {}
     scored = _m5_scored(m5_detail)
-    # Early runs recorded the winning candidate as its bare name; later ones
-    # record the whole candidate. Both name the same repair.
-    best_name = _repair_name(fix.get("best"))
     return [{
         "id": "repair-1", "fixed": bool(fix.get("fixed")),
-        "title": best_name or confirm.get("name") or (scored or {}).get("name") or "Targeted repair",
-        "effect": (scored or confirm).get("effect"),
-        "fixed_cases": int(scored["n_fixed"]) if scored else len(confirm.get("fixed_cases") or []),
-        "broken_cases": int(scored.get("n_broken") or 0) if scored else len(confirm.get("broken_cases") or []),
+        "title": best.get("name") or (scored or {}).get("name") or "Targeted repair",
+        "effect": (scored or best).get("effect"),
+        "fixed_cases": int(scored["n_fixed"]) if scored else len(best.get("fixed_cases") or []),
+        "broken_cases": int(scored.get("n_broken") or 0) if scored else len(best.get("broken_cases") or []),
     }]
 
 
@@ -123,19 +119,15 @@ def _cases_repaired(cases: list[dict[str, Any]], m5_detail: Mapping[str, Any] | 
     The header tile says what M5 printed (see :func:`_m5_scored`). Case status
     never carries a "fixed" value (it is pass / fail), so counting it left the
     tile at 0 on every run that repaired anything. Runs that scored no
-    candidate fall back to the per-case repair outcomes, then to the old
-    status count.
+    candidate fall back to the per-case repair outcomes.
     """
     scored = _m5_scored(m5_detail)
     if scored:
         return int(scored["n_fixed"])
-    per_case = sum(
+    return sum(
         1 for case in cases
         if isinstance(case.get("repair"), Mapping) and str(case["repair"].get("status")) == "fixed"
     )
-    if per_case:
-        return per_case
-    return sum(1 for case in cases if case.get("status") == "fixed")
 
 
 def _metrics(

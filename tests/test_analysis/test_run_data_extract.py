@@ -84,7 +84,7 @@ def test_every_stage_is_read_from_its_events(tmp_path):
     assert [s["tool"] for s in data["m2"]["stats"]] == ["t_big", "t_small", "t_null"]
     assert data["m2"]["stats"][0] == {
         "tool": "t_big", "config": {"k": 1}, "summary": "", "effect": -0.6, "ci": [-0.8, -0.4],
-        "reject": True, "p_value": None, "underpowered": False}
+        "reject": True, "p_value": None, "underpowered": False, "details": {}}
     # No explore report was inlined, so the events' own sentences stand in.
     assert [t["title"] for t in data["m2"]["explore"]["takeaways"]] == [
         "answers flip with option order", "Short answers fail more"]
@@ -93,7 +93,8 @@ def test_every_stage_is_read_from_its_events(tmp_path):
     assert data["m3"]["hypotheses"] == [{"id": "h1", "statement": "Option order drives the answer."}]
     assert data["m4"]["results"] == [{
         "hypothesis_id": "h1", "hypothesis": None, "status": "supported", "effect_size": 0.4,
-        "confidence": 0.9, "verdict": "supported", "evidence_grade": None, "protocol_consistent": None}]
+        "confidence": 0.9, "verdict": "supported", "evidence_grade": None, "protocol_consistent": None,
+        "evidence": {"m4_effect_size": 0.4, "m4_verdict": "supported"}}]
     assert data["m4"]["event"]["module"] == "m4"
     assert [s["module"] for s in data["m5_surgery"]["surgeries"]] == ["m5"]
     fix = data["m5_fix"]

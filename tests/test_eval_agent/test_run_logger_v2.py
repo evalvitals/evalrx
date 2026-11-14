@@ -624,23 +624,16 @@ def test_failed_runtime_archive_does_not_delete_source(tmp_path, monkeypatch):
     assert not runtime.exists()
 
 
-def test_m4_case_study_accepts_new_and_legacy_v2_bundles(tmp_path):
+def test_the_case_study_reads_m4_from_the_logged_bundle(tmp_path):
     from evalrx.reporting.case_study import _m4
     from evalrx.reporting.run_events import read_v2_events
 
     _emit_every_method(tmp_path)
-    for legacy in (False, True):
-        if legacy:
-            path = tmp_path / "M4" / "log.json"
-            doc = _load(tmp_path, "M4", "log.json")
-            for event in doc["surgery"]:
-                event.pop("module")
-            path.write_text(json.dumps(doc))
-        events = read_v2_events(tmp_path)
-        rows = _m4(SimpleNamespace(events_of=lambda name: [e for e in events if e["event"] == name]))
-        assert len(rows) == 1
-        assert rows[0]["status"] == "supported"
-        assert rows[0]["test_name"] == "paired_t_test"
+    events = read_v2_events(tmp_path)
+    rows = _m4(SimpleNamespace(events_of=lambda name: [e for e in events if e["event"] == name]))
+    assert len(rows) == 1
+    assert rows[0]["status"] == "supported"
+    assert rows[0]["test_name"] == "paired_t_test"
 
 
 def test_loop_summary_keeps_verified_hypothesis_evidence(tmp_path):

@@ -34,6 +34,11 @@ from evalrx.reporting.report_inputs import (
 from evalrx.reporting.report_summary import _charts, _explore_metrics, _findings, _metrics, _repairs
 from evalrx.reporting.stage_views import _stage_detail, _stages
 
+# 22: every field is read from the run log. `case.repair` and M5's worked
+#     example, `setting.diagnosed_by`, the case study's example answers, M2's
+#     group rates and each M4 verdict's own evidence are filled again;
+#     `stage_detail.m3` drops `agent_response` / `unparsed_proposals` and
+#     partitions drop `inferred`.
 # 21: `setting.finished` / `setting.last_event_at`, for a run still being
 #     written (the log's `run_end`, schema 7).
 # 20: `setting.kind` (an explore output renders as its own report) and the
@@ -52,7 +57,7 @@ from evalrx.reporting.stage_views import _stage_detail, _stages
 #     makes an already-published run pick the change up — `report_is_current`
 #     only tracks new EVENTS, so without the bump every existing run would
 #     keep serving the labels its old compiler produced.
-REPORT_DATA_VERSION = 21
+REPORT_DATA_VERSION = 22
 REPORT_SCHEMA_VERSION = 1
 JSON_RENDER_VERSION = "0.19.0"
 CATALOG_VERSION = "evalrx-report@2"

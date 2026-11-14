@@ -672,13 +672,8 @@ def export_to_langfuse_bundle(run_dir: str | Path, out_json: str | Path | None =
             },
             "input": {"candidates": [s.get("name") for s in m5_f["selection"]]},
             "output": {
-                # Fix events written before PR #88 carry ``best`` as the candidate
-                # NAME, later ones as the candidate record: accept both.
-                "best_candidate": (
-                    (m5_f.get("best") or {}).get("name")
-                    if isinstance(m5_f.get("best"), dict) else (m5_f.get("best") or None)
-                ) or (m5_f.get("confirm") or {}).get("name"),
-                "confirm": m5_f.get("confirm"),
+                "best_candidate": (m5_f.get("best") or {}).get("name"),
+                "confirm": m5_f.get("best"),
             },
         })
         if m5_f.get("prompt_template"):
@@ -690,11 +685,11 @@ def export_to_langfuse_bundle(run_dir: str | Path, out_json: str | Path | None =
                 "model": "Repair Search Agent",
                 "prompt": "Synthesize targeted prompt patch based on diagnosed mechanism",
                 "completion": m5_f["prompt_template"],
-                "metadata": {"candidate_name": (m5_f.get("confirm") or {}).get("name")},
+                "metadata": {"candidate_name": (m5_f.get("best") or {}).get("name")},
             })
 
     # Global Key Evaluation Scores
-    cfm = m5_f.get("confirm") or {}
+    cfm = m5_f.get("best") or {}
     if cfm.get("n_baseline_correct") is not None and cfm.get("n_pairs"):
         scores.append({
             "name": "baseline_accuracy",
@@ -733,9 +728,9 @@ def export_to_langfuse_bundle(run_dir: str | Path, out_json: str | Path | None =
 def backfill_run_to_langfuse(run_dir: str | Path, *, dry_run: bool = False) -> dict[str, int | str]:
     """Queue an existing run for the same reliable Langfuse pipeline.
 
-    Existing ``event_seq`` values are preserved; older logs without one receive
-    their line order.  Re-running the command is safe because envelope IDs are
-    deterministic and the outbox primary key de-duplicates them.
+    Each event keeps its ``event_seq``.  Re-running the command is safe because
+    envelope IDs are deterministic and the outbox primary key de-duplicates
+    them.
     """
     from evalrx.reporting.run_events import read_v2_events, resolve_v2_root
 
@@ -761,8 +756,8 @@ def backfill_run_to_langfuse(run_dir: str | Path, *, dry_run: bool = False) -> d
         n_cases=int(run_start.get("n_cases") or 0),
         metadata=run_start,
     )
-    for fallback_seq, record in enumerate(records, start=1):
-        tracer.record_event(record, event_seq=int(record.get("event_seq") or fallback_seq))
+    for record in records:
+        tracer.record_event(record, event_seq=int(record["event_seq"]))
     pending_before = tracer.outbox.pending_count()
     tracer.flush()
     pending_after = tracer.outbox.pending_count()

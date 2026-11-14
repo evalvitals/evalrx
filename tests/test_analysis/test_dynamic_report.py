@@ -281,19 +281,6 @@ def test_external_case_media_is_copied_into_durable_run(tmp_path):
     assert path.read_bytes() == b"RIFF-fake-audio"
 
 
-def test_unparsed_m3_response_is_recovered_for_audit_only():
-    from evalrx.reporting.stage_views import _recover_unparsed_hypotheses
-
-    response = """HYPOTHESIS: Formatting causes the failure.
-PLAIN_STATEMENT: The answer changes when formatting changes.
-FAILURE_MODE: brittleness
-TEST: flip_rate HIGHER on failing cases
-EXPECTED_ASSOCIATION: higher_on_failures"""
-    proposals = _recover_unparsed_hypotheses(response)
-    assert proposals[0]["statement"] == "Formatting causes the failure."
-    assert proposals[0]["accepted_by_pipeline"] is False
-
-
 def test_m1_examples_are_logged_and_reconstructed_from_case_evidence(tmp_path):
     from evalrx.core import CaseBatch, FailureCase, Label, Result
     from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
@@ -316,18 +303,6 @@ def test_m1_examples_are_logged_and_reconstructed_from_case_evidence(tmp_path):
     assert example["case_id"] == "case-1"
     assert example["baseline_output"] == "dog"
     assert example["check_result"]["answer flipped"] == 1
-
-
-def test_legacy_m4_example_is_labeled_as_an_aggregate_validation_test():
-    from evalrx.reporting.stage_examples import _m4_examples
-
-    example = _m4_examples([{
-        "hypothesis": "Formatting causes the failure.", "status": "refuted",
-        "effect_size": -0.5, "verdict": "The independent test refuted it.",
-        "evidence": {"chosen_tool": "signal_label_assoc", "ci": [-0.7, -0.2]},
-    }], {}, [])
-    assert example[0]["kind"] == "validation_test"
-    assert "full validation set" in example[0]["plain_reading"]
 
 
 def test_report_uses_plain_language_for_internal_signal_names():
