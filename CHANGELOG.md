@@ -152,6 +152,9 @@ working. They are gone, with no forwarding name left behind.
   `evalrx.models._media`): nothing called them.
 - The held-out M4 probe no longer retries without `analyzers=` when a probe
   agent raises `TypeError`.
+- The report server no longer looks for case media in a `data/` folder beside
+  the run. The logger copies each case's media into the run's `media/`, and
+  the report serves that copy.
 - `run_fix` calls its fix agent with `FixAgent`'s signature. It used to
   inspect the agent and pass only the keywords it accepted, skip `recommend`
   and `no_fix_recommendation` when they were missing, and hand back whatever

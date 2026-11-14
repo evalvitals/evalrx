@@ -494,10 +494,8 @@ def create_app(
         if item is None:
             raise HTTPException(status_code=404, detail="Unknown media")
         # A media id is selected from the report's fixed evidence index, not a
-        # caller-provided path.  It may safely resolve into the example's
-        # adjacent data directory (where VLM images / ALLM audio conventionally
-        # live), while the generic artifact endpoint remains run-confined.
-        path = _resolve_indexed_media(run.root, str(item.get("path") or ""))
+        # caller-provided path; the logger copied the file into the run.
+        path = _resolve_media(run.root, str(item.get("path") or ""))
         if path is None:
             raise HTTPException(status_code=404, detail="Media is not available in the local cache")
         return FileResponse(path, media_type=mimetypes.guess_type(path.name)[0])
@@ -595,7 +593,6 @@ def _resolve_media(root: Path, value: str) -> Path | None:
     possibilities = [candidate] if candidate.is_absolute() else [
         root / candidate,
         root.parent / candidate,
-        root.parent / "data" / candidate,
     ]
     for possibility in possibilities:
         try:
@@ -609,32 +606,4 @@ def _resolve_media(root: Path, value: str) -> Path | None:
         # the run root and therefore pass the same check.
         if any(resolved == base or base in resolved.parents for base in allowed_roots):
             return resolved
-    return None
-
-
-def _resolve_indexed_media(root: Path, value: str) -> Path | None:
-    """Resolve report-indexed case media without opening arbitrary paths.
-
-    Case assets may live at ``<example>/data`` while a run writes its log to
-    ``<example>/outputs*/logs``.  The media index was built from saved case
-    records, so this endpoint permits only that nearby data directory in
-    addition to the usual run-owned roots.  The artifact route deliberately
-    does not use this broader resolver.
-    """
-    resolved = _resolve_media(root, value)
-    if resolved is not None:
-        return resolved
-    candidate = Path(value)
-    possibilities = [candidate] if candidate.is_absolute() else [
-        root.parent / "data" / candidate,
-        root.parent.parent / "data" / candidate,
-    ]
-    allowed_roots = [root.parent / "data", root.parent.parent / "data"]
-    for possibility in possibilities:
-        try:
-            path = possibility.resolve()
-        except OSError:
-            continue
-        if path.is_file() and any(base.resolve() in path.parents for base in allowed_roots if base.is_dir()):
-            return path
     return None

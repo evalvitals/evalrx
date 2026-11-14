@@ -377,18 +377,6 @@ def test_report_uses_plain_language_for_internal_signal_names():
     assert "format_sensitivity" not in label
 
 
-def test_indexed_media_can_be_served_from_the_adjacent_example_data_dir(tmp_path):
-    from evalrx.reporting.server import _resolve_indexed_media
-
-    root = tmp_path / "example" / "outputs" / "logs"
-    root.mkdir(parents=True)
-    media = tmp_path / "example" / "data" / "clip.wav"
-    media.parent.mkdir()
-    media.write_bytes(b"RIFF-fake-audio")
-
-    assert _resolve_indexed_media(root, str(media)) == media.resolve()
-
-
 def test_explicit_run_log_wins_over_a_nested_logs_subrun(tmp_path):
     from evalrx.reporting.server import _resolve_report_root
 
@@ -417,6 +405,32 @@ def test_read_only_run_can_be_served_without_publishing(tmp_path, monkeypatch):
         payload = client.get(f"/api/runs/{run['id']}/report").json()
     assert payload["layout"]["generated_by"]["mode"] == "deterministic-read-only"
     assert payload["data"]["setting"]["model"] == "read-only-demo"
+
+
+def test_case_media_is_served_from_the_copy_inside_the_run(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from evalrx.core import CaseBatch, FailureCase, Inputs
+    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.reporting.server import create_app
+
+    source = tmp_path / "data" / "clip.wav"
+    source.parent.mkdir()
+    source.write_bytes(b"RIFF-fake-audio")
+    run = tmp_path / "run"
+    logger = RunLogger(run)
+    logger.log_run_start({"model": "demo", "n_cases": 1})
+    logger.log_cases(CaseBatch([
+        FailureCase(inputs=Inputs(prompt="listen", audio=str(source)), id="audio-1"),
+    ]))
+    logger.close()
+    source.unlink()  # the run is read where the producer's file is not
+
+    with TestClient(create_app(run)) as client:
+        run_id = client.get("/api/session").json()["run"]["id"]
+        media = client.get(f"/api/runs/{run_id}/report").json()["data"]["media"]
+        response = client.get(f"/api/runs/{run_id}/media/{media[0]['id']}")
+    assert response.status_code == 200 and response.content == b"RIFF-fake-audio"
 
 
 def test_stage_figures_embed_everywhere_they_are_cited(tmp_path):
