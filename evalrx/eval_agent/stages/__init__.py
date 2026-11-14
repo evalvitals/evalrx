@@ -22,8 +22,6 @@ M2 — Analysis (statistical interpretation)
                                             adds LLM-written conclusion + evidence chain
                        StatsAnalysisReport  AnalysisReport subclass — adds conclusion,
                                             evidence_chain, qualitative_findings, protocol
-  stats_tool_agent.py  StatsToolAgent       selects/runs deterministic exploratory
-                                            stats tools and visualization specs
   stats_tools.py       STATS_TOOL_CATALOG   signal/label association, McNemar+e-value,
                                             Friedman, single-rate e-value, rank corr
   stats_tool_generator.py StatsToolGenerator  LLM/CLI writes a new stats script when

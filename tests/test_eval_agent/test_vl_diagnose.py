@@ -26,7 +26,6 @@ from evalrx.eval_agent import (
     ProbeAgent,
     StatsAnalysisAgent,
     StatsAnalysisReport,
-    StatsToolAgent,
     VLDiagnoseLoop,
 )
 from evalrx.eval_agent.hypothesis import Hypothesis, HypothesisStatus
@@ -394,43 +393,6 @@ class TestStatsAnalysisAgent:
         report = StatsAnalysisAgent().analyze({})
         assert report.stats_tool == "threshold_rules"
 
-    def test_stats_tools_collect_scalar_metrics(self):
-        results = {"self_consistency": Result(
-            analyzer="self_consistency", model="m",
-            cases=CaseBatch([]),
-            findings={"consistency": 0.25, "n_samples": 4},
-        )}
-        report = StatsAnalysisAgent().analyze(results)
-
-        names = [tool["name"] for tool in report.stats_tool_results]
-        assert "scalar_summary" in names
-        assert report.visualizations
-        assert report.to_dict()["stats_tool_results"]
-
-    def test_stats_tools_compute_per_case_label_association(self):
-        cases = [
-            FailureCase(id="fail_1", inputs=Inputs(prompt="q1"), label=Label.FAIL),
-            FailureCase(id="pass_1", inputs=Inputs(prompt="q2"), label=Label.PASS),
-        ]
-        data = CaseBatch(cases)
-        results = {"attention": Result(
-            analyzer="attention",
-            model="m",
-            cases=data,
-            findings={"per_case": [{"sample_id": "fail_1", "has_issue": True}]},
-        )}
-
-        report = StatsAnalysisAgent().analyze(results)
-        tool = next(
-            t for t in report.stats_tool_results
-            if t["name"] == "per_case_signal_label_association"
-        )
-
-        assert tool["metrics"]["n_signal"] == 1
-        assert tool["metrics"]["n_no_signal"] == 1
-        assert tool["metrics"]["fail_rate_signal"] == 1.0
-        assert tool["metrics"]["fail_rate_control"] == 0.0
-
     def test_stats_tool_agent_can_be_disabled(self):
         results = {"self_consistency": Result(
             analyzer="self_consistency", model="m",
@@ -438,21 +400,8 @@ class TestStatsAnalysisAgent:
             findings={"consistency": 0.25},
         )}
         report = StatsAnalysisAgent(enable_stats_tools=False).analyze(results)
-        assert report.stats_tool_results == []
-        assert report.visualizations == []
-
-    def test_stats_tool_agent_selects_expected_tools(self):
-        results = {"attention": Result(
-            analyzer="attention",
-            model="m",
-            cases=CaseBatch([]),
-            findings={
-                "mean_entropy": 0.5,
-                "per_case": [{"sample_id": "x", "has_issue": True}],
-            },
-        )}
-        selected = StatsToolAgent().select(results)
-        assert selected == ["scalar_summary", "per_case_signal_label_association"]
+        assert report.stats_results == []
+        assert report.figures == []
 
     def test_llm_guided_path_falls_back_on_failure(self):
         # A judge that raises should fall back to basic path silently

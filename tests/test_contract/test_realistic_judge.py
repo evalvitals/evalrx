@@ -252,18 +252,10 @@ def test_a_malformed_judge_response_does_not_corrupt_the_contract(tmp_path):
 
 # ── M2 must actually ship its statistics ─────────────────────────────────────
 
-def test_m2_serializes_the_typed_verdicts_not_the_legacy_summaries():
-    """StatsAnalysisReport carries two similarly named lists with different shapes.
-
-        stats_results       list[StatsToolResult]  -- the per-tool verdicts
-        stats_tool_results  list[dict]             -- legacy JSON-safe summaries,
-                                                      keyed by `name`, no `tool`
-
-    Reading the second and filtering on `tool` dropped every result. A live run
-    shipped M2 with zero statistics next to corrected_rejections.n_tested=16 --
-    and "nothing was tested" is a legitimate state, so nothing downstream could
-    tell the empty payload was a field mix-up.
-    """
+def test_m2_serializes_every_typed_verdict():
+    """A live run once shipped M2 with zero statistics next to
+    corrected_rejections.n_tested=16, and "nothing was tested" is a legitimate
+    state, so nothing downstream could tell the payload had lost its rows."""
     from evalrx.analysis.stats_agent import StatsAnalysisReport
     from evalrx.analysis.stats_tools import StatsToolResult
     from evalrx.contract.emit import from_stats_report
@@ -275,8 +267,6 @@ def test_m2_serializes_the_typed_verdicts_not_the_legacy_summaries():
                             analysis_key="signal_label_assoc:self_consistency.consistency"),
             StatsToolResult(tool="mcnemar_evalue", ok=True, effect=0.1, reject=False),
         ],
-        # Populated too, and first in the old lookup order -- the whole trap.
-        stats_tool_results=[{"name": "scalar_summary", "metrics": {"n_scalar_metrics": 52}}],
         corrected_rejections={"method": "BH", "alpha": 0.05, "n_tested": 2,
                               "rejected_result_keys": []},
     )

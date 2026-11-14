@@ -62,7 +62,10 @@ from typing import Any
 #     this one — there is now one event schema, not a base plus an overlay.
 # v7: `run_end`, written when the logger closes: the run-level completion
 #     signal. `loop_end` ends M1-M4 only; M5 and the fix step log after it.
-RUN_LOG_SCHEMA_VERSION = 7
+# v8: `analysis` no longer carries `stats_tool_results` / `visualizations`
+#     (summaries from a retired tool layer); `stats_results` and `figures`
+#     hold the same information.
+RUN_LOG_SCHEMA_VERSION = 8
 
 #: The event types a run logs.
 EVENT_TYPES: tuple[str, ...] = (
@@ -170,11 +173,9 @@ _EVENTS: dict[str, dict[str, Any]] = {
             "narrative": {"type": "string"},
             "conclusion": {"type": "string"},
             "evidence_chain": {"type": "array"},
-            "stats_tool_results": _INLINE_OR_EXTERNAL,
             "stats_plan": _INLINE_OR_EXTERNAL,
             "stats_results": _INLINE_OR_EXTERNAL,
             "corrected_rejections": _INLINE_OR_EXTERNAL,
-            "visualizations": {"type": "array"},
             "figures": {"type": "array"},
             "judge_io": _JUDGE_IO,
             "duration_sec": {"type": "number"},

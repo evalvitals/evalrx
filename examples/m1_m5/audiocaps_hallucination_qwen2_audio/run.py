@@ -221,7 +221,6 @@ def _run_smoke_test(args: argparse.Namespace) -> None:
         ProbingSchema,
         RunContext,
         StatsAnalysisAgent,
-        StatsToolAgent,
         VLDiagnoseLoop,
     )
 
@@ -323,7 +322,7 @@ def _run_smoke_test(args: argparse.Namespace) -> None:
             target_modalities=frozenset({"text", "audio"}),
         ),
         probe_agent=_SmokeProbe(),
-        stats_agent=StatsAnalysisAgent(stats_tool_agent=StatsToolAgent(max_tools=3)),
+        stats_agent=StatsAnalysisAgent(),
         diagnosis_agent=_SmokeDiagnosisAgent(),
         hypothesis_tester=HypothesisTester(min_effect=0.05),
         fix_agent=FixAgent(

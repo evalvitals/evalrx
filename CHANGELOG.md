@@ -68,6 +68,20 @@ M2's full record now carries the explore agent's code, output and audit for a
 diagnosis run as well, read from the files the logger inlines on the explore
 event. It was filled only for standalone explore outputs.
 
+### Removed — the first M2 tool layer; run log schema 8
+
+`StatsToolAgent` (`evalrx.analysis.stats_tool_agent`: `scalar_summary` and
+`per_case_signal_label_association`) ran beside the statistical tool layer
+only to fill two report fields, `stats_tool_results` and `visualizations`.
+Nothing read them: the M2 judge, M3, M4, the contract and the report all use
+`stats_results` and `figures`.
+
+- `StatsToolAgent`, `StatsAnalysisAgent(stats_tool_agent=...)`, and
+  `StatsAnalysisReport.stats_tool_results` / `.visualizations` are removed.
+  `enable_stats_tools` is unchanged: it gates the statistical tool layer.
+- The `analysis` event no longer carries `stats_tool_results` or
+  `visualizations`, so `RUN_LOG_SCHEMA_VERSION` is 8.
+
 ### Removed — names and code paths kept from earlier iterations
 
 Each of these had a current replacement and stayed only so older code kept

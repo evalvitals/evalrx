@@ -325,7 +325,6 @@ def _run_smoke_test(args) -> None:
         HypothesisTester,
         RunContext,
         StatsAnalysisAgent,
-        StatsToolAgent,
         SurgeryAgent,
         VLDiagnoseLoop,
     )
@@ -354,7 +353,7 @@ def _run_smoke_test(args) -> None:
         model=model,
         protocol=protocol,
         probe_agent=_SmokeProbe(),
-        stats_agent=StatsAnalysisAgent(stats_tool_agent=StatsToolAgent(max_tools=3)),
+        stats_agent=StatsAnalysisAgent(),
         diagnosis_agent=_SmokeDiagnosisAgent(),
         hypothesis_tester=HypothesisTester(min_effect=0.05),
         surgery_agent=SurgeryAgent(),

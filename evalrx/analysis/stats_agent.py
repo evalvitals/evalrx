@@ -49,7 +49,6 @@ from typing import TYPE_CHECKING, Any
 
 from evalrx.analysis.analysis_module import AnalysisModule, AnalysisReport
 from evalrx.analysis.prompts.stats_agent import _ANALYSIS_PROMPT, _TOOL_SELECT_PROMPT
-from evalrx.analysis.stats_tool_agent import StatsToolAgent as LegacyStatsToolAgent
 from evalrx.analysis.stats_tools import (
     STATS_TOOL_CATALOG,
     StatsInput,
@@ -201,8 +200,6 @@ class StatsAnalysisReport(AnalysisReport):
                                 M1's ProbingSchema).
         corrected_rejections:   e-BH FDR correction across all tool e-values.
         figures:                Paths to generated figures (forest plot, …).
-        stats_tool_results:     Backward-compatible JSON-safe stats summaries.
-        visualizations:         Backward-compatible figure/spec list.
         protocol:               The protocol that guided this analysis, if any.
         llm_fallback_reason:    Why the LLM-guided path did not produce this
                                 report. Empty when it was never attempted (no
@@ -218,8 +215,6 @@ class StatsAnalysisReport(AnalysisReport):
     stats_plan: list[dict[str, Any]] = field(default_factory=list)
     corrected_rejections: dict[str, Any] = field(default_factory=dict)
     figures: list[str] = field(default_factory=list)
-    stats_tool_results: list[dict[str, Any]] = field(default_factory=list)
-    visualizations: list[dict[str, Any]] = field(default_factory=list)
     protocol: "ExperimentProtocol | None" = None
     # When True the report carries effect sizes + charts but NO validity verdict:
     # e-BH FDR correction was NOT run (``corrected_rejections`` is deferred). The
@@ -246,8 +241,6 @@ class StatsAnalysisReport(AnalysisReport):
             "stats_plan": self.stats_plan,
             "corrected_rejections": self.corrected_rejections,
             "figures": self.figures,
-            "stats_tool_results": self.stats_tool_results,
-            "visualizations": self.visualizations,
             "descriptive_only": self.descriptive_only,
         })
         return d
@@ -273,7 +266,6 @@ class StatsAnalysisAgent:
         self,
         judge: "Judge | None" = None,
         extra_rules: dict | None = None,
-        stats_tool_agent: Any | None = None,
         enable_stats_tools: bool = True,
         figure_dir: "str | None" = None,
         max_signal_tools: int | None = None,
@@ -284,7 +276,6 @@ class StatsAnalysisAgent:
     ) -> None:
         self._base = AnalysisModule(extra_rules)
         self._judge = judge
-        self._stats_tool_agent = stats_tool_agent or LegacyStatsToolAgent()
         self._enable_stats_tools = enable_stats_tools
         self._figure_dir = figure_dir
         self._max_signal_tools = max_signal_tools
@@ -325,7 +316,6 @@ class StatsAnalysisAgent:
             :class:`~evalrx.analysis.analysis_module.AnalysisReport`.
         """
         base = self._base.analyze(results, model_name)
-        legacy_tool_results = self._run_legacy_stats_tools(results, protocol)
         inp = build_stats_input(results, data)
 
         return self._analyze_from_input(
@@ -334,7 +324,6 @@ class StatsAnalysisAgent:
             protocol=protocol,
             results=results,
             extra_figures=extra_figures,
-            legacy_tool_results=legacy_tool_results,
             confirmatory=confirmatory,
         )
 
@@ -365,7 +354,6 @@ class StatsAnalysisAgent:
             protocol=protocol,
             results={},
             extra_figures=extra_figures,
-            legacy_tool_results=[],
         )
 
     def analyze_records(
@@ -405,7 +393,6 @@ class StatsAnalysisAgent:
         protocol: "ExperimentProtocol | None",
         results: "dict[str, Result]",
         extra_figures: "list | None",
-        legacy_tool_results: list[Any],
         confirmatory: bool = True,
     ) -> StatsAnalysisReport:
         """Shared implementation for loop-driven and standalone M2 analysis.
@@ -436,7 +423,6 @@ class StatsAnalysisAgent:
                 report = self._analyze_llm_guided(
                     base, results, protocol,
                     stats_results, stats_plan, corrected, figures,
-                    legacy_tool_results,
                 )
             except Exception as exc:
                 # A judge that never answered and a judge that found nothing
@@ -450,7 +436,6 @@ class StatsAnalysisAgent:
         if report is None:
             report = self._to_stats_report(
                 base, protocol, stats_results, stats_plan, corrected, figures,
-                legacy_tool_results,
             )
             report.llm_fallback_reason = fallback_reason
         report.descriptive_only = not confirmatory
@@ -518,20 +503,6 @@ class StatsAnalysisAgent:
                 figures.append(fig)
 
         return stats_results, stats_plan, corrected, figures
-
-    def _run_legacy_stats_tools(
-        self,
-        results: "dict[str, Result]",
-        protocol: "ExperimentProtocol | None",
-    ) -> list[Any]:
-        """Run the older lightweight M2 tools for backward-compatible reports."""
-        if not self._enable_stats_tools or self._stats_tool_agent is None:
-            return []
-        try:
-            return list(self._stats_tool_agent.analyze(results, protocol=protocol))
-        except Exception as exc:
-            logger.warning("legacy M2 stats-tool analysis failed: %s", exc)
-            return []
 
     def _run_generated_tools(
         self,
@@ -641,14 +612,12 @@ class StatsAnalysisAgent:
         stats_plan: list[dict[str, Any]] | None = None,
         corrected: dict[str, Any] | None = None,
         figures: list[str] | None = None,
-        legacy_tool_results: list[Any] | None = None,
     ) -> StatsAnalysisReport:
         """Basic path: wrap AnalysisReport + stats-tool results into a report."""
         stats_results = stats_results or []
         stats_plan = stats_plan or []
         corrected = corrected or {}
         figures = figures or []
-        legacy_tool_results = legacy_tool_results or []
 
         chain: list[str] = []
         if base.findings:
@@ -705,14 +674,6 @@ class StatsAnalysisAgent:
             stats_plan=stats_plan,
             corrected_rejections=corrected,
             figures=figures,
-            stats_tool_results=(
-                _serialize_legacy_tool_results(legacy_tool_results)
-                or _compat_stats_tool_results(stats_results)
-            ),
-            visualizations=(
-                _legacy_visualizations(legacy_tool_results)
-                or [{"type": "figure", "path": p} for p in figures]
-            ),
             protocol=protocol,
         )
 
@@ -725,7 +686,6 @@ class StatsAnalysisAgent:
         stats_plan: list[dict[str, Any]],
         corrected: dict[str, Any],
         figures: list[str],
-        legacy_tool_results: list[Any],
     ) -> StatsAnalysisReport:
         """LLM-guided path: judge synthesises protocol-specific insights.
 
@@ -756,7 +716,6 @@ class StatsAnalysisAgent:
 
         report = self._to_stats_report(
             base, protocol, stats_results, stats_plan, corrected, figures,
-            legacy_tool_results,
         )
         if conclusion:
             report.conclusion = conclusion
@@ -827,39 +786,6 @@ def _build_input_narrative(model_name: str, inp: StatsInput) -> str:
     if d["n_strategy_groups"]:
         lines.append(f"Strategy groups: {d['n_strategy_groups']}")
     return "\n".join(lines)
-
-
-def _compat_stats_tool_results(stats_results: list[StatsToolResult]) -> list[dict[str, Any]]:
-    """Return the legacy JSON shape used by older logs/examples."""
-    out: list[dict[str, Any]] = []
-    for result in stats_results:
-        payload = result.to_dict()
-        payload["name"] = result.tool
-        payload["conclusion"] = result.summary or result.error or ""
-        payload["visualizations"] = (
-            [{"type": "figure", "path": result.figure_path}]
-            if result.figure_path
-            else []
-        )
-        out.append(payload)
-    return out
-
-
-def _serialize_legacy_tool_results(tool_results: list[Any]) -> list[dict[str, Any]]:
-    payloads: list[dict[str, Any]] = []
-    for result in tool_results:
-        if hasattr(result, "to_dict"):
-            payloads.append(result.to_dict())
-        elif isinstance(result, dict):
-            payloads.append(dict(result))
-    return payloads
-
-
-def _legacy_visualizations(tool_results: list[Any]) -> list[dict[str, Any]]:
-    visualizations: list[dict[str, Any]] = []
-    for result in tool_results:
-        visualizations.extend(getattr(result, "visualizations", []) or [])
-    return visualizations
 
 
 def _multiplicity_note(result: StatsToolResult) -> str:

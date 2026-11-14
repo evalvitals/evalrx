@@ -48,7 +48,6 @@ stages/ (M1–M4 implementation):
   stats_tools.py       M2 — statistical tool catalog wrapping evalrx.stats
                               (signal/label association, McNemar+e-value, Friedman,
                               single-rate e-value, rank corr) + StatsInput/fdr_correct
-  stats_tool_agent.py  M2 — legacy deterministic exploratory stats tools
   stats_tool_generator.py M2 tier(b) — StatsToolGenerator: LLM/CLI writes a new
                               stats script, runs it in a sandbox, parses a
                               STATS_RESULT_JSON contract (never mutates repo source)
@@ -106,7 +105,6 @@ from evalrx.analysis.profile import (
     profile_stats_input,
 )
 from evalrx.analysis.stats_agent import StatsAnalysisAgent, StatsAnalysisReport
-from evalrx.analysis.stats_tool_agent import StatsToolAgent
 from evalrx.analysis.stats_tool_generator import (
     GeneratedStatsTool,
     StatsToolGenerator,
@@ -239,7 +237,6 @@ __all__ = [
     # M2 stats agent
     "StatsAnalysisAgent",
     "StatsAnalysisReport",
-    "StatsToolAgent",
     # M2 stats tools
     "StatsInput",
     "StatsToolResult",

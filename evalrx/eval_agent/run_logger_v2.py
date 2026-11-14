@@ -1115,12 +1115,6 @@ class RunLoggerV2:
         evidence_chain = getattr(report, "evidence_chain", None)
         if evidence_chain:
             entry["evidence_chain"] = list(evidence_chain)
-        stats_tool_results = getattr(report, "stats_tool_results", None)
-        if stats_tool_results:
-            entry["stats_tool_results"] = list(stats_tool_results)
-        visualizations = getattr(report, "visualizations", None)
-        if visualizations:
-            entry["visualizations"] = list(visualizations)
         stats_plan = getattr(report, "stats_plan", None)
         if stats_plan:
             entry["stats_plan"] = stats_plan

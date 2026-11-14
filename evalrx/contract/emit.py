@@ -389,13 +389,6 @@ def from_stats_report(
             summary=str(_val(r, "summary", "") or ""),
             details=dict(_val(r, "details", {}) or {}),
         )
-        # `stats_results` (typed StatsToolResult verdicts), NOT the similarly
-        # named `stats_tool_results` -- which is a legacy JSON-safe *summary*
-        # shape keyed by `name`, so preferring it and then filtering on `tool`
-        # dropped every result. A live run shipped M2 with zero statistics
-        # beside corrected_rejections.n_tested=16, and both are valid states on
-        # their own, so nothing downstream could tell that the payload was empty
-        # because of a field mix-up rather than because nothing was tested.
         for r in (_val(report, "stats_results", []) or [])
         if _val(r, "tool", None)
     ]
