@@ -57,25 +57,26 @@ def _resolve_report_source(source: str, trace_id: str | None, run_dir: str | Non
     return str(LangfuseRunSource().materialize(trace_id, _langfuse_cache(trace_id)))
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="evalrx",
-        description="EvalRX command-line interface.",
-    )
-    parser.add_argument(
-        "-v", "--verbose",
-        action="store_true",
-        help="Print evalrx' internal stage-by-stage narration "
-             "(evalrx.enable_console_logging()) to stdout. Applies to any subcommand.",
-    )
-    sub = parser.add_subparsers(dest="command")
+# Each command is a pair: ``_add_<command>`` declares its arguments and names
+# ``_<command>`` as its handler, which runs it and returns the exit code.
+# Handlers import what they run, so ``evalrx --help`` stays light and a
+# command whose extra is not installed fails only when it is used.
 
+def _add_run(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     from evalrx.benchmark.run import build_parser as benchmark_parser
 
     benchmark_parser(sub.add_parser(
         "run", help="Evaluate a model and run the M1–M5 diagnosis and repair workflow.",
-    ))
+    )).set_defaults(handler=_run)
 
+
+def _run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from evalrx.benchmark.run import run_args
+
+    return run_args(args)
+
+
+def _add_explore(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     explore = sub.add_parser(
         "explore",
         help="Run a single-shot exploratory analysis over a results directory.",
@@ -162,7 +163,60 @@ def main(argv: list[str] | None = None) -> int:
     )
     explore.add_argument("--thread-id", default="", help=argparse.SUPPRESS)
     explore.add_argument("--turn-id", default="", help=argparse.SUPPRESS)
+    explore.set_defaults(handler=_explore)
 
+
+def _explore(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    if not args.path:
+        parser.error("evalrx explore requires a results path")
+    from evalrx.analysis.narration import MultiSink, TerminalNarrator
+
+    event_sink = None
+    if args.progress_path:
+        from evalrx.analysis.workbench import EventSink
+
+        event_sink = EventSink(
+            args.progress_path,
+            thread_id=args.thread_id or "standalone",
+            turn_id=args.turn_id or "explore",
+        )
+        event_sink.emit("job", "started", "Analysis worker started")
+    # "job" bookkeeping above/below stays workbench-only (event_sink), not
+    # narrated -- it wraps the whole process rather than one M-stage.
+    progress_sink = MultiSink(TerminalNarrator() if args.narrate else None, event_sink) or None
+    code = run_explore(
+        args.path,
+        question=args.question,
+        out=args.out,
+        coder_provider=args.coder_provider,
+        coder_model=args.coder_model,
+        coder_binary=args.coder_binary,
+        max_rows=args.max_rows,
+        max_files=args.max_files,
+        include_tool_calls=args.include_tool_calls,
+        timeout_sec=args.timeout_sec,
+        max_attempts=args.max_attempts,
+        open_report=args.serve_report,
+        skills=args.skill,
+        allow_skills=args.allow_skills,
+        use_bundled_skills=args.use_bundled_skills,
+        outcome_col=args.outcome_col,
+        propose_hypotheses=args.propose_hypotheses,
+        holdout_frac=args.holdout_frac,
+        holdout_seed=args.holdout_seed,
+        holdout_confirm=args.holdout_confirm,
+        judge_model=args.judge_model,
+        progress_sink=progress_sink,
+    )
+    if event_sink is not None:
+        event_sink.emit(
+            "job", "completed" if code == 0 else "failed",
+            "Analysis worker completed" if code == 0 else "Analysis worker failed",
+        )
+    return code
+
+
+def _add_run_codebase(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     run_codebase = sub.add_parser(
         "run-codebase",
         help="Run a user's evaluation codebase, then explore the results it produces.",
@@ -204,8 +258,31 @@ def main(argv: list[str] | None = None) -> int:
         "--no-narrate", dest="narrate", action="store_false", default=True,
         help="Do not print live per-stage narration (run/M2/M3/... lines) to the terminal.",
     )
+    run_codebase.set_defaults(handler=_run_codebase)
 
 
+def _run_codebase(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from evalrx.analysis.explorer import RECORDS_FILENAME
+    from evalrx.analysis.narration import TerminalNarrator
+
+    return run_codebase_cli(
+        args.path,
+        out=args.out,
+        coder_provider=args.coder_provider,
+        coder_model=args.coder_model,
+        coder_binary=args.coder_binary,
+        outcome_col=args.outcome_col,
+        records_name=args.records_name or RECORDS_FILENAME,
+        timeout_sec=args.timeout_sec,
+        max_attempts=args.max_attempts,
+        question=args.question,
+        analyze=args.analyze,
+        open_report=args.serve_report,
+        progress_sink=TerminalNarrator() if args.narrate else None,
+    )
+
+
+def _add_serve(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     serve = sub.add_parser(
         "serve",
         help="Publish (if needed) and serve the dynamic completed-run UI.",
@@ -218,7 +295,24 @@ def main(argv: list[str] | None = None) -> int:
     serve.add_argument("--source", choices=["auto", "local", "langfuse"], default="auto", help="Run data source (default: Langfuse when --trace-id is set, otherwise local).")
     serve.add_argument("--trace-id", default=None, help="Langfuse trace id (required for --source langfuse).")
     serve.add_argument("--runs-root", default=None, help="Where the runs panel looks for other experiments (default: run_dir's parent, or the current directory).")
+    serve.set_defaults(handler=_serve)
 
+
+def _serve(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    try:
+        source_dir = _resolve_report_source(args.source, args.trace_id, args.run_dir)
+    except (ImportError, LookupError, RuntimeError, ValueError) as exc:
+        parser.error(str(exc))
+    try:
+        return serve_report(
+            source_dir, port=args.port, no_audio=args.no_audio,
+            open_browser=not args.no_browser, runs_root=args.runs_root,
+        )
+    except ImportError as exc:
+        parser.error(str(exc))
+
+
+def _add_report(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     report_cmd = sub.add_parser(
         "report",
         help="Explicitly export a portable self-contained HTML snapshot.",
@@ -232,7 +326,28 @@ def main(argv: list[str] | None = None) -> int:
     report_cmd.add_argument("--audio-bitrate", default="48k", help="Transcode inlined lossless audio to mono MP3 at this bitrate via ffmpeg (default: 48k; 'none' = inline the original bytes).")
     report_cmd.add_argument("--source", choices=["local", "langfuse"], default="local", help="Run data source.")
     report_cmd.add_argument("--trace-id", default=None, help="Langfuse trace id (required for --source langfuse).")
+    report_cmd.set_defaults(handler=_report)
 
+
+def _report(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from evalrx.reporting.static_export import export_static_report
+
+    try:
+        source_dir = _resolve_report_source(args.source, args.trace_id, args.run_dir)
+    except (ImportError, LookupError, RuntimeError, ValueError) as exc:
+        parser.error(str(exc))
+
+    export_static_report(
+        run_dir=source_dir,
+        example_dir=args.example_dir,
+        out_path=args.out,
+        embed_media="none" if args.no_audio else args.embed_media,
+        audio_bitrate=None if str(getattr(args, "audio_bitrate", "48k")).lower() == "none" else args.audio_bitrate,
+    )
+    return 0
+
+
+def _add_publish_report(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     publish_cmd = sub.add_parser(
         "publish-report",
         help="Compile and cache ReportData plus a validated json-render layout.",
@@ -241,7 +356,23 @@ def main(argv: list[str] | None = None) -> int:
     publish_cmd.add_argument("--example-dir", default=None, help="Optional benchmark/example root for legacy runs.")
     publish_cmd.add_argument("--source", choices=["auto", "local", "langfuse"], default="auto")
     publish_cmd.add_argument("--trace-id", default=None)
+    publish_cmd.set_defaults(handler=_publish_report)
 
+
+def _publish_report(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from evalrx.reporting.dynamic import publish_report
+
+    try:
+        source_dir = _resolve_report_source(args.source, args.trace_id, args.run_dir)
+        published = publish_report(source_dir, example_dir=args.example_dir)
+    except (ImportError, LookupError, RuntimeError, ValueError) as exc:
+        parser.error(str(exc))
+    print(f"Published report data: {published.data_path}")
+    print(f"Published report layout: {published.spec_path} ({published.generated_by})")
+    return 0
+
+
+def _add_export_langfuse(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     langfuse_cmd = sub.add_parser(
         "export-langfuse",
         help="Export a diagnostic run to Langfuse trace JSON format or sync live.",
@@ -250,153 +381,71 @@ def main(argv: list[str] | None = None) -> int:
     langfuse_cmd.add_argument("run_dir", nargs="?", default="outputs", help="Run directory.")
     langfuse_cmd.add_argument("--out", "-o", default=None, help="Output JSON path.")
     langfuse_cmd.add_argument("--sync", action="store_true", help="Sync live to Langfuse server.")
+    langfuse_cmd.set_defaults(handler=_export_langfuse)
 
+
+def _export_langfuse(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from evalrx.reporting.langfuse_exporter import (
+        export_to_langfuse_bundle,
+        sync_to_langfuse_live,
+    )
+
+    if args.sync:
+        return 0 if sync_to_langfuse_live(args.run_dir) else 1
+    out_p = args.out or (Path(args.run_dir) / "langfuse_trace.json")
+    export_to_langfuse_bundle(args.run_dir, out_p)
+    return 0
+
+
+def _add_backfill_langfuse(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     backfill_langfuse = sub.add_parser(
         "backfill-langfuse",
         help="Queue an existing run (run.json/M1..M5) for reliable Langfuse ingestion.",
     )
     backfill_langfuse.add_argument("run_dir", help="Run directory holding run.json/M1..M5, or logs/.")
     backfill_langfuse.add_argument("--dry-run", action="store_true", help="Inspect the run without writing an outbox.")
+    backfill_langfuse.set_defaults(handler=_backfill_langfuse)
+
+
+def _backfill_langfuse(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from evalrx.observability import backfill_run_to_langfuse
+
+    summary = backfill_run_to_langfuse(args.run_dir, dry_run=args.dry_run)
+    print(
+        "Langfuse backfill: "
+        f"trace={summary['trace_id']} events={summary['events']} "
+        f"published={summary['published']} pending={summary['pending']}"
+    )
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="evalrx",
+        description="EvalRX command-line interface.",
+    )
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Print evalrx' internal stage-by-stage narration "
+             "(evalrx.enable_console_logging()) to stdout. Applies to any subcommand.",
+    )
+    sub = parser.add_subparsers(dest="command")
+    for add_command in (
+        _add_run, _add_explore, _add_run_codebase, _add_serve, _add_report,
+        _add_publish_report, _add_export_langfuse, _add_backfill_langfuse,
+    ):
+        add_command(sub)
 
     args = parser.parse_args(argv)
     if args.verbose:
         from evalrx.logging_utils import enable_console_logging
 
         enable_console_logging()
-    if args.command == "run":
-        from evalrx.benchmark.run import run_args
-
-        return run_args(args)
-    if args.command == "explore":
-        if not args.path:
-            parser.error("evalrx explore requires a results path")
-        from evalrx.analysis.narration import MultiSink, TerminalNarrator
-
-        event_sink = None
-        if args.progress_path:
-            from evalrx.analysis.workbench import EventSink
-
-            event_sink = EventSink(
-                args.progress_path,
-                thread_id=args.thread_id or "standalone",
-                turn_id=args.turn_id or "explore",
-            )
-            event_sink.emit("job", "started", "Analysis worker started")
-        # "job" bookkeeping above/below stays workbench-only (event_sink), not
-        # narrated -- it wraps the whole process rather than one M-stage.
-        progress_sink = MultiSink(TerminalNarrator() if args.narrate else None, event_sink) or None
-        code = run_explore(
-            args.path,
-            question=args.question,
-            out=args.out,
-            coder_provider=args.coder_provider,
-            coder_model=args.coder_model,
-            coder_binary=args.coder_binary,
-            max_rows=args.max_rows,
-            max_files=args.max_files,
-            include_tool_calls=args.include_tool_calls,
-            timeout_sec=args.timeout_sec,
-            max_attempts=args.max_attempts,
-            open_report=args.serve_report,
-            skills=args.skill,
-            allow_skills=args.allow_skills,
-            use_bundled_skills=args.use_bundled_skills,
-            outcome_col=args.outcome_col,
-            propose_hypotheses=args.propose_hypotheses,
-            holdout_frac=args.holdout_frac,
-            holdout_seed=args.holdout_seed,
-            holdout_confirm=args.holdout_confirm,
-            judge_model=args.judge_model,
-            progress_sink=progress_sink,
-        )
-        if event_sink is not None:
-            event_sink.emit(
-                "job", "completed" if code == 0 else "failed",
-                "Analysis worker completed" if code == 0 else "Analysis worker failed",
-            )
-        return code
-    if args.command == "run-codebase":
-        from evalrx.analysis.explorer import RECORDS_FILENAME
-        from evalrx.analysis.narration import TerminalNarrator
-
-        return run_codebase_cli(
-            args.path,
-            out=args.out,
-            coder_provider=args.coder_provider,
-            coder_model=args.coder_model,
-            coder_binary=args.coder_binary,
-            outcome_col=args.outcome_col,
-            records_name=args.records_name or RECORDS_FILENAME,
-            timeout_sec=args.timeout_sec,
-            max_attempts=args.max_attempts,
-            question=args.question,
-            analyze=args.analyze,
-            open_report=args.serve_report,
-            progress_sink=TerminalNarrator() if args.narrate else None,
-        )
-    if args.command == "serve":
-        try:
-            source_dir = _resolve_report_source(args.source, args.trace_id, args.run_dir)
-        except (ImportError, LookupError, RuntimeError, ValueError) as exc:
-            parser.error(str(exc))
-        try:
-            return serve_report(
-                source_dir, port=args.port, no_audio=args.no_audio,
-                open_browser=not args.no_browser, runs_root=args.runs_root,
-            )
-        except ImportError as exc:
-            parser.error(str(exc))
-    if args.command == "publish-report":
-        from evalrx.reporting.dynamic import publish_report
-
-        try:
-            source_dir = _resolve_report_source(args.source, args.trace_id, args.run_dir)
-            published = publish_report(source_dir, example_dir=args.example_dir)
-        except (ImportError, LookupError, RuntimeError, ValueError) as exc:
-            parser.error(str(exc))
-        print(f"Published report data: {published.data_path}")
-        print(f"Published report layout: {published.spec_path} ({published.generated_by})")
+    if args.command is None:
+        parser.print_help()
         return 0
-    if args.command == "report":
-        from evalrx.reporting.static_export import export_static_report
-
-        try:
-            source_dir = _resolve_report_source(args.source, args.trace_id, args.run_dir)
-        except (ImportError, LookupError, RuntimeError, ValueError) as exc:
-            parser.error(str(exc))
-
-        export_static_report(
-            run_dir=source_dir,
-            example_dir=args.example_dir,
-            out_path=args.out,
-            embed_media="none" if args.no_audio else args.embed_media,
-            audio_bitrate=None if str(getattr(args, "audio_bitrate", "48k")).lower() == "none" else args.audio_bitrate,
-        )
-        return 0
-    if args.command == "export-langfuse":
-        from evalrx.reporting.langfuse_exporter import (
-            export_to_langfuse_bundle,
-            sync_to_langfuse_live,
-        )
-
-        if args.sync:
-            return 0 if sync_to_langfuse_live(args.run_dir) else 1
-        out_p = args.out or (Path(args.run_dir) / "langfuse_trace.json")
-        export_to_langfuse_bundle(args.run_dir, out_p)
-        return 0
-    if args.command == "backfill-langfuse":
-        from evalrx.observability import backfill_run_to_langfuse
-
-        summary = backfill_run_to_langfuse(args.run_dir, dry_run=args.dry_run)
-        print(
-            "Langfuse backfill: "
-            f"trace={summary['trace_id']} events={summary['events']} "
-            f"published={summary['published']} pending={summary['pending']}"
-        )
-        return 0
-
-    parser.print_help()
-    return 0
+    return args.handler(args, parser)
 
 
 if __name__ == "__main__":  # pragma: no cover
