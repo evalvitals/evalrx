@@ -342,7 +342,297 @@ def run_fix_isolated(loop, run_dir: Path, ctx, report, cases, **fix_kwargs):
         return loop.run_fix(report, cases, **fix_kwargs)
 
 
+def _load_target(resolved: Resolved, args, task: T.Task, run_dir: Path):
+    """``(model, generation_kwargs, spec)`` for the model under test, weights in memory.
+
+    The weights load here, OUTSIDE the timed discovery pass (hf_local is lazy).
+    """
+    model, gen_kwargs, spec = load_model(resolved, args, task)
+    if resolved.backend == "gemini":
+        from evalrx.models.backends.api.gemini import runtime_state
+
+        capabilities: dict[str, Any] = {"capabilities": sorted(c.value for c in model.capabilities),
+                        "runtime": runtime_state(model)}
+        (run_dir / "api_capabilities.json").write_text(
+            json.dumps(capabilities, indent=2) + "\n", encoding="utf-8")
+        print(f"[model] logprobs: {capabilities['runtime'].get('logprobs_probe')}")
+    if hasattr(model, "load"):
+        t0 = time.monotonic()
+        model = load_weights(model, resolved, args, task)
+        print(f"[model] weights loaded in {time.monotonic() - t0:.0f}s "
+              f"(attn_impl={getattr(model.runtime, 'attn_impl', None)}); generation={gen_kwargs}")
+        if resolved.backend == "jax_local":
+            import jax
+
+            print(f"[device] {jax.default_backend()}: "
+                  + ", ".join(f"{d} ({d.device_kind})" for d in jax.devices()))
+    return model, gen_kwargs, spec
+
+
+def _deploy_baseline_spec(model, spec_path: str):
+    """``(the baseline to measure, its spec as a dict)`` for ``--baseline-spec``.
+
+    Winner-as-new-baseline (recursive rounds with an L2 spec winner): the
+    deployed pipeline becomes the handle everything downstream measures —
+    Stage-0, the M stages, and the fix stage's baseline arm — while fix
+    candidates run on the raw model and REPLACE the pipeline. Without a spec
+    the model itself is the baseline.
+    """
+    if not spec_path:
+        return model, None
+    from evalrx.eval_agent.stages.fix.tools import SpecPipelineModel
+
+    payload = json.loads(Path(spec_path).read_text(encoding="utf-8"))
+    if isinstance(payload, dict) and isinstance(payload.get("payload"), dict):
+        payload = payload["payload"]  # a fix attempt's result.json
+    deployed = SpecPipelineModel(model, payload)
+    deployed_spec = deployed.spec.to_dict()
+    print(f"[baseline-spec] baseline = deployed pipeline {deployed_spec.get('name')!r} "
+          f"(n_samples={deployed.spec.n_samples}, strategy={deployed.spec.strategy}); "
+          "fix candidates run on the raw model and replace it")
+    return deployed, deployed_spec
+
+
+def _run_config(args, task: T.Task, resolved: Resolved, spec, gen_kwargs: dict, manifest: Path,
+                rows: list, n_cases: int) -> dict[str, Any]:
+    """How this cell was asked to run, as the run log records it."""
+    return {
+        "benchmark": task.title, "dataset": task.name, "modality": task.modality,
+        "model": args.model, "spec": spec.key, "hf_repo": spec.hf_repo,
+        "backend": resolved.backend, "n_cases": n_cases,
+        "manifest": str(manifest),
+        "manifest_seed": rows[0].get("sample_seed") if rows else None,
+        "split_mode": ("held_out_val" if args.held_out else "explore_confirm"),
+        "confirm_split": float(args.confirm_split), "test_split": 0.0,
+        "val_limit": int(getattr(args, "val_limit", 0) or 0),
+        "held_out": bool(args.held_out),
+        "fix_tier": args.fix_tier,
+        "allow_codegen": args.allow_codegen, "auto_escalate": args.auto_escalate,
+        "m1_selection": args.m1_selection, "generation_kwargs": gen_kwargs,
+        "diagnosis_mode": getattr(args, "diagnosis_mode", "agentic"),
+        "max_actions": getattr(args, "max_actions", 12),
+        "diagnosis_retries": 1,
+        "enable_thinking": bool(args.enable_thinking),
+        "judge_provider": args.judge_provider, "judge_model": args.judge_model,
+    }
+
+
+def _discover(model, candidates, protocol, gen_kwargs: dict, args):
+    """Stage 0: generate an answer per candidate and label it. ``(discovery, seconds)``."""
+    from evalrx.eval_agent import CaseDiscoveryAgent
+
+    started = time.monotonic()
+    discovery = CaseDiscoveryAgent(
+        scorer=T.label_case, generation_kwargs=gen_kwargs, include_unknown=False,
+        concurrency=getattr(args, "concurrency", 1),
+    ).discover(model, candidates, protocol=protocol)
+    return discovery, time.monotonic() - started
+
+
+def _case_labels(cases) -> list[dict[str, Any]]:
+    return [{
+        "id": c.id, "expected": c.expected, "observed": str(c.observed), "label": c.label.value,
+    } for c in cases]
+
+
+def _mark_short_answers_stopped(task: T.Task, cases) -> None:
+    """A terse answer that ended well below the cap is a normal EOS stop, not
+    the free-form truncation heuristic."""
+    if task.short_answer:
+        for case in cases:
+            case.metadata["finish_reason"] = "stop"
+
+
+def _label_validation_set(model, val_manifest: Path, protocol, gen_kwargs: dict, args, task: T.Task,
+                          spec, run_dir: Path):
+    """The ``--held-out`` validation cases, labeled by their own Stage-0 pass.
+
+    A SEPARATE frozen sample. It takes the M4-holdout + fix-development roles;
+    the main batch keeps its full explore/confirm split and CONFIRM stays the
+    single frozen-winner gate.
+    """
+    val_candidates, _ = T.build_cases(task, val_manifest, int(getattr(args, "val_limit", 0) or 0))
+    val_discovery, val_elapsed = _discover(model, val_candidates, protocol, gen_kwargs, args)
+    val_cases = val_discovery.cases
+    val_accuracy = val_discovery.n_pass / max(1, len(val_cases))
+    (run_dir / "baseline_val.json").write_text(json.dumps({
+        "model": args.model, "spec": spec.key, "dataset": task.name, "role": "validation",
+        "n": len(val_cases), "n_pass": val_discovery.n_pass, "n_fail": val_discovery.n_fail,
+        "n_unknown": val_discovery.n_unknown, "accuracy": round(val_accuracy, 4),
+        "seconds": round(val_elapsed, 1), "manifest": str(val_manifest),
+        "cases": _case_labels(val_cases),
+    }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"Validation baseline: PASS={val_discovery.n_pass}, FAIL={val_discovery.n_fail}, "
+          f"accuracy={val_accuracy:.3f} ({val_elapsed:.0f}s, n={len(val_cases)})")
+    _mark_short_answers_stopped(task, val_cases)
+    if not val_discovery.has_m4_groups:
+        print("  NOTE the validation set lacks a PASS or FAIL group; the holdout "
+              "M4 verification there will have nothing to contrast")
+    return val_cases
+
+
+def _is_agentic(args) -> bool:
+    return getattr(args, "diagnosis_mode", "agentic") == "agentic"
+
+
+def _probe_agent(args, task: T.Task, resolved: Resolved, model, judge, coder_cfg, config: dict[str, Any]):
+    """The M1 agent; records its worker count and selection mode in ``config``."""
+    from evalrx.eval_agent import ProbeAgent, StrategyProbe
+
+    pinned = list(task.pinned_m1)
+    if resolved.backend == "gemini":
+        from evalrx.core.capability import Capability
+
+        if Capability.LOGPROBS in model.capabilities and "logprob_entropy" not in pinned:
+            pinned.append("logprob_entropy")
+    overrides = _sampling_analyzer_overrides(resolved, args)
+    # In-process generation shares one accelerator model. Concurrent Python
+    # generation loops contend heavily on HF models; JAX already serializes
+    # model access. Keep native probes on the calling thread, while serving
+    # backends can continue issuing concurrent requests.
+    probe_workers = 1 if resolved.backend in {"hf_local", "jax_local"} else 8
+    config["m1_workers"] = probe_workers
+    agentic = _is_agentic(args)
+    m1_codegen = agentic and args.allow_codegen
+    config["m1_codegen"] = bool(m1_codegen)
+    config["m1_selection"] = "judge" if agentic or m1_codegen else args.m1_selection
+    if args.m1_selection == "pinned" and not agentic and not m1_codegen:
+        return ProbeAgent(
+            # StrategyProbe dispatches by the model's detected kind.  Keep the
+            # benchmark's pinned list authoritative for every supported kind,
+            # including the audio-language kinds used by ALM/AVLM examples.
+            probe=StrategyProbe(priority_override=_pinned_priority_override(pinned)),
+            judge=None, max_analyzers=len(pinned),
+            max_cases_per_analyzer=args.analyzer_max_cases,
+            analyzer_overrides=overrides,
+            max_workers=probe_workers,
+        )
+    return ProbeAgent(judge=judge, allow_codegen=m1_codegen,
+                      codegen_config=coder_cfg,
+                      max_cases_per_analyzer=args.analyzer_max_cases,
+                      analyzer_overrides=overrides, max_workers=probe_workers)
+
+
+def _stats_agent(args, task: T.Task, judge, coder_cfg, ctx):
+    """The M2 agent; records whether it may write code in ``ctx.config``."""
+    from evalrx.eval_agent import StatsAnalysisAgent
+
+    m2_codegen = args.m2_codegen if args.m2_codegen is not None else (_is_agentic(args) or task.modality == "llm")
+    ctx.config["m2_codegen"] = bool(m2_codegen)
+    stats_kwargs: dict[str, Any] = {"codegen_config": coder_cfg} if m2_codegen else {}
+    return StatsAnalysisAgent(
+        judge=judge, figure_dir=str(ctx.figures_dir), max_signal_tools=16,
+        allow_codegen=m2_codegen, **stats_kwargs,
+    )
+
+
+def _fix_agent(args, task: T.Task, judge, coder_cfg, gen_kwargs: dict, ctx, raw_model, deployed_spec):
+    """The fix agent, scoped by the ``--fix-*`` / ``--code-only`` flags."""
+    from evalrx.eval_agent import FixAgent
+    from evalrx.eval_agent.stages.fix.repair_catalog import method_names
+
+    fix_kwargs: dict[str, Any] = {}
+    sampled = bool(gen_kwargs.get("do_sample"))
+    # Noise model for a sampled baseline: per-case PASS RATE over k samples (the
+    # frozen Stage 0 output + k-1 fresh), as llm_benchmark does; greedy = 1.
+    fix_kwargs["baseline_repeats"] = (args.fix_baseline_repeats if args.fix_baseline_repeats is not None
+                                      else (5 if sampled else 1))
+    if task.modality == "llm":
+        floor = {"max_tokens": gen_kwargs.get("max_new_tokens", task.max_new_tokens)}
+        if sampled:
+            floor.update(temperature=gen_kwargs["temperature"], top_p=gen_kwargs["top_p"])
+        fix_kwargs.update(baseline_generation_kwargs=floor)
+    prewritten_code = (
+        Path(args.fix_code_file).read_text(encoding="utf-8")
+        if args.fix_code_file else ""
+    )
+    if deployed_spec is not None:
+        fix_kwargs.update(candidate_model=raw_model, deployed_spec=deployed_spec)
+    if args.code_only:
+        fix_kwargs["max_judge_candidates"] = 1
+    return FixAgent(
+        judge=judge, max_tier=args.fix_tier, score_fn=T.score_case, run_logger=ctx.logger,
+        cli_config=replace(coder_cfg, timeout_sec=420) if args.allow_codegen else None,
+        allow_codegen=args.allow_codegen, run_context=ctx,
+        max_validation_cases=args.fix_validation_cases, alpha=0.05,
+        allow_adapted_paper_methods=args.allow_adapted_paper_methods,
+        candidate_allowlist=(
+            {args.fix_candidate} if args.fix_candidate
+            else ({"coded_pipeline"} if args.code_only
+                  else (method_names() if args.registered_repairs_only else None))
+        ),
+        max_repair_rounds=max(1, args.fix_repair_rounds),
+        exec_timeout_sec=args.fix_exec_timeout,
+        prewritten_code=prewritten_code,
+        concurrency=getattr(args, "concurrency", 1),
+        floor_candidates=() if _is_agentic(args) else ("self_consistency_5",),
+        progress_callback=_print_fix_progress,
+        **fix_kwargs,
+    )
+
+
+def _explorer(coder_cfg, ctx):
+    from evalrx.agent_runtime.sandbox import ExperimentSandbox
+    from evalrx.analysis import ExploratoryAnalysisAgent
+
+    return ExploratoryAnalysisAgent(
+        cli_config=coder_cfg,
+        sandbox=ExperimentSandbox(
+            workdir=ctx.explore_dir / "sandbox",
+            cleanup=False,
+        ),
+        timeout_sec=900, max_attempts=3,
+    )
+
+
+def _run_m5(loop, report, cases, args) -> None:
+    """M5 on the best hypothesis, unless the flags make it pointless.
+
+    No M4-verified hypothesis still gets M5 + a fix attempt on the best
+    unverified leads (the candidate validation on CONFIRM is the gate).
+    An explicitly pre-registered fix is already the experiment the
+    caller asked to validate.  Running an unrelated M5 surgery first is
+    pure latency and can contend for the same GPU; it cannot influence
+    the frozen candidate or its EXPLORE/CONFIRM verdict.
+    """
+    if args.skip_m5:
+        print("M5: skipped by --skip-m5 (tiered fix search remains enabled)")
+    elif args.fix_candidate or args.code_only or args.registered_repairs_only:
+        requested = (
+            args.fix_candidate or ("coded_pipeline" if args.code_only else "registered methods")
+        )
+        print(f"M5: skipped for pre-registered fix scope {requested!r}")
+    else:
+        proposal = loop.run_m5(report, cases, allow_unverified=True)
+        if proposal is not None:
+            tag = "verified" if report.verified_hypotheses else "UNVERIFIED (best lead)"
+            print(f"M5 experiment on the {tag} hypothesis: status={proposal.status}")
+        else:
+            print("M5: no hypothesis to experiment on")
+
+
+def _run_fix(loop, run_dir: Path, ctx, report, cases, args, fix_tier: str) -> dict[str, Any]:
+    """Run the fix ladder; the ``fix`` entry of summary.json."""
+    outcome = run_fix_isolated(loop, run_dir, ctx, report, cases, max_tier=fix_tier,
+                               auto_escalate=args.auto_escalate, allow_unverified=True)
+    attempted = []
+    for validation in outcome.attempted:
+        effect = "n/a" if validation.effect is None else f"{validation.effect:+.3f}"
+        print(f"Fix [{validation.candidate.tier.label}] {validation.candidate.name}: "
+              f"fixed={validation.fixed}, repairs={validation.n_fixed}, "
+              f"breaks={validation.n_broken}, effect={effect}")
+        attempted.append({"tier": validation.candidate.tier.label, "name": validation.candidate.name,
+                          "fixed": bool(validation.fixed), "repairs": validation.n_fixed,
+                          "breaks": validation.n_broken, "effect": validation.effect})
+    return {"recommendation": str(getattr(outcome, "recommendation", "") or ""),
+            "attempted": attempted}
+
+
 def run(args, task: T.Task, resolved: Resolved) -> int:
+    """Run one cell: Stage 0 baseline, the diagnosis loop, then M5 and the fix ladder.
+
+    Returns the process exit code (2 when the diagnosis itself failed).
+    """
     manifest = ensure_manifest(task, args)
     # Fail fast: the held-out validation manifest must exist before any model
     # or judge is loaded.
@@ -363,49 +653,17 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     if not args.baseline_only:
         judge, coder_provider, coder_model, coder_extra = build_judge(args)
 
-    model, gen_kwargs, spec = load_model(resolved, args, task)
-    if resolved.backend == "gemini":
-        from evalrx.models.backends.api.gemini import runtime_state
-
-        capabilities: dict[str, Any] = {"capabilities": sorted(c.value for c in model.capabilities),
-                        "runtime": runtime_state(model)}
-        (run_dir / "api_capabilities.json").write_text(
-            json.dumps(capabilities, indent=2) + "\n", encoding="utf-8")
-        print(f"[model] logprobs: {capabilities['runtime'].get('logprobs_probe')}")
+    model, gen_kwargs, spec = _load_target(resolved, args, task, run_dir)
     protocol = task.protocol(label)
-    if hasattr(model, "load"):
-        # load the weights OUTSIDE the timed discovery pass (hf_local is lazy)
-        t0 = time.monotonic()
-        model = load_weights(model, resolved, args, task)
-        print(f"[model] weights loaded in {time.monotonic() - t0:.0f}s "
-              f"(attn_impl={getattr(model.runtime, 'attn_impl', None)}); generation={gen_kwargs}")
-        if resolved.backend == "jax_local":
-            import jax
-
-            print(f"[device] {jax.default_backend()}: "
-                  + ", ".join(f"{d} ({d.device_kind})" for d in jax.devices()))
-
-    # Winner-as-new-baseline (recursive rounds with an L2 spec winner): the
-    # deployed pipeline becomes the handle everything downstream measures —
-    # Stage-0, the M stages, and the fix stage's baseline arm — while fix
-    # candidates run on the raw model and REPLACE the pipeline.
-    raw_model, deployed_spec = model, None
-    if getattr(args, "baseline_spec", ""):
-        from evalrx.eval_agent.stages.fix.tools import SpecPipelineModel
-
-        payload = json.loads(Path(args.baseline_spec).read_text(encoding="utf-8"))
-        if isinstance(payload, dict) and isinstance(payload.get("payload"), dict):
-            payload = payload["payload"]  # a fix attempt's result.json
-        model = SpecPipelineModel(model, payload)
-        deployed_spec = model.spec.to_dict()
-        print(f"[baseline-spec] baseline = deployed pipeline {deployed_spec.get('name')!r} "
-              f"(n_samples={model.spec.n_samples}, strategy={model.spec.strategy}); "
-              "fix candidates run on the raw model and replace it")
-
-    from evalrx.eval_agent import CaseDiscoveryAgent, RunContext
+    raw_model = model
+    model, deployed_spec = _deploy_baseline_spec(model, getattr(args, "baseline_spec", ""))
 
     ctx = None
+    discovery_model = model
     if not args.baseline_only:
+        from evalrx.eval_agent import RunContext
+        from evalrx.eval_agent.model_instrumentation import InstrumentedModel
+
         # Create the V2 sink before Stage-0 so each discovery request is durable
         # as it happens, including its real latency and any transport error.
         ctx = RunContext(
@@ -413,48 +671,19 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
             # same style as examples/m1_m5/qwen_loop_claude, instead of verbose's
             # raw "[M1] probe cycle=0" one-liners.
             run_dir / "logs", narrate=True,
-            config={
-                "benchmark": task.title, "dataset": task.name, "modality": task.modality,
-                "model": args.model, "spec": spec.key, "hf_repo": spec.hf_repo,
-                "backend": resolved.backend, "n_cases": len(candidates),
-                "manifest": str(manifest),
-                "manifest_seed": rows[0].get("sample_seed") if rows else None,
-                "split_mode": ("held_out_val" if args.held_out else "explore_confirm"),
-                "confirm_split": float(args.confirm_split), "test_split": 0.0,
-                "val_limit": int(getattr(args, "val_limit", 0) or 0),
-                "held_out": bool(args.held_out),
-                "fix_tier": args.fix_tier,
-                "allow_codegen": args.allow_codegen, "auto_escalate": args.auto_escalate,
-                "m1_selection": args.m1_selection, "generation_kwargs": gen_kwargs,
-                "diagnosis_mode": getattr(args, "diagnosis_mode", "agentic"),
-                "max_actions": getattr(args, "max_actions", 12),
-                "diagnosis_retries": 1,
-                "enable_thinking": bool(args.enable_thinking),
-                "judge_provider": args.judge_provider, "judge_model": args.judge_model,
-            },
+            config=_run_config(args, task, resolved, spec, gen_kwargs, manifest, rows, len(candidates)),
         )
-
-    discovery_model = model
-    if ctx is not None:
-        from evalrx.eval_agent.model_instrumentation import InstrumentedModel
-
-        candidate_list = list(candidates)
+        candidates = list(candidates)
         discovery_model = InstrumentedModel(
             model, ctx.logger, cycle=-1, analyzer="case_discovery",
-            case_prompts={c.inputs.prompt: c.id for c in candidate_list},
-            batch_case_ids=[c.id for c in candidate_list],
+            case_prompts={c.inputs.prompt: c.id for c in candidates},
+            batch_case_ids=[c.id for c in candidates],
         )
-        candidates = candidate_list
 
-    started = time.monotonic()
-    discovery = CaseDiscoveryAgent(
-        scorer=T.label_case, generation_kwargs=gen_kwargs, include_unknown=False,
-        concurrency=getattr(args, "concurrency", 1),
-    ).discover(discovery_model, candidates, protocol=protocol)
+    discovery, elapsed = _discover(discovery_model, candidates, protocol, gen_kwargs, args)
     cases = discovery.cases
     if ctx is not None:
         ctx.config["n_cases"] = len(cases)
-    elapsed = time.monotonic() - started
     accuracy = discovery.n_pass / max(1, len(cases))
     baseline = {
         "model": args.model, "spec": spec.key, "hf_repo": spec.hf_repo, "backend": resolved.backend,
@@ -463,9 +692,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         "accuracy": round(accuracy, 4), "seconds": round(elapsed, 1),
         "generation_kwargs": gen_kwargs, "enable_thinking": bool(args.enable_thinking),
         "manifest": str(manifest), "limit": limit,
-        "cases": [{
-            "id": c.id, "expected": c.expected, "observed": str(c.observed), "label": c.label.value,
-        } for c in cases],
+        "cases": _case_labels(cases),
     }
     version = _api_model_version(model)
     if version:
@@ -478,167 +705,33 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     if task.modality == "llm" and not 0.15 <= accuracy <= 0.85:
         print("  NOTE accuracy is outside the usable band [0.15, 0.85]: M2 has little to contrast "
               "and the paired tests downstream are short of power (results valid, weak)")
-    if task.short_answer:
-        # A terse answer that ended well below the cap is a normal EOS stop, not
-        # the free-form truncation heuristic.
-        for case in cases:
-            case.metadata["finish_reason"] = "stop"
-    if args.baseline_only:
+    _mark_short_answers_stopped(task, cases)
+    if ctx is None:  # --baseline-only
         print(f"Done (baseline only). {run_dir / 'baseline.json'}")
         return 0
     if not discovery.has_m4_groups:
         raise SystemExit("M4 needs both PASS and FAIL cases; adjust --limit / --seed")
 
-    # Held-out validation set (--held-out): a SEPARATE frozen sample, labeled
-    # by its own Stage-0 pass. It takes the M4-holdout + fix-development roles;
-    # the main batch keeps its full explore/confirm split and CONFIRM stays
-    # the single frozen-winner gate.
     val_cases = None
     if val_manifest is not None:
-        val_candidates, _ = T.build_cases(task, val_manifest, int(getattr(args, "val_limit", 0) or 0))
-        v0 = time.monotonic()
-        val_discovery = CaseDiscoveryAgent(
-            scorer=T.label_case, generation_kwargs=gen_kwargs, include_unknown=False,
-            concurrency=getattr(args, "concurrency", 1),
-        ).discover(model, val_candidates, protocol=protocol)
-        val_cases = val_discovery.cases
-        val_elapsed = time.monotonic() - v0
-        val_accuracy = val_discovery.n_pass / max(1, len(val_cases))
-        (run_dir / "baseline_val.json").write_text(json.dumps({
-            "model": args.model, "spec": spec.key, "dataset": task.name, "role": "validation",
-            "n": len(val_cases), "n_pass": val_discovery.n_pass, "n_fail": val_discovery.n_fail,
-            "n_unknown": val_discovery.n_unknown, "accuracy": round(val_accuracy, 4),
-            "seconds": round(val_elapsed, 1), "manifest": str(val_manifest),
-            "cases": [{
-                "id": c.id, "expected": c.expected, "observed": str(c.observed), "label": c.label.value,
-            } for c in val_cases],
-        }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        print(f"Validation baseline: PASS={val_discovery.n_pass}, FAIL={val_discovery.n_fail}, "
-              f"accuracy={val_accuracy:.3f} ({val_elapsed:.0f}s, n={len(val_cases)})")
-        if task.short_answer:
-            for case in val_cases:
-                case.metadata["finish_reason"] = "stop"
-        if not val_discovery.has_m4_groups:
-            print("  NOTE the validation set lacks a PASS or FAIL group; the holdout "
-                  "M4 verification there will have nothing to contrast")
-        if ctx is not None:
-            ctx.config["val_manifest"] = str(val_manifest)
-            ctx.config["n_val_cases"] = len(val_cases)
+        val_cases = _label_validation_set(model, val_manifest, protocol, gen_kwargs, args, task, spec, run_dir)
+        ctx.config["val_manifest"] = str(val_manifest)
+        ctx.config["n_val_cases"] = len(val_cases)
 
     from evalrx.eval_agent import (
         CliAgentConfig,
         DiagnosisAgent,
-        FixAgent,
         HypothesisTester,
-        ProbeAgent,
-        StatsAnalysisAgent,
-        StrategyProbe,
         SurgeryAgent,
         VLDiagnoseLoop,
     )
     from evalrx.eval_agent.stages.experiment_writer import ExperimentWriterConfig
-    from evalrx.eval_agent.stages.fix.repair_catalog import method_names
 
-    # ctx already exists (constructed before Stage-0, above) with held_out/
-    # val_manifest/n_val_cases folded into its config as they became known.
-    assert ctx is not None
     coder_cfg = CliAgentConfig(provider=coder_provider, model=coder_model, timeout_sec=900,
                                extra_args=coder_extra)
-    pinned = list(task.pinned_m1)
-    if resolved.backend == "gemini":
-        from evalrx.core.capability import Capability
-
-        if Capability.LOGPROBS in model.capabilities and "logprob_entropy" not in pinned:
-            pinned.append("logprob_entropy")
-    overrides = _sampling_analyzer_overrides(resolved, args)
-    # In-process generation shares one accelerator model. Concurrent Python
-    # generation loops contend heavily on HF models; JAX already serializes
-    # model access. Keep native probes on the calling thread, while serving
-    # backends can continue issuing concurrent requests.
-    probe_workers = 1 if resolved.backend in {"hf_local", "jax_local"} else 8
-    ctx.config["m1_workers"] = probe_workers
-    agentic = getattr(args, "diagnosis_mode", "agentic") == "agentic"
-    m1_codegen = agentic and args.allow_codegen
-    ctx.config["m1_codegen"] = bool(m1_codegen)
-    ctx.config["m1_selection"] = "judge" if agentic or m1_codegen else args.m1_selection
-    if args.m1_selection == "pinned" and not agentic and not m1_codegen:
-        probe_agent = ProbeAgent(
-            # StrategyProbe dispatches by the model's detected kind.  Keep the
-            # benchmark's pinned list authoritative for every supported kind,
-            # including the audio-language kinds used by ALM/AVLM examples.
-            probe=StrategyProbe(priority_override=_pinned_priority_override(pinned)),
-            judge=None, max_analyzers=len(pinned),
-            max_cases_per_analyzer=args.analyzer_max_cases,
-            analyzer_overrides=overrides,
-            max_workers=probe_workers,
-        )
-    else:
-        probe_agent = ProbeAgent(judge=judge, allow_codegen=m1_codegen,
-                                 codegen_config=coder_cfg,
-                                 max_cases_per_analyzer=args.analyzer_max_cases,
-                                 analyzer_overrides=overrides, max_workers=probe_workers)
-    m2_codegen = args.m2_codegen if args.m2_codegen is not None else (agentic or task.modality == "llm")
-    ctx.config["m2_codegen"] = bool(m2_codegen)
-    stats_kwargs: dict[str, Any] = {"codegen_config": coder_cfg} if m2_codegen else {}
-    stats_agent = StatsAnalysisAgent(
-        judge=judge, figure_dir=str(ctx.figures_dir), max_signal_tools=16,
-        allow_codegen=m2_codegen, **stats_kwargs,
-    )
-    fix_kwargs: dict[str, Any] = {}
-    sampled = bool(gen_kwargs.get("do_sample"))
-    # Noise model for a sampled baseline: per-case PASS RATE over k samples (the
-    # frozen Stage 0 output + k-1 fresh), as llm_benchmark does; greedy = 1.
-    fix_kwargs["baseline_repeats"] = (args.fix_baseline_repeats if args.fix_baseline_repeats is not None
-                                      else (5 if sampled else 1))
-    if task.modality == "llm":
-        floor = {"max_tokens": gen_kwargs.get("max_new_tokens", task.max_new_tokens)}
-        if sampled:
-            floor.update(temperature=gen_kwargs["temperature"], top_p=gen_kwargs["top_p"])
-        fix_kwargs.update(baseline_generation_kwargs=floor)
-    prewritten_code = (
-        Path(args.fix_code_file).read_text(encoding="utf-8")
-        if args.fix_code_file else ""
-    )
-    if deployed_spec is not None:
-        fix_kwargs.update(candidate_model=raw_model, deployed_spec=deployed_spec)
-    if args.code_only:
-        fix_kwargs["max_judge_candidates"] = 1
-    fix_agent = FixAgent(
-        judge=judge, max_tier=args.fix_tier, score_fn=T.score_case, run_logger=ctx.logger,
-        cli_config=(CliAgentConfig(provider=coder_provider, timeout_sec=420, model=coder_model,
-                                   extra_args=coder_extra) if args.allow_codegen else None),
-        allow_codegen=args.allow_codegen, run_context=ctx,
-        max_validation_cases=args.fix_validation_cases, alpha=0.05,
-        allow_adapted_paper_methods=args.allow_adapted_paper_methods,
-        candidate_allowlist=(
-            {args.fix_candidate} if args.fix_candidate
-            else ({"coded_pipeline"} if args.code_only
-                  else (method_names() if args.registered_repairs_only else None))
-        ),
-        max_repair_rounds=max(1, args.fix_repair_rounds),
-        exec_timeout_sec=args.fix_exec_timeout,
-        prewritten_code=prewritten_code,
-        concurrency=getattr(args, "concurrency", 1),
-        floor_candidates=() if agentic else ("self_consistency_5",),
-        progress_callback=_print_fix_progress,
-        **fix_kwargs,
-    )
-    explorer = None
-    if args.explore:
-        from evalrx.agent_runtime.sandbox import ExperimentSandbox
-        from evalrx.analysis import ExploratoryAnalysisAgent
-
-        explorer = ExploratoryAnalysisAgent(
-            cli_config=coder_cfg,
-            sandbox=ExperimentSandbox(
-                workdir=ctx.explore_dir / "sandbox",
-                cleanup=False,
-            ),
-            timeout_sec=900, max_attempts=3,
-        )
     loop_class: type[VLDiagnoseLoop] = VLDiagnoseLoop
     loop_kwargs = {}
-    if agentic:
+    if _is_agentic(args):
         from evalrx.eval_agent.agentic import AgenticDiagnoseLoop
 
         loop_class = AgenticDiagnoseLoop
@@ -647,10 +740,13 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     loop = loop_class(
         **loop_kwargs,
         diagnosis_retries=1,
-        model=model, protocol=protocol, probe_agent=probe_agent, stats_agent=stats_agent,
+        model=model, protocol=protocol,
+        probe_agent=_probe_agent(args, task, resolved, model, judge, coder_cfg, ctx.config),
+        stats_agent=_stats_agent(args, task, judge, coder_cfg, ctx),
         diagnosis_agent=DiagnosisAgent(judge=judge),
         hypothesis_tester=HypothesisTester(judge=judge, min_effect=0.05),
-        fix_agent=fix_agent, max_cycles=args.max_cycles, run_logger=ctx.logger,
+        fix_agent=_fix_agent(args, task, judge, coder_cfg, gen_kwargs, ctx, raw_model, deployed_spec),
+        max_cycles=args.max_cycles, run_logger=ctx.logger,
         confirm_split=float(args.confirm_split), confirm_split_seed=20260818,
         # Default: the 50/50 explore/confirm design — M1-M4 work on EXPLORE
         # (M4 in-cycle), the fix ladder searches on EXPLORE, and CONFIRM is
@@ -664,7 +760,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         m4_holdout=bool(args.held_out),
         val_data=val_cases,
         surgery_agent=SurgeryAgent(judge=judge, writer_config=ExperimentWriterConfig(cli_agent=coder_cfg)),
-        explorer=explorer,
+        explorer=_explorer(coder_cfg, ctx) if args.explore else None,
         explore_dir=ctx.explore_dir,
         # RunContext(narrate=True) above owns the console; verbose would pipe
         # the stages' logger.info() stream over the aligned narration.
@@ -692,39 +788,8 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         print(f"[fix] --fix-tier {args.fix_tier} clamped to {fix_tier}: the {resolved.backend} backend "
               "exposes no model internals (L3a/L3b need the white-box executors)")
     if not args.skip_fix:
-        # No M4-verified hypothesis still gets M5 + a fix attempt on the best
-        # unverified leads (the candidate validation on CONFIRM is the gate).
-        # An explicitly pre-registered fix is already the experiment the
-        # caller asked to validate.  Running an unrelated M5 surgery first is
-        # pure latency and can contend for the same GPU; it cannot influence
-        # the frozen candidate or its EXPLORE/CONFIRM verdict.
-        if args.skip_m5:
-            print("M5: skipped by --skip-m5 (tiered fix search remains enabled)")
-        elif args.fix_candidate or args.code_only or args.registered_repairs_only:
-            requested = (
-                args.fix_candidate or ("coded_pipeline" if args.code_only else "registered methods")
-            )
-            print(f"M5: skipped for pre-registered fix scope {requested!r}")
-        else:
-            proposal = loop.run_m5(report, cases, allow_unverified=True)
-            if proposal is not None:
-                tag = "verified" if report.verified_hypotheses else "UNVERIFIED (best lead)"
-                print(f"M5 experiment on the {tag} hypothesis: status={proposal.status}")
-            else:
-                print("M5: no hypothesis to experiment on")
-        outcome = run_fix_isolated(loop, run_dir, ctx, report, cases, max_tier=fix_tier,
-                                   auto_escalate=args.auto_escalate, allow_unverified=True)
-        attempted = []
-        for validation in outcome.attempted:
-            effect = "n/a" if validation.effect is None else f"{validation.effect:+.3f}"
-            print(f"Fix [{validation.candidate.tier.label}] {validation.candidate.name}: "
-                  f"fixed={validation.fixed}, repairs={validation.n_fixed}, "
-                  f"breaks={validation.n_broken}, effect={effect}")
-            attempted.append({"tier": validation.candidate.tier.label, "name": validation.candidate.name,
-                              "fixed": bool(validation.fixed), "repairs": validation.n_fixed,
-                              "breaks": validation.n_broken, "effect": validation.effect})
-        summary["fix"] = {"recommendation": str(getattr(outcome, "recommendation", "") or ""),
-                          "attempted": attempted}
+        _run_m5(loop, report, cases, args)
+        summary["fix"] = _run_fix(loop, run_dir, ctx, report, cases, args, fix_tier)
     ctx.finalize()
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     print(f"Done. Tidy M1-M5 logs: {ctx.root.resolve()}")
