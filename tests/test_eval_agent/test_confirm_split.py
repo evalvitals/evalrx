@@ -89,8 +89,9 @@ class _RecordingFixAgent:
         self.tiers = []
         self.min_tiers = []
 
-    def propose_and_validate(self, model, data, hypotheses, proposal_data=None, *,
-                             max_tier=None, min_tier=None):
+    def propose_and_validate(self, model, data, hypotheses, prior_attempts=None,
+                             context=None, proposal_data=None, *,
+                             max_tier=None, min_tier=None, record=True):
         self.calls += 1
         self.tiers.append(max_tier if max_tier is not None else self.max_tier)
         self.min_tiers.append(min_tier)
@@ -126,6 +127,13 @@ class _RecordingFixAgent:
             effect=0.1,
             e_value=1.0,
         )
+
+    def recommend(self, routed, *, model=None, data=None, reason_prefix="", max_tier=None):
+        return {"recommend_tier": (max_tier or self.max_tier).label, "reason": reason_prefix}
+
+    def no_fix_recommendation(self, attempted, routed_tiers, data, model, *, max_tier=None):
+        return {"recommend_tier": (max_tier or self.max_tier).label,
+                "reason": "no candidate validated"}
 
 
 def _report():
@@ -216,7 +224,7 @@ def test_run_fix_escalates_on_explore_then_confirms_once():
 def test_explore_selection_rejects_tiny_high_effect_candidate():
     """A 2/5 swing must not outrank a supported improvement on 64 pairs."""
     class SelectionAgent(_RecordingFixAgent):
-        def propose_and_validate(self, model, data, hypotheses, proposal_data=None):
+        def propose_and_validate(self, model, data, hypotheses, **_):
             tiny = FixValidation(
                 candidate=FixCandidate(FixTier.L2_SCAFFOLD, "tiny", payload={}),
                 n_pairs=5, n_fixed=2, n_broken=0, effect=0.4, e_value=2.0,
@@ -416,42 +424,9 @@ def test_run_fix_never_writes_to_the_fix_agent():
     assert stub.max_tier is FixTier.L2_SCAFFOLD
 
 
-def test_tier_ladder_rejects_an_agent_without_a_tier_window():
-    """An agent that cannot take max_tier/min_tier would run every rung at its
-    own tier; the ladder refuses it instead of silently mislabelling rungs."""
-    import pytest
-
-    class NoWindow(_RecordingFixAgent):
-        def propose_and_validate(self, model, data, hypotheses):
-            raise AssertionError("must not be called")
-
-    with pytest.raises(TypeError, match="max_tier"):
-        _loop(fix_agent=NoWindow(), confirm_split=0.5).run_fix(
-            _report(), _batch(), auto_escalate=True, allow_unverified=True
-        )
-
-
-def test_ladder_without_split_returns_an_opaque_custom_result():
-    """A custom agent's application-specific result ends the climb and is
-    returned as-is, with or without a held-out split."""
-    opaque = object()
-
-    class Opaque(_RecordingFixAgent):
-        def propose_and_validate(self, model, data, hypotheses, *, max_tier=None,
-                                 min_tier=None):
-            self.calls += 1
-            return opaque
-
-    stub = Opaque()
-    out = _loop(fix_agent=stub).run_fix(
-        _report(), _batch(), auto_escalate=True, allow_unverified=True
-    )
-    assert out is opaque and stub.calls == 1
-
-
-def test_confirm_freezes_the_supported_explore_lead_and_falls_back_to_the_ceiling():
-    """An agent with neither a no-fix recommender nor a usable tier router
-    still gets a recommendation: the run's ceiling, with the reason."""
+def test_confirm_freezes_the_supported_explore_lead_and_says_why_it_did_not_hold():
+    """The lead with support is the one frozen, and when it fails on CONFIRM
+    the agent's recommendation is prefixed with that fact."""
     from evalrx.eval_agent.loop_fix import _confirm_from_explore
     from evalrx.eval_agent.stages.fix.types import FixCandidate, FixValidation
 
@@ -465,18 +440,10 @@ def test_confirm_freezes_the_supported_explore_lead_and_falls_back_to_the_ceilin
     fragile, supported = lead("fragile", 2, 2, 0), lead("supported", 12, 6, 1)
     confirmed = lead("supported", 20, 1, 3)
 
-    class _Agent:
-        alpha = 0.05
-
-        def __init__(self):
-            self.validated = []
-
+    class _Agent(_RecordingFixAgent):
         def validate_candidate(self, model, data, candidate):
-            self.validated.append(candidate.name)
+            self.validated = candidate.name
             return confirmed
-
-        def recommend(self, *args, **kwargs):
-            raise TypeError("an application FixAgent with another signature")
 
     agent = _Agent()
     confirm = CaseBatch([
@@ -486,10 +453,11 @@ def test_confirm_freezes_the_supported_explore_lead_and_falls_back_to_the_ceilin
         agent, object(), confirm, [fragile, supported],
         max_tier=FixTier.L2_SCAFFOLD, repair_rounds=1,
     )
-    assert agent.validated == ["supported"]
+    assert agent.validated == "supported"
     assert outcome.selected_on_explore == "supported" and not outcome.fixed
     assert [row["name"] for row in outcome.selection_attempted] == ["fragile", "supported"]
     assert outcome.recommendation == {
         "recommend_tier": FixTier.L2_SCAFFOLD.label,
-        "reason": "the candidate selected on EXPLORE did not validate on untouched CONFIRM",
+        "reason": "the candidate selected on EXPLORE did not validate on untouched CONFIRM; "
+                  "no candidate validated",
     }

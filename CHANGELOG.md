@@ -152,6 +152,13 @@ working. They are gone, with no forwarding name left behind.
   `evalrx.models._media`): nothing called them.
 - The held-out M4 probe no longer retries without `analyzers=` when a probe
   agent raises `TypeError`.
+- `run_fix` calls its fix agent with `FixAgent`'s signature. It used to
+  inspect the agent and pass only the keywords it accepted, skip `recommend`
+  and `no_fix_recommendation` when they were missing, and hand back whatever
+  object `propose_and_validate` returned. A replacement agent now needs the
+  members listed under "A replacement fix agent" in `docs/stage_io.md` and
+  must return a `FixOutcome`; one that does not fails at the call instead of
+  running a tier ladder that ignores the tier.
 - `DiagnosisAgent.diagnose` takes the M2 report only. It no longer wraps a
   bare `{analyzer: Result}` dict, and its `model_name` argument (used only for
   that dict) is gone: pass `AnalysisModule().analyze(results, model_name)`.

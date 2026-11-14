@@ -12,48 +12,9 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from evalrx.core.case import CaseBatch
 
 logger = logging.getLogger(__name__)
-
-
-def _call_supported(fn: "Any", *args: Any, required: "tuple[str, ...]" = (),
-                    **kwargs: Any) -> "Any":
-    """Call *fn* with the non-None *kwargs* it accepts.
-
-    Custom/stub fix agents keep working with optional extras such as
-    ``prior_attempts`` / ``context`` / ``record`` (same pattern as
-    ``_diagnose_with_optional_context``).  A *required* keyword the function
-    cannot take raises instead of being dropped: running a tier ladder on an
-    agent that ignores the tier window would silently test the wrong tier.
-    """
-    import inspect as _inspect
-
-    params: "Mapping[str, _inspect.Parameter]"
-    try:
-        params = _inspect.signature(fn).parameters
-    except (TypeError, ValueError):
-        params = {}
-    accepts_any = any(p.kind == p.VAR_KEYWORD for p in params.values())
-    passed = {k: v for k, v in kwargs.items()
-              if v is not None and (accepts_any or k in params)}
-    missing = [k for k in required if kwargs.get(k) is not None and k not in passed]
-    if missing:
-        raise TypeError(
-            f"{getattr(fn, '__qualname__', fn)} does not accept {', '.join(missing)}; "
-            "the fix loop needs it to restrict the tier window"
-        )
-    return fn(*args, **passed)
-
-
-def _propose_and_validate(agent: "Any", model: "Any", data: "Any", hypotheses: "Any",
-                          **kwargs: Any) -> "Any":
-    """``agent.propose_and_validate`` with a per-call tier window (required when
-    given) and optional extras (see :func:`_call_supported`)."""
-    return _call_supported(agent.propose_and_validate, model, data, hypotheses,
-                           required=("max_tier", "min_tier"), **kwargs)
 
 
 def _unverified_hypotheses(report: "Any") -> "list[Any]":
@@ -266,8 +227,7 @@ def _climb_ladder(
     Each rung sees only its own tier (cheaper candidates are not pooled with a
     newly opened, more invasive tier) plus every failed attempt so far, so the
     judge can try something fundamentally different.  Stops at the first fix.
-    Rungs record nothing; the caller records one combined outcome.  An opaque
-    custom-agent result ends the climb as the last rung.
+    Rungs record nothing; the caller records one combined outcome.
     """
     from evalrx.eval_agent.stages.fix.tiers import FixTier
 
@@ -285,17 +245,15 @@ def _climb_ladder(
             break
         logger.info("run_fix: %s trying tier %s (%d prior attempt(s))",
                     label, tier.label, len(prior))
-        rung = _propose_and_validate(
-            agent, model, data, hypotheses,
-            prior_attempts=prior if prior else None,
+        rung = agent.propose_and_validate(
+            model, data, hypotheses,
+            prior_attempts=prior or None,
             context=context,
             max_tier=tier,
             min_tier=tier,
             record=False,
         )
         rungs.append(rung)
-        if not hasattr(rung, "attempted"):
-            break
         if rung.fixed:
             logger.info("run_fix: %s fixed at tier %s", label, tier.label)
             break
@@ -393,34 +351,6 @@ def _selection_audit(attempted: "list[Any]") -> "list[dict[str, Any]]":
     ]
 
 
-def _recommend_tier(
-    agent: "Any",
-    model: "Any",
-    confirm: "CaseBatch",
-    validations: "list[Any]",
-    *,
-    reason: str,
-    max_tier: "Any",
-) -> "dict[str, Any] | None":
-    """The agent's next-tier recommendation, or the ceiling with *reason*."""
-    routed = sorted({v.candidate.tier for v in validations})
-    recommend = getattr(agent, "recommend", None)
-    if callable(recommend):
-        try:
-            return _call_supported(
-                recommend,
-                routed,
-                model=model,
-                data=confirm,
-                reason_prefix=reason,
-                max_tier=max_tier,
-            )
-        except TypeError:
-            # Backward compatibility for application-specific FixAgents.
-            pass
-    return {"recommend_tier": max_tier.label, "reason": reason}
-
-
 def _confirm_from_explore(
     agent: "Any",
     model: "Any",
@@ -441,10 +371,11 @@ def _confirm_from_explore(
             max_tier=max_tier,
             repair_rounds=repair_rounds,
             selection_attempted=audit,
-            recommendation=_recommend_tier(
-                agent, model, confirm, attempted,
-                reason="no EXPLORE candidate had positive net repairs; CONFIRM was left untouched",
-                max_tier=max_tier,
+            recommendation=agent.recommend(
+                sorted({v.candidate.tier for v in attempted}),
+                model=model, data=confirm, max_tier=max_tier,
+                reason_prefix="no EXPLORE candidate had positive net repairs; "
+                              "CONFIRM was left untouched",
             ),
         )
 
@@ -467,22 +398,13 @@ def _confirm_from_explore(
         selected_on_explore=selected.candidate.name,
     )
     if not outcome.fixed:
-        no_fix = getattr(agent, "no_fix_recommendation", None)
-        if callable(no_fix):
-            outcome.recommendation = _call_supported(
-                no_fix, [validation], [selected.candidate.tier], confirm, model,
-                max_tier=max_tier,
-            )
-            if outcome.recommendation is not None:
-                outcome.recommendation["reason"] = (
-                    "the candidate selected on EXPLORE did not validate on untouched CONFIRM; "
-                    + outcome.recommendation["reason"]
-                )
-        else:
-            outcome.recommendation = _recommend_tier(
-                agent, model, confirm, [validation],
-                reason="the candidate selected on EXPLORE did not validate on untouched CONFIRM",
-                max_tier=max_tier,
+        outcome.recommendation = agent.no_fix_recommendation(
+            [validation], [selected.candidate.tier], confirm, model, max_tier=max_tier,
+        )
+        if outcome.recommendation is not None:
+            outcome.recommendation["reason"] = (
+                "the candidate selected on EXPLORE did not validate on untouched CONFIRM; "
+                + outcome.recommendation["reason"]
             )
     outcome.refine_signal = refine_signal([validation], confirm)
     return outcome

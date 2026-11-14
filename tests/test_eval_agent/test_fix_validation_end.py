@@ -76,6 +76,30 @@ def _mc_score(case, output):
     return m[-1] == str(case.metadata["gold"]).strip("()").lower()
 
 
+class _StubFixAgent:
+    """The fix-agent interface the loop calls, recording what it was handed."""
+
+    run_logger = None
+    max_tier = FixTier.L2_SCAFFOLD
+    alpha = 0.05
+
+    def __init__(self):
+        self.hypotheses = None
+        self.context = None
+
+    def propose_and_validate(self, model, data, hypotheses, prior_attempts=None,
+                             context=None, proposal_data=None, *,
+                             max_tier=None, min_tier=None, record=True):
+        from evalrx.eval_agent.stages.fix.types import FixOutcome
+
+        self.hypotheses = list(hypotheses)
+        self.context = context
+        return FixOutcome(max_tier=self.max_tier)
+
+    def recommend(self, routed, *, model=None, data=None, reason_prefix="", max_tier=None):
+        return {"recommend_tier": (max_tier or self.max_tier).label, "reason": reason_prefix}
+
+
 class CountingModel(Model):
     """Answers (B) and records every kwargs it was called with."""
 
@@ -382,19 +406,7 @@ def test_run_fix_drops_m5_refuted_hypothesis_and_tells_the_proposer():
         evidence={"verdict": 0.0, "alt_ordering_rescue_rate": 0.09},
     )
 
-    class Recorder:
-        run_logger = None
-
-        def __init__(self):
-            self.hypotheses = None
-            self.context = None
-
-        def propose_and_validate(self, model, data, hypotheses, prior_attempts=None, context=None):
-            self.hypotheses = list(hypotheses)
-            self.context = context
-            return object()
-
-    stub = Recorder()
+    stub = _StubFixAgent()
     loop = VLDiagnoseLoop(model=CountingModel(), protocol=ExperimentProtocol(description="BBH"),
                           fix_agent=stub, confirm_split=0.5)
     loop.run_fix(report, _mc_batch(4, 4))
@@ -410,25 +422,17 @@ def test_run_fix_drops_m5_refuted_hypothesis_and_tells_the_proposer():
     assert {c.id for c in ctx.example_cases}.isdisjoint({c.id for c in confirm})
 
 
-def test_run_fix_with_no_verified_hypothesis_does_not_call_minimal_agent():
-    """Even a legacy minimal proposer cannot bypass the M4 evidence gate."""
+def test_run_fix_with_no_verified_hypothesis_does_not_call_the_fix_agent():
+    """The M4 evidence gate is the loop's: the fix agent is not asked."""
     from evalrx.eval_agent import AutoDiagnoseReport, VLDiagnoseLoop
     from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
-    class Minimal:
-        run_logger = None
-        seen = None
-
-        def propose_and_validate(self, model, data, hypotheses):
-            self.seen = list(hypotheses)
-            return object()
-
-    stub = Minimal()
+    stub = _StubFixAgent()
     loop = VLDiagnoseLoop(model=CountingModel(), protocol=ExperimentProtocol(description="d"),
                           fix_agent=stub)
     report = AutoDiagnoseReport(cycles=1, stopped_by="max_cycles", final_hypotheses=[_hyp("x")])
     outcome = loop.run_fix(report, _mc_batch())
-    assert stub.seen is None
+    assert stub.hypotheses is None
     assert outcome.stage_status == "skipped"
 
 
@@ -670,17 +674,7 @@ def test_run_fix_without_verified_skips_repair_authoring():
 
     report, hs = _inconclusive_report()
 
-    class Recorder:
-        run_logger = None
-        hypotheses = None
-        context = None
-
-        def propose_and_validate(self, model, data, hypotheses, prior_attempts=None, context=None):
-            self.hypotheses = list(hypotheses)
-            self.context = context
-            return object()
-
-    stub = Recorder()
+    stub = _StubFixAgent()
     loop = VLDiagnoseLoop(model=CountingModel(), protocol=ExperimentProtocol(description="d"),
                           fix_agent=stub)
     outcome = loop.run_fix(report, _mc_batch())
@@ -816,26 +810,17 @@ def test_fix_agent_passes_concurrency_to_the_coded_bridge(monkeypatch):
 # the best unverified leads — the candidate validation on CONFIRM is the gate.
 
 
-def test_run_fix_allow_unverified_keeps_a_minimal_fix_agent_working():
-    """A stub that only accepts (model, data, hypotheses) keeps working and
-    receives the final proposals when nothing was verified."""
+def test_run_fix_allow_unverified_passes_the_final_proposals():
+    """With nothing M4-tested, the fix agent receives the last cycle's proposals."""
     from evalrx.eval_agent import AutoDiagnoseReport, VLDiagnoseLoop
     from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
-    class Minimal:
-        run_logger = None
-        seen = None
-
-        def propose_and_validate(self, model, data, hypotheses):
-            self.seen = list(hypotheses)
-            return object()
-
-    stub = Minimal()
+    stub = _StubFixAgent()
     loop = VLDiagnoseLoop(model=CountingModel(), protocol=ExperimentProtocol(description="d"),
                           fix_agent=stub)
     report = AutoDiagnoseReport(cycles=1, stopped_by="max_cycles", final_hypotheses=[_hyp("x")])
     loop.run_fix(report, _mc_batch(), allow_unverified=True)
-    assert stub.seen and stub.seen[0].statement == "x"
+    assert stub.hypotheses and stub.hypotheses[0].statement == "x"
 
 
 def test_run_fix_allow_unverified_uses_unverified_leads_and_says_so():
@@ -844,21 +829,11 @@ def test_run_fix_allow_unverified_uses_unverified_leads_and_says_so():
 
     report, hs = _inconclusive_report()
 
-    class Recorder:
-        run_logger = None
-        hypotheses = None
-        context = None
-
-        def propose_and_validate(self, model, data, hypotheses, prior_attempts=None, context=None):
-            self.hypotheses = list(hypotheses)
-            self.context = context
-            return object()
-
-    stub = Recorder()
+    stub = _StubFixAgent()
     loop = VLDiagnoseLoop(model=CountingModel(), protocol=ExperimentProtocol(description="d"),
                           fix_agent=stub)
     outcome = loop.run_fix(report, _mc_batch(), allow_unverified=True)
-    assert getattr(outcome, "stage_status", "completed") != "skipped"
+    assert outcome.stage_status != "skipped"
     assert [h.id for h in stub.hypotheses] == ["h1", "h0"]               # best first, refuted dropped
     assert stub.context.hypotheses_note.startswith("UNVERIFIED")
     # the proposer sees the caveat right under the hypotheses heading
@@ -889,15 +864,7 @@ def test_run_fix_allow_unverified_keeps_leads_beside_verified_symptom():
     report.all_test_results.append(supported)
     report.final_hypotheses.append(symptom)
 
-    class Recorder:
-        run_logger = None
-
-        def propose_and_validate(self, model, data, hypotheses, context=None):
-            self.hypotheses = list(hypotheses)
-            self.context = context
-            return object()
-
-    stub = Recorder()
+    stub = _StubFixAgent()
     loop = VLDiagnoseLoop(
         model=CountingModel(),
         protocol=ExperimentProtocol(description="d"),

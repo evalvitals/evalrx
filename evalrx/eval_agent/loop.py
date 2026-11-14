@@ -49,7 +49,6 @@ from evalrx.eval_agent.loop_fix import (
     _fix_hypotheses,
     _log_fix,
     _merge_rungs,
-    _propose_and_validate,
     _unverified_hypotheses,
 )
 from evalrx.eval_agent.loop_reports import AutoDiagnoseReport
@@ -426,13 +425,12 @@ class VLDiagnoseLoop:
     def _set_fix_outcome(self, report: "Any", outcome: "Any") -> "Any":
         """Attach M5b's outcome to the report and emit it.
 
-        ``run_fix`` has five return paths (escalation, frozen-candidate confirm,
-        legacy agents, skip, plain), so the assignment is the one point they all
-        pass through. Emitting per return would have missed whichever path was
+        ``run_fix`` has four return paths (escalation, frozen-candidate confirm,
+        skip, plain), so the assignment is the one point they all pass through. Emitting per return would have missed whichever path was
         added next.
         """
         report.fix_outcome = outcome
-        if self.emitter is not None and hasattr(outcome, "attempted"):
+        if self.emitter is not None:
             from evalrx.contract.emit import from_fix_outcome
 
             self._emit("m5_fix", lambda: from_fix_outcome(
@@ -1583,7 +1581,7 @@ class VLDiagnoseLoop:
         )
         context.hypotheses_note = hypotheses_note
         requested = parse_tier(max_tier) if max_tier is not None else None
-        agent_logger = getattr(agent, "run_logger", None)
+        agent_logger = agent.run_logger
 
         if auto_escalate:
             # With a held-out split the entire ladder is searched on the
@@ -1594,8 +1592,6 @@ class VLDiagnoseLoop:
             ceiling = requested if requested is not None else FixTier.L3B_INTERNALS_WRITE
             rungs = _climb_ladder(agent, self.model, dev_data, hypotheses, context,
                                   ceiling, dev_label)
-            if not hasattr(rungs[-1], "attempted"):  # opaque custom-agent result
-                return self._set_fix_outcome(report, rungs[-1])
             if final_data is None:
                 outcome = _merge_rungs(rungs, ceiling, agent.alpha)
             else:
@@ -1603,27 +1599,23 @@ class VLDiagnoseLoop:
                     agent, self.model, final_data,
                     [v for rung in rungs for v in rung.attempted],
                     max_tier=ceiling,
-                    repair_rounds=sum(int(getattr(r, "repair_rounds", 0) or 0) for r in rungs),
+                    repair_rounds=sum(r.repair_rounds for r in rungs),
                 )
             _log_fix(agent_logger, outcome)
             return self._set_fix_outcome(report, outcome)
 
         if final_data is None:
-            outcome = _propose_and_validate(agent, self.model, data, hypotheses,
-                                            context=context, max_tier=requested)
+            outcome = agent.propose_and_validate(self.model, data, hypotheses,
+                                                 context=context, max_tier=requested)
             return self._set_fix_outcome(report, outcome)
 
         # A two-stage repair experiment: the agent may iterate and select on the
         # development partition, then exactly one frozen candidate is tested on
         # the final partition.  Selection statistics are descriptive only; the
         # final paired gate is computed from the final partition alone.
-        selection = _propose_and_validate(agent, self.model, dev_data, hypotheses,
-                                          context=context, max_tier=requested, record=False)
-        # Custom/legacy agents may return an opaque application-specific result
-        # rather than FixOutcome.  They cannot take part in the frozen-candidate
-        # confirmation, but their return contract is kept.
-        if not hasattr(selection, "attempted"):
-            return self._set_fix_outcome(report, selection)
+        selection = agent.propose_and_validate(self.model, dev_data, hypotheses,
+                                               context=context, max_tier=requested,
+                                               record=False)
         outcome = _confirm_from_explore(
             agent, self.model, final_data, selection.attempted,
             max_tier=requested if requested is not None else agent.max_tier,
@@ -1639,7 +1631,6 @@ class VLDiagnoseLoop:
         so an unreviewed/unsupported M3 lead must not become a misleading
         empty M5 outcome.  The caller still gets a stable outcome object.
         """
-        from evalrx.eval_agent.stages.fix.tiers import FixTier
         from evalrx.eval_agent.stages.fix.types import FixOutcome
 
         diagnosis_failed = report.stopped_by == "diagnosis_error"
@@ -1652,7 +1643,7 @@ class VLDiagnoseLoop:
                           "Run the targeted diagnostic probe proposed by M3."),
         }
         outcome = FixOutcome(
-            max_tier=getattr(agent, "max_tier", FixTier.L2_SCAFFOLD),
+            max_tier=agent.max_tier,
             stage_status="skipped",
             skip_reason="diagnosis_error" if diagnosis_failed else "no_accepted_hypothesis",
             recommendation=recommendation,

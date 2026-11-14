@@ -326,6 +326,16 @@ right anyway was solved by the pipeline's own computation, not a repair of
 the model. Those cases are excluded from the paired test
 (`n_model_independent`) rather than counted as `fixed`.
 
+**A replacement fix agent.** `VLDiagnoseLoop(fix_agent=...)` and
+`run_fix(fix_agent=...)` call the agent they are given the way they call
+`FixAgent`, so subclass it, or provide the same members:
+`propose_and_validate(model, data, hypotheses, prior_attempts=, context=,
+max_tier=, min_tier=, record=)` returning a `FixOutcome`,
+`validate_candidate(model, data, candidate)`, `recommend(routed, model=,
+data=, reason_prefix=, max_tier=)`, `no_fix_recommendation(attempted,
+routed_tiers, data, model, max_tier=)`, and the attributes `alpha`,
+`max_tier` and `run_logger`.
+
 **UI (Tab 5 — Fix):** greyed "not available" placeholder
 (`_render_unavailable_panel`: title, what happened, how to get it) when no
 `fix_report.json` sits next to the exploratory report — this pipeline phase
