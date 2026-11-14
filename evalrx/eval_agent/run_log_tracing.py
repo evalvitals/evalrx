@@ -82,11 +82,13 @@ def trace_probe(
     tracer.end_span(m1_span, output_data={"n_probes": len(results)})
 
 
-def trace_analysis(
-    tracer: Any, cycle: int, report: Any, *, stats_tool: Any, figures: Any, llm_prompt: Any, llm_raw: Any,
-    stats_results: Any, conclusion: Any, duration_sec: "float | None",
-) -> None:
+def trace_analysis(tracer: Any, cycle: int, report: Any, *, duration_sec: "float | None") -> None:
     """One M2 span with the judge exchange and an effect score per signal."""
+    stats_tool = getattr(report, "stats_tool", None)
+    figures = getattr(report, "figures", None)
+    llm_prompt, llm_raw = getattr(report, "llm_prompt", None), getattr(report, "llm_raw", None)
+    stats_results = getattr(report, "stats_results", None)
+    conclusion = getattr(report, "conclusion", None)
     m2_span = tracer.start_span(
         name=f"M2: Screening & Confirmatory Signals (Cycle {cycle})", stage="M2",
         input_data={"severity": report.severity, "n_findings": len(report.findings)},
@@ -141,10 +143,14 @@ def trace_explore(
 
 
 def trace_diagnosis(
-    tracer: Any, cycle: int, diag: Any, entry: dict[str, Any], *, m3_prompt: str, review_prompt: str,
-    review_raw: str, review_decisions: list[Any], proposed: list[Any], duration_sec: "float | None",
+    tracer: Any, cycle: int, diag: Any, entry: dict[str, Any], *, duration_sec: "float | None",
 ) -> None:
     """One M3 span with the diagnosis exchange and the adversarial review."""
+    m3_prompt = getattr(diag, "prompt", None) or ""
+    review_prompt = getattr(diag, "review_prompt", None) or ""
+    review_raw = getattr(diag, "review_raw", None) or ""
+    review_decisions = list(getattr(diag, "review_decisions", None) or [])
+    proposed = list(getattr(diag, "proposed_hypotheses", None) or [])
     m3_span = tracer.start_span(
         name=f"M3: Root-Cause Diagnosis (Cycle {cycle})", stage="M3",
         input_data={"model_name": diag.model_name, "n_hypotheses": len(diag.hypotheses)},

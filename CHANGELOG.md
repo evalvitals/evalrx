@@ -22,6 +22,14 @@ version. The old names are gone, with nothing forwarding to the new ones:
 
 The Langfuse delivery queue's temp directory is `evalrx-outbox-<user>`.
 
+### Changed — `run_logger.py` split by what each part does
+
+`RunLogger` keeps routing, stamping and atomic writes. What each event
+records moved to `run_log_entries` (one pure function per event), what lands
+on disk beside the JSON to `run_log_files`, and the Langfuse mirror of each
+event to `run_log_tracing`. The `log_*` methods, their signatures, the files
+they write and the tracer calls they make are unchanged.
+
 ### Removed — reading runs written by earlier log versions
 
 A run is read from its log: `run.json` and `M1..M5/log.json`, as the current

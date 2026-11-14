@@ -219,8 +219,11 @@ eval_agent/
 ├── run_metadata.py       shared run-provenance + logging-wiring helpers
 ├── agentic/              AgenticDiagnoseLoop — judge-decided M1-M4 (see below)
 ├── run_context.py        RunContext, Trial — single owner of a run's output directory
-├── run_logger.py       RunLogger — run.json + per-stage M<n>/log.json event log
-├── log_schema.py          published event JSON Schema
+├── run_logger.py         RunLogger — run.json + per-stage M<n>/log.json event log
+├── run_log_entries.py    what each logged event records, one pure function per event
+├── run_log_files.py      atomic JSON writes, inlined sandbox workspaces, saved artifacts
+├── run_log_tracing.py    each logged event mirrored into Langfuse
+├── log_schema.py         published event JSON Schema
 ├── hypothesis.py         Hypothesis, HypothesisStatus — shared across M3/M4/M5
 ├── store.py              Store / InMemoryStore / JsonlStore
 └── stages/               ← M1, M3, M4, M5 stage implementations (M2 lives in evalrx.analysis)

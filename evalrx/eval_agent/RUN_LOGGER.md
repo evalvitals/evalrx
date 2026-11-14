@@ -4,6 +4,16 @@
 through, and the logger a `RunContext` owns. This file says what it writes and
 why the layout is the way it is.
 
+## The code
+
+| module | what it holds |
+|---|---|
+| `run_logger.py` | `RunLogger`: routes each event to its document, stamps it, writes atomically |
+| `run_log_entries.py` | what each event records: one pure function per event kind |
+| `run_log_files.py` | what lands on disk beside the JSON: atomic writes, inlined workspaces, saved artifacts |
+| `run_log_tracing.py` | the same events mirrored into Langfuse, one function per event |
+| `log_schema.py` | the published JSON Schema of an event |
+
 ## The layout
 
 ```
