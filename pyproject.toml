@@ -155,7 +155,7 @@ where = ["."]
 include = ["evalrx*"]
 
 [tool.setuptools.package-data]
-# Ship the published run_log.jsonl JSON Schema so non-Python consumers can
+# Ship the published run log JSON Schema so non-Python consumers can
 # validate the log without installing evalrx.
 "evalrx.eval_agent" = ["run_log.schema.json"]
 # Ship bundled Agent Skills (e.g. nature-figure) so `pip install` carries them
