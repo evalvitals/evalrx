@@ -195,7 +195,7 @@ class InstrumentedModel(_ProxyBase):
     ) -> None:
         prompt = inputs if isinstance(inputs, str) else getattr(inputs, "prompt", None)
         case_id = self._case_prompts.get(str(prompt)) if prompt is not None else None
-        if self._stage != "M1" and callable(getattr(self._run_logger, "log_model_exchange", None)):
+        if self._stage != "M1":
             self._run_logger.log_model_exchange(
                 self._stage, role=self._analyzer, operation=method,
                 inputs=_snapshot_inputs(inputs), output=output, error=error,

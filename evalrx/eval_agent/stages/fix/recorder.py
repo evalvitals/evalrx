@@ -49,11 +49,10 @@ class FixRecorder:
         self, operation: str, prompt: str, output: str, *, error: "str | None" = None,
     ) -> None:
         """Log one fix-judge exchange; logging must never break repair."""
-        fn = getattr(self.run_logger, "log_model_exchange", None)
-        if not callable(fn):
+        if self.run_logger is None:
             return
         try:
-            fn(
+            self.run_logger.log_model_exchange(
                 "M5", role="fix_judge", operation=operation,
                 inputs=prompt, output=output, error=error,
             )
@@ -71,11 +70,10 @@ class FixRecorder:
         duration_sec: "float | None" = None,
         metadata: "dict[str, Any] | None" = None,
     ) -> None:
-        fn = getattr(self.run_logger, "log_model_exchange", None)
-        if not callable(fn):
+        if self.run_logger is None:
             return
         try:
-            fn(
+            self.run_logger.log_model_exchange(
                 "M5", role="target_model", operation=operation,
                 inputs=inputs, output=output, error=error, duration_sec=duration_sec,
                 metadata={"case_id": case_id, **(metadata or {})},
