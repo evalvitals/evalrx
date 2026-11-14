@@ -79,7 +79,7 @@ def _explore_figures(explore: Mapping[str, Any], figure_dir: Path, root: Path) -
 def _snapshot_figures(explore: Mapping[str, Any], logs_dir: Path, root: Path) -> list[dict[str, Any]]:
     """The explorer's figures as RunLogger copied them into M2/artifacts/.
 
-    ``media_files`` (see ``RunLogger._inline_workspace``) pairs each sandbox
+    ``media_files`` (see ``run_log_files.inline_workspace``) pairs each sandbox
     file -- ``figures/00_class_balance.png`` -- with its content-hashed copy
     under logs/. The sandbox name is the one the takeaways cite and the visual
     plan is keyed by; the copy is only where the bytes are. So the join runs
