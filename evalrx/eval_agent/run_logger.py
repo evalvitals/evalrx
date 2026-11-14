@@ -190,10 +190,6 @@ class RunLogger:
         self.verbose = verbose
         self._context = context
         self._closed = False
-        # Producers use this capability flag to keep text/code in log events
-        # instead of writing sibling files into trial directories.
-        self.inline_text_artifacts = True
-        self.preserve_full_model_io = True
 
         # One in-memory doc per stage + one run-level doc. Every log_* method
         # appends to the relevant bucket(s), then atomically rewrites exactly

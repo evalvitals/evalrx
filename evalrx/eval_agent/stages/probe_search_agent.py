@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from evalrx.analysis.probe_search import ProbeSearch, ProbeSearchResult
 from evalrx.eval_agent.stages.case_discovery import CaseDiscoveryAgent
@@ -27,7 +27,6 @@ from evalrx.eval_agent.stages.probe_candidate_generator import VLMProbeCandidate
 if TYPE_CHECKING:
     from evalrx.core.case import CaseBatch, FailureCase
     from evalrx.core.model import Judge, Model
-    from evalrx.eval_agent.run_logger import RunLogger
     from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
 logger = logging.getLogger(__name__)
@@ -68,10 +67,10 @@ class ProbeSearchAgent:
 
     def run(self, model: "Model", seed_pool: "CaseBatch") -> ProbeSearchResult:
         judge = self.judge
-        if getattr(self.run_logger, "preserve_full_model_io", False):
+        if self.run_logger is not None:
             from evalrx.eval_agent.model_instrumentation import InstrumentedModel
 
-            run_logger = cast("RunLogger", self.run_logger)  # only RunLogger sets preserve_full_model_io
+            run_logger = self.run_logger
             cycle = int(getattr(run_logger, "current_cycle", -1))
             ids = [case.id for case in seed_pool]
             prompts = {case.inputs.prompt: case.id for case in seed_pool}

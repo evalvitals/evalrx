@@ -152,6 +152,12 @@ working. They are gone, with no forwarding name left behind.
   `evalrx.models._media`): nothing called them.
 - The held-out M4 probe no longer retries without `analyzers=` when a probe
   agent raises `TypeError`.
+- `RunLogger.inline_text_artifacts` and `.preserve_full_model_io`. Both were
+  always true: they let a producer ask which logger it had, and there is one.
+  With them go the branches for the other answer, in which a model call's
+  text was cut at 8000 characters and a coded repair's prompt and code were
+  written as files in its trial folder. A stage records its model calls
+  whenever it has a run logger.
 - `rejected_tools` in the multiplicity report (`fdr_correct`,
   `StatsAnalysisReport.corrected_rejections`, `FusedReport.adjudication`):
   read `rejected_result_keys`. A tool name stood for every result of that

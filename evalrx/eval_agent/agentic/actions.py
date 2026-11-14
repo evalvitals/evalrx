@@ -196,7 +196,7 @@ def decide(
 
     if run_logger is not None:
         try:
-            log_kwargs = dict(
+            run_logger.log_agent_decision(
                 step=step,
                 action=action.tool,
                 params=action.params,
@@ -206,10 +206,8 @@ def decide(
                 fallback_used=not action.valid,
                 judge_prompt=prompt,
                 judge_raw=raw,
+                judge_calls=judge_calls,
             )
-            if getattr(run_logger, "preserve_full_model_io", False):
-                log_kwargs["judge_calls"] = judge_calls
-            run_logger.log_agent_decision(**log_kwargs)
         except Exception:  # noqa: BLE001 — logging must never break the loop
             logger.warning("decide: log_agent_decision failed", exc_info=True)
 

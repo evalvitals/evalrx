@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     from evalrx.core.case import CaseBatch
     from evalrx.core.model import Model
     from evalrx.eval_agent.run_context import Trial
-    from evalrx.eval_agent.run_logger import RunLogger
     from evalrx.eval_agent.stages.fix.types import FixOutcome
 
 logger = logging.getLogger(__name__)
@@ -110,33 +109,18 @@ class FixRecorder:
         usage: "dict | None" = None,
         raw_stream: str = "",
     ) -> None:
-        """Log one codegen attempt; persist its prompt/code/thinking.
+        """Log one codegen attempt: its prompt, code and the coder's narration.
 
-        With a *trial*, the files live under ``trial.root`` (alongside the
-        rest of that attempt's record) instead of the run-global ``tools/`` —
-        only a lean event (paths via ``extra["trial_root"]``) goes through
-        :meth:`RunLogger.log_tool_codegen`, with no duplicate file copy.
+        The text goes into the event. With a *trial*, the event also names
+        ``trial.root`` so the attempt joins the workspace it ran in.
         """
         extra: "dict[str, Any] | None" = (
             {"cli_usage": usage}
             if source.startswith("cli:") and usage
             else None
         )
-        inline = bool(getattr(self.run_logger, "inline_text_artifacts", False))
-        if trial is not None and not inline:
-            if prompt:
-                trial.write(f"{name}_prompt.txt", prompt)
-            if code:
-                trial.write(f"{name}_code.py", code)
-            if raw:
-                trial.write(f"{name}_agent_thinking.txt", raw)
-            if raw_stream:
-                trial.write(f"{name}_agent_raw_stream.txt", raw_stream)
-            extra = {**(extra or {}), "trial_root": str(trial.root)}
-            prompt, code, raw = "", "", ""
-        elif trial is not None:
-            # The run log keeps the exact prompt/code/response in M5/log.json.  The
-            # trial workspace is ephemeral execution state and is snapshotted
+        if trial is not None:
+            # The trial workspace is ephemeral execution state, snapshotted
             # separately by log_experiment/log_fix.
             extra = {**(extra or {}), "trial_root": str(trial.root)}
         if self.run_logger is None:
@@ -159,13 +143,13 @@ class FixRecorder:
             logger.debug("FixAgent: log_tool_codegen failed: %s", exc)
 
     def instrument(self, model: "Model", data: "CaseBatch", analyzer: str) -> "Model":
-        """Wrap *model* so every call is logged, when the run keeps full model I/O."""
-        if not getattr(self.run_logger, "preserve_full_model_io", False):
+        """Wrap *model* so every call is logged, when the run has a log."""
+        if self.run_logger is None:
             return model
         from evalrx.eval_agent.model_instrumentation import InstrumentedModel
 
         return InstrumentedModel(
-            model, cast("RunLogger", self.run_logger), stage="M5",  # only RunLogger sets preserve_full_model_io
+            model, self.run_logger, stage="M5",
             cycle=int(getattr(self.run_logger, "current_cycle", -1)),
             analyzer=analyzer,
             case_prompts={case.inputs.prompt: case.id for case in data},

@@ -72,26 +72,14 @@ if TYPE_CHECKING:
 else:
     _ProxyBase = object
 
-#: Longest single string field kept verbatim before it is truncated. Generous
-#: enough for almost every prompt/response; a truncated field says so rather
-#: than silently clipping, so a reader never mistakes it for the whole thing.
-_MAX_FIELD_CHARS = 8000
-
 #: How many of the batch's case ids get repeated verbatim on EVERY model_call
 #: record (see ``batch_case_ids`` in ``_record``). Unlike prompts/outputs this
 #: field is identical across every call an analyzer makes in one cycle, so on
 #: a real batch (136 cases in the run this instrumentation was built against)
 #: it would otherwise duplicate ~5KB of uuids per record, times however many
 #: calls the analyzer makes — the one field here that scales with batch size
-#: rather than with prompt/response length, so it gets its own cap instead of
-#: reusing ``_MAX_FIELD_CHARS``.
+#: rather than with prompt/response length, so it is the one field capped.
 _MAX_BATCH_IDS_INLINE = 20
-
-
-def _truncate(text: str) -> str:
-    if len(text) <= _MAX_FIELD_CHARS:
-        return text
-    return text[:_MAX_FIELD_CHARS] + f"...[truncated, {len(text)} chars total]"
 
 
 def _capped_ids(ids: "list[str]") -> "tuple[list[str], int]":
@@ -99,7 +87,7 @@ def _capped_ids(ids: "list[str]") -> "tuple[list[str], int]":
     return ids[:_MAX_BATCH_IDS_INLINE], len(ids)
 
 
-def _snapshot_inputs(inputs: Any, *, full: bool = False) -> Any:
+def _snapshot_inputs(inputs: Any) -> Any:
     """A JSON-safe stand-in for whatever an analyzer passed as *inputs*.
 
     Handles the three shapes analyzers actually use: a bare string (some
@@ -111,13 +99,11 @@ def _snapshot_inputs(inputs: Any, *, full: bool = False) -> Any:
     uses for baseline case media.
     """
     if isinstance(inputs, str):
-        return inputs if full else _truncate(inputs)
+        return inputs
     prompt = getattr(inputs, "prompt", None)
     if prompt is None:
-        return str(inputs) if full else _truncate(str(inputs))
-    snapshot: dict[str, Any] = {
-        "prompt": str(prompt) if full else _truncate(str(prompt))
-    }
+        return str(inputs)
+    snapshot: dict[str, Any] = {"prompt": str(prompt)}
     for kind in ("image", "audio", "video"):
         value = getattr(inputs, kind, None)
         if value is None:
@@ -209,11 +195,10 @@ class InstrumentedModel(_ProxyBase):
     ) -> None:
         prompt = inputs if isinstance(inputs, str) else getattr(inputs, "prompt", None)
         case_id = self._case_prompts.get(str(prompt)) if prompt is not None else None
-        full = bool(getattr(self._run_logger, "preserve_full_model_io", False))
         if self._stage != "M1" and callable(getattr(self._run_logger, "log_model_exchange", None)):
             self._run_logger.log_model_exchange(
                 self._stage, role=self._analyzer, operation=method,
-                inputs=_snapshot_inputs(inputs, full=full), output=output, error=error,
+                inputs=_snapshot_inputs(inputs), output=output, error=error,
                 duration_sec=duration_sec, cycle=self._cycle,
                 metadata={
                     "call_index": self._next_call_index(), "case_id": case_id,
@@ -231,7 +216,7 @@ class InstrumentedModel(_ProxyBase):
             case_id=case_id,
             batch_case_ids=self._batch_case_ids_inline,
             n_batch_cases=self._n_batch_cases,
-            inputs=_snapshot_inputs(inputs, full=full),
+            inputs=_snapshot_inputs(inputs),
             kwargs={k: str(v) for k, v in (kwargs or {}).items()},
             output=output,
             duration_sec=duration_sec,
@@ -245,8 +230,7 @@ class InstrumentedModel(_ProxyBase):
         except Exception as exc:  # noqa: BLE001 - record the failure, then re-raise it
             self._record("generate", inputs, kwargs, None, time.monotonic() - t0, repr(exc))
             raise
-        rendered = str(out) if getattr(self._run_logger, "preserve_full_model_io", False) else _truncate(str(out))
-        self._record("generate", inputs, kwargs, rendered, time.monotonic() - t0, None)
+        self._record("generate", inputs, kwargs, str(out), time.monotonic() - t0, None)
         return out
 
     def forward(
@@ -280,10 +264,7 @@ class InstrumentedModel(_ProxyBase):
         except Exception as exc:  # noqa: BLE001
             self._record("chat", messages, {"tools": tools}, None, time.monotonic() - t0, repr(exc))
             raise
-        text = str(getattr(turn, "text", turn))
-        if not getattr(self._run_logger, "preserve_full_model_io", False):
-            text = _truncate(text)
-        output = {"text": text}
+        output = {"text": str(getattr(turn, "text", turn))}
         raw_tool_calls = getattr(turn, "raw_tool_calls", None)
         if raw_tool_calls:
             output["tool_calls"] = str(raw_tool_calls)
