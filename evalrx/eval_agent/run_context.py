@@ -8,8 +8,8 @@ experiment code into an ephemeral temp dir.  ``RunContext`` replaces that
 gluing with one library-owned object that owns the whole run directory and
 hands every producer its subdirectory.
 
-The logger is :class:`~evalrx.eval_agent.run_logger_v2.RunLoggerV2` (see
-``evalrx/eval_agent/RUN_LOGGER_V2.md``): one ``run.json`` plus one
+The logger is :class:`~evalrx.eval_agent.run_logger.RunLogger` (see
+``evalrx/eval_agent/RUN_LOGGER.md``): one ``run.json`` plus one
 ``M1/log.json``..``M5/log.json`` per stage, no flat event file, no persisted
 ``prompts/``/``experiments/``/``tools/``/``workspace/``/``fixes/`` — generated
 text/code is captured inline into the relevant stage's JSON via an ephemeral
@@ -57,7 +57,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.run_logger import RunLogger
 
 
 class Trial:
@@ -147,7 +147,7 @@ class RunContext:
         self._verbose = verbose
         self._narrate = narrate
         self._observability_mode = observability_mode
-        self._logger: "RunLoggerV2 | None" = None
+        self._logger: "RunLogger | None" = None
         self._workdir_seq = 0
         self._trial_seq: "dict[str, int]" = {}
         self._runtime_root: "Path | None" = None
@@ -197,12 +197,12 @@ class RunContext:
     # ------------------------------------------------------------------
 
     @property
-    def logger(self) -> "RunLoggerV2":
+    def logger(self) -> "RunLogger":
         """The logger bound to this context (created on first use)."""
         if self._logger is None:
-            from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+            from evalrx.eval_agent.run_logger import RunLogger
 
-            self._logger = RunLoggerV2(
+            self._logger = RunLogger(
                 run_dir=self.root, verbose=self._verbose, narrate=self._narrate,
                 observability_mode=self._observability_mode,
                 context=self,
@@ -275,7 +275,7 @@ class RunContext:
         *discovery* (optional) is a list of already-serialised case rows —
         examples that compute task-specific columns (e.g. parsed yes/no)
         build the rows themselves. Delegates to
-        :meth:`~evalrx.eval_agent.run_logger_v2.RunLoggerV2.log_diagnose_report`.
+        :meth:`~evalrx.eval_agent.run_logger.RunLogger.log_diagnose_report`.
         """
         self.logger.log_diagnose_report(report, cases, discovery=discovery)
 

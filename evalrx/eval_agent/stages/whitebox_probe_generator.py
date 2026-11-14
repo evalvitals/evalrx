@@ -54,7 +54,7 @@ if TYPE_CHECKING:
     from evalrx.agent_runtime.cli_types import CliAgentConfig
     from evalrx.core.case import CaseBatch
     from evalrx.core.model import Judge, Model, Trace
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.run_logger import RunLogger
 
 logger = logging.getLogger(__name__)
 
@@ -203,7 +203,7 @@ class WhiteboxProbeGenerator:
             from evalrx.eval_agent.model_instrumentation import InstrumentedModel
 
             model = InstrumentedModel(
-                model, cast("RunLoggerV2", self.run_logger),  # only RunLoggerV2 sets preserve_full_model_io
+                model, cast("RunLogger", self.run_logger),  # only RunLogger sets preserve_full_model_io
                 cycle=int(getattr(self.run_logger, "current_cycle", -1)),
                 analyzer="generated_whitebox_probe_capture",
                 case_prompts={c.inputs.prompt: c.id for c in selected},

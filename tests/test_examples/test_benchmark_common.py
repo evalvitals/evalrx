@@ -411,7 +411,7 @@ def test_skip_m5_is_independent_of_fix_and_tier_search(common):
 def test_run_fix_isolated_hides_the_run_dir_from_the_fix_stage_and_restores_it(common, tmp_path):
     """The fix stage must not be able to read baseline.json / discovery_cases /
     the run-wide log from its workspace; afterwards everything is back, and
-    the managed JSON log the fix stage rewrote is kept as-is (RunLoggerV2
+    the managed JSON log the fix stage rewrote is kept as-is (RunLogger
     rewrites a whole document atomically, so the new one already carries
     everything the old one had — no append, no `.pre_fix` sibling)."""
     import importlib

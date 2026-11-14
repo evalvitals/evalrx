@@ -1075,9 +1075,9 @@ class TestM3FaultTolerance:
 
         import json
 
-        from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+        from evalrx.eval_agent.run_logger import RunLogger
 
-        run_logger = RunLoggerV2(tmp_path / "logs")
+        run_logger = RunLogger(tmp_path / "logs")
         loop = VLDiagnoseLoop(
             model=_vlm(),
             protocol=_spatial_protocol(),
@@ -1237,7 +1237,7 @@ class TestM4Holdout:
 def test_m3_transient_error_retries_without_reprobing(tmp_path):
     from types import SimpleNamespace
 
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.run_logger import RunLogger
 
     class Transient:
         calls = 0
@@ -1250,7 +1250,7 @@ def test_m3_transient_error_retries_without_reprobing(tmp_path):
 
     agent = Transient()
     loop = VLDiagnoseLoop(model=_vlm(), protocol=_spatial_protocol(), diagnosis_agent=agent,
-                          run_logger=RunLoggerV2(tmp_path / "logs"))
+                          run_logger=RunLogger(tmp_path / "logs"))
     result = loop._do_m3(0, None, [], {}, log=False)
     assert result is not None and result.hypotheses == []
     assert agent.calls == 2

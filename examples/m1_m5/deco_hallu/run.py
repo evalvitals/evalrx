@@ -226,7 +226,7 @@ def main() -> None:
         CliAgentConfig,
         ExperimentWriterConfig,
         FixAgent,
-        RunLoggerV2,
+        RunLogger,
         SurgeryAgent,
         VLDiagnoseLoop,
     )
@@ -255,7 +255,7 @@ def main() -> None:
         extra_args=(("--effort", codegen_effort) if codegen_effort else ()),
     )
     print(f"codegen: claude_code model={codegen.model} effort={codegen_effort or 'default'}")
-    run_logger = RunLoggerV2(run_dir=OUT / "logs", narrate=True)
+    run_logger = RunLogger(run_dir=OUT / "logs", narrate=True)
     loop = VLDiagnoseLoop(
         model=model,
         probe_agent=ProbeAgent(judge=judge, max_analyzers=args.max_analyzers,

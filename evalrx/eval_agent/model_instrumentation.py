@@ -15,9 +15,9 @@ the intermediate calls were simply gone.
 
 ``InstrumentedModel`` closes that hole *without touching any analyzer*: wrap
 the model handed to ``analyzer.run(model, data)`` in this proxy and every call
-is durably logged via :meth:`RunLoggerV2.log_model_call`, tagged with
+is durably logged via :meth:`RunLogger.log_model_call`, tagged with
 ``(cycle, analyzer, method, call_index)`` — the primary key that was missing
-before. See ``run_logger_v2.py``'s ``log_model_call`` docstring for where the
+before. See ``run_logger.py``'s ``log_model_call`` docstring for where the
 record ends up (inlined into the owning stage's ``M<n>/log.json``, not a
 sibling file) and how it is mirrored into Langfuse.
 
@@ -42,7 +42,7 @@ this writing:
   ``tools.py``, ``pipeline.py``) — but these already have a durable,
   pre-existing home: per-candidate per-case outputs land inline under each
   candidate's own ``"outputs"`` key in ``M5/log.json`` via
-  ``RunLoggerV2.log_fix``.
+  ``RunLogger.log_fix``.
 - Pre-loop ``case_discovery.py`` harvesting in arbitrary callers. The common
   benchmark runner wraps this path, so its exact per-case
   input/output/error/latency is covered there as well.
@@ -63,7 +63,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from evalrx.core.capability import Capability
     from evalrx.core.model import CaptureSpec, Judge, Model, Trace
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.run_logger import RunLogger
 
     # The proxy stands in for the Model it wraps. It is not a subclass at run
     # time: Model's class-level defaults (capabilities, modalities) would
@@ -107,7 +107,7 @@ def _snapshot_inputs(inputs: Any, *, full: bool = False) -> Any:
     ``Inputs``-like object (``.prompt`` + optional ``.image``/``.audio``/
     ``.video``), or anything else (falls back to ``str()``). Media slots are
     never inlined — a decoded ``PIL.Image``/waveform is far too large and a
-    path/URL is recorded as-is, the same convention ``RunLoggerV2.log_cases``
+    path/URL is recorded as-is, the same convention ``RunLogger.log_cases``
     uses for baseline case media.
     """
     if isinstance(inputs, str):
@@ -131,7 +131,7 @@ def _snapshot_trace(trace: "Trace") -> "dict[str, Any]":
 
     The heavy arrays (attentions/hidden_states/logits) already have a durable
     home: whichever ones an analyzer chooses to return via ``Result.artifacts``
-    are saved by ``RunLoggerV2._save_media``. Duplicating them here would
+    are saved by ``RunLogger._save_media``. Duplicating them here would
     multiply disk use for no new evidence, so this keeps only what a reader
     needs to tell one ``forward()`` call apart from another.
     """
@@ -142,21 +142,21 @@ def _snapshot_trace(trace: "Trace") -> "dict[str, Any]":
 
 
 class InstrumentedModel(_ProxyBase):
-    """Forwarding proxy around a ``Model`` that reports every call to a ``RunLoggerV2``.
+    """Forwarding proxy around a ``Model`` that reports every call to a ``RunLogger``.
 
     One instance per analyzer invocation — construct fresh in
     ``ProbeAgent._run_direct`` rather than sharing across analyzers, so
     ``call_index`` is scoped to exactly the (cycle, analyzer) pair it is
     tagged with. Safe to use from a ``ThreadPoolExecutor`` worker: each
     instance is only ever touched by the one thread running that analyzer,
-    and the underlying atomic-rewrite sink (guarded by ``RunLoggerV2``'s own
+    and the underlying atomic-rewrite sink (guarded by ``RunLogger``'s own
     lock) is itself thread-safe.
     """
 
     def __init__(
         self,
         model: "Model | Judge",
-        run_logger: "RunLoggerV2",
+        run_logger: "RunLogger",
         *,
         cycle: int,
         analyzer: str,

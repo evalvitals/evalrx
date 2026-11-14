@@ -240,7 +240,7 @@ class VLDiagnoseLoop:
                             tripled the wall-clock; raise it to keep
                             mining when a cycle's M4 designs feed the
                             next cycle's M1).
-        run_logger:         Optional :class:`~evalrx.eval_agent.run_logger_v2.RunLoggerV2`.
+        run_logger:         Optional :class:`~evalrx.eval_agent.run_logger.RunLogger`.
         token_budget:       Stop early when accumulated token usage reaches
                             this limit (0 = unlimited).
         analysis_only:      Run only M1→M2 and stop before hypothesis generation.
@@ -674,8 +674,8 @@ class VLDiagnoseLoop:
           → ``ctx.explore_dir``, an ephemeral tree under ``ctx.runtime_root``
           (captured into ``M2/log.json`` and deleted at ``finalize()``;
           writing straight to ``<ctx.root>/explore`` would leak real files
-          outside V2's JSON-only run artifact);
-        - a standalone ``RunLoggerV2("<run>/logs")`` / ``logs_confirm`` … →
+          outside the JSON-only run artifact);
+        - a standalone ``RunLogger("<run>/logs")`` / ``logs_confirm`` … →
           ``<run>/explore`` (a sibling of the ``logs*/`` dir, the llm_benchmark
           layout — under the log dir it would be two levels down for a
           ``logs_confirm/`` carrier log and the report would miss it);

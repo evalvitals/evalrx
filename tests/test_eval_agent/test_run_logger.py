@@ -1,5 +1,5 @@
-"""RunLoggerV2 conformance: every log_* method, exercised end to end, must
-produce the tidy M1..M5 layout described in RUN_LOGGER_V2.md — few files,
+"""RunLogger conformance: every log_* method, exercised end to end, must
+produce the tidy M1..M5 layout described in RUN_LOGGER.md — few files,
 same-type-in-one-json, one folder per stage, nothing but JSON except real
 binary media.
 
@@ -16,17 +16,17 @@ from pathlib import Path
 from types import SimpleNamespace
 
 
-def _emit_every_method(run_dir) -> "RunLoggerV2":  # noqa: F821
+def _emit_every_method(run_dir) -> "RunLogger":  # noqa: F821
     from evalrx.analysis.explorer import ExploratoryAnalysisReport
     from evalrx.analysis.stats_agent import StatsAnalysisReport
     from evalrx.core import CaseBatch, FailureCase
     from evalrx.core.result import Result
     from evalrx.eval_agent.hypothesis import Hypothesis, HypothesisStatus
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.run_logger import RunLogger
     from evalrx.eval_agent.stages.diagnosis import DiagnosisResult
     from evalrx.eval_agent.stages.surgery import InterventionResult
 
-    logger = RunLoggerV2(run_dir=run_dir)
+    logger = RunLogger(run_dir=run_dir)
     logger.current_cycle = 0
 
     logger.log_run_start({"model": "fake", "n_cases": 3})
@@ -249,10 +249,10 @@ def test_unroutable_tag_with_no_alias_warns_and_lands_in_run_json(tmp_path):
     run.json["unrouted"] rather than silently dropped."""
     import pytest
 
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.run_logger import RunLogger
 
     run_dir = tmp_path / "run1"
-    logger = RunLoggerV2(run_dir=run_dir)
+    logger = RunLogger(run_dir=run_dir)
     logger.log_run_start()
     with pytest.warns(UserWarning, match="totally_new_stage"):
         logger.log_tool_codegen(
@@ -287,10 +287,10 @@ def test_probe_artifacts_land_under_that_stages_artifacts_dir(tmp_path):
     import numpy as np
 
     from evalrx.core.result import Result
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.run_logger import RunLogger
 
     run_dir = tmp_path / "run1"
-    logger = RunLoggerV2(run_dir=run_dir)
+    logger = RunLogger(run_dir=run_dir)
     logger.log_run_start()
     res = Result(
         analyzer="attention_sink", model="fake", findings={"n_cases": 1},
@@ -308,16 +308,16 @@ def test_probe_artifacts_land_under_that_stages_artifacts_dir(tmp_path):
 
 
 def test_model_calls_are_recorded_and_probe_events_stay_intact_alongside(tmp_path):
-    """Wiring parity with the V1 InstrumentedModel fix: ProbeAgent + RunLoggerV2
+    """Wiring parity with the V1 InstrumentedModel fix: ProbeAgent + RunLogger
     together must still capture every target-model call."""
     from evalrx.core.capability import Capability
     from evalrx.core.case import CaseBatch, FailureCase, Inputs
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.run_logger import RunLogger
     from evalrx.eval_agent.stages.probe_agent import ProbeAgent
     from tests.conftest import FakeModel
 
     run_dir = tmp_path / "run1"
-    logger = RunLoggerV2(run_dir=run_dir)
+    logger = RunLogger(run_dir=run_dir)
     logger.current_cycle = 0
     model = FakeModel(capabilities={Capability.GENERATE})
     agent = ProbeAgent(run_logger=logger)
@@ -346,9 +346,9 @@ def test_atomic_write_leaves_a_valid_file_after_every_event(tmp_path):
 
 def test_close_ends_the_langfuse_trace(tmp_path):
     run_dir = tmp_path / "run1"
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.run_logger import RunLogger
 
-    logger = RunLoggerV2(run_dir=run_dir)
+    logger = RunLogger(run_dir=run_dir)
     logger.log_run_start({"model": "fake"})
     logger.close()
     assert (run_dir / "langfuse_trace.json").exists()
@@ -357,7 +357,7 @@ def test_close_ends_the_langfuse_trace(tmp_path):
 def test_full_loop_run_is_a_drop_in_replacement_for_run_logger(tmp_path):
     """The strongest check available without a real model: run an actual
     VLDiagnoseLoop.run() — the same real integration test_holdout_cases_logged
-    exercises against RunLogger — with RunLoggerV2 constructed directly
+    exercises against RunLogger — with RunLogger constructed directly
     (bypassing RunContext, a known, documented scope cut) instead of
     ctx.logger, and confirm no other loop/stage code needed to change AND the
     held-out split's cases still get logged (the exact regression that test
@@ -365,7 +365,7 @@ def test_full_loop_run_is_a_drop_in_replacement_for_run_logger(tmp_path):
     from evalrx.core.capability import Capability
     from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
     from evalrx.eval_agent import DiagnosisAgent, VLDiagnoseLoop
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.run_logger import RunLogger
     from evalrx.eval_agent.stages.protocol import ExperimentProtocol
     from tests.conftest import FakeModel
     from tests.test_eval_agent.test_vl_diagnose import ScriptedModel
@@ -380,7 +380,7 @@ def test_full_loop_run_is_a_drop_in_replacement_for_run_logger(tmp_path):
     ])
     all_ids = {c.id for c in cases}
     run_dir = tmp_path / "run1"
-    logger = RunLoggerV2(run_dir=run_dir)
+    logger = RunLogger(run_dir=run_dir)
     VLDiagnoseLoop(
         model=FakeModel(capabilities={Capability.GENERATE}, modalities={"text"}),
         protocol=ExperimentProtocol(description="does it answer?", task_domain="qa"),
@@ -398,7 +398,7 @@ def test_full_loop_run_is_a_drop_in_replacement_for_run_logger(tmp_path):
         f"{len(missing)} of {len(all_ids)} cases were never logged — the same "
         "held-out-split regression test_holdout_cases_logged.py guards against."
     )
-    # M1 actually ran and produced a probe entry — the loop drove RunLoggerV2
+    # M1 actually ran and produced a probe entry — the loop drove RunLogger
     # through log_probe (and, transitively, InstrumentedModel/log_model_call)
     # exactly as it drives RunLogger.
     m1 = _load(run_dir, "M1", "log.json")
@@ -526,14 +526,14 @@ def test_run_context_v2_root_holds_no_v1_named_directories(tmp_path):
 
 def test_reporting_reader_and_server_discover_v2_run(tmp_path):
     from evalrx.observability.tracer import backfill_run_to_langfuse
-    from evalrx.reporting.run_events import read_v2_events, resolve_v2_root
+    from evalrx.reporting.run_events import read_run_events, resolve_run_root
     from evalrx.reporting.server import find_run_root
 
     root = tmp_path / "archive" / "logs"
     _emit_every_method(root)
-    events = read_v2_events(root.parent)
+    events = read_run_events(root.parent)
 
-    assert resolve_v2_root(root.parent) == root.resolve()
+    assert resolve_run_root(root.parent) == root.resolve()
     assert find_run_root(tmp_path / "archive") == root
     assert any(event["event"] == "run_start" for event in events)
     assert any(event["event"] == "case_record" for event in events)
@@ -551,11 +551,11 @@ def test_reporting_reader_and_server_discover_v2_run(tmp_path):
 
 def test_non_numeric_probe_artifacts_survive_without_sidecar_files(tmp_path):
     from evalrx.core.result import Result
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.run_logger import RunLogger
 
     artifacts = {"details": {"answer": "yes"}, "samples": ["yes", "no"],
                  "rows": [{"case_id": "a", "score": 0.5}]}
-    with RunLoggerV2(tmp_path, observability_mode="offline") as logger:
+    with RunLogger(tmp_path, observability_mode="offline") as logger:
         logger.log_probe(0, {"probe": Result(
             analyzer="probe", model="stub", findings={}, artifacts=artifacts,
         )})
@@ -626,10 +626,10 @@ def test_failed_runtime_archive_does_not_delete_source(tmp_path, monkeypatch):
 
 def test_the_case_study_reads_m4_from_the_logged_bundle(tmp_path):
     from evalrx.reporting.case_study import _m4
-    from evalrx.reporting.run_events import read_v2_events
+    from evalrx.reporting.run_events import read_run_events
 
     _emit_every_method(tmp_path)
-    events = read_v2_events(tmp_path)
+    events = read_run_events(tmp_path)
     rows = _m4(SimpleNamespace(events_of=lambda name: [e for e in events if e["event"] == name]))
     assert len(rows) == 1
     assert rows[0]["status"] == "supported"
@@ -638,7 +638,7 @@ def test_the_case_study_reads_m4_from_the_logged_bundle(tmp_path):
 
 def test_loop_summary_keeps_verified_hypothesis_evidence(tmp_path):
     from evalrx.eval_agent.hypothesis import Hypothesis, HypothesisStatus
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.run_logger import RunLogger
     from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTestResult
 
     hypothesis = Hypothesis(statement="why", target_model="stub", predicted_failure_mode="mode")
@@ -646,7 +646,7 @@ def test_loop_summary_keeps_verified_hypothesis_evidence(tmp_path):
         hypothesis=hypothesis, status=HypothesisStatus.SUPPORTED, test_name="audit",
         effect_size=0.2, is_consistent_with_protocol=True, confidence=0.9, verdict="supported",
     )
-    with RunLoggerV2(tmp_path, observability_mode="offline") as logger:
+    with RunLogger(tmp_path, observability_mode="offline") as logger:
         logger.log_loop_end(SimpleNamespace(
             cycles=1, stopped_by="verified", final_hypotheses=[hypothesis], verified_hypotheses=[result],
         ))
@@ -660,48 +660,48 @@ def test_persisted_event_identity_orders_concurrent_calls_and_validates(tmp_path
     from concurrent.futures import ThreadPoolExecutor
 
     from evalrx.eval_agent.log_schema import EVENT_TYPES, _validator, build_schema
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
-    from evalrx.reporting.run_events import read_v2_events
+    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.reporting.run_events import read_run_events
 
     monkeypatch.setenv("EVALRX_VALIDATE_LOG", "1")
     _emit_every_method(tmp_path)
     validator = _validator(build_schema())
-    emitted = read_v2_events(tmp_path)
+    emitted = read_run_events(tmp_path)
     for event in emitted:
         validator.validate(event)
     # Every event type the schema knows about actually got exercised here —
     # catches a type that's defined but never driven by this conformance check.
     # diagnose_report and unrouted aren't part of _emit_every_method's mirror
-    # of RunLoggerV2's log_* API; they're validated in their own dedicated
+    # of RunLogger's log_* API; they're validated in their own dedicated
     # tests instead (test_run_context_v2_keeps_only_json_and_media_and_inlines_reports,
     # test_unroutable_tag_with_no_alias_warns_and_lands_in_run_json).
     covered = {e["event"] for e in emitted}
     expected = set(EVENT_TYPES) - {"diagnose_report", "unrouted"}
     assert covered == expected, f"uncovered event types: {expected - covered}"
     root = tmp_path / "concurrent"
-    with RunLoggerV2(root, observability_mode="offline") as logger:
+    with RunLogger(root, observability_mode="offline") as logger:
         monkeypatch.setattr(logger, "_ts", lambda: "2026-09-07T00:00:00+00:00")
         with ThreadPoolExecutor(max_workers=4) as pool:
             list(pool.map(lambda index: logger.log_model_exchange(
                 f"M{index % 5 + 1}", role="test", operation="generate", inputs=index, output=index,
             ), range(30)))
-    events = read_v2_events(root)
+    events = read_run_events(root)
     # 30 calls, then the run_end the logger writes as it closes.
     assert [event["event_seq"] for event in events] == list(range(1, 32))
     assert events[-1]["event"] == "run_end"
     assert len({event["span_id"] for event in events}) == 31
     for event in events:
         validator.validate(event)
-    assert [event["event_seq"] for event in read_v2_events(root)] == list(range(1, 32))
+    assert [event["event_seq"] for event in read_run_events(root)] == list(range(1, 32))
 
 
 def test_v2_schema_validation_warns_but_preserves_invalid_event(tmp_path, monkeypatch):
     import pytest
 
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.run_logger import RunLogger
 
     monkeypatch.setenv("EVALRX_VALIDATE_LOG", "1")
-    with RunLoggerV2(tmp_path, observability_mode="offline") as logger:
+    with RunLogger(tmp_path, observability_mode="offline") as logger:
         with pytest.warns(UserWarning, match="violates log schema"):
             logger.log_stage_skipped("M4", "reason", cycle="invalid")
     assert _load(tmp_path, "M4", "log.json")["stage_skipped"][0]["cycle"] == "invalid"
@@ -736,10 +736,10 @@ def test_hypothesis_id_joins_m3_to_m4_and_m5(tmp_path):
 
 
 def test_outbox_dir_is_per_user(monkeypatch, tmp_path):
-    # A shared /tmp/evalrx-v2-outbox is owned by whoever created it first, so
+    # A shared /tmp/evalrx-outbox is owned by whoever created it first, so
     # every other user on the host failed with "unable to open database file".
-    import evalrx.eval_agent.run_logger_v2 as v2
+    import evalrx.eval_agent.run_logger as run_logger
 
-    monkeypatch.setattr(v2.tempfile, "gettempdir", lambda: str(tmp_path))
-    monkeypatch.setattr(v2.getpass, "getuser", lambda: "alice")
-    assert v2._outbox_dir() == tmp_path / "evalrx-v2-outbox-alice"
+    monkeypatch.setattr(run_logger.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(run_logger.getpass, "getuser", lambda: "alice")
+    assert run_logger._outbox_dir() == tmp_path / "evalrx-outbox-alice"

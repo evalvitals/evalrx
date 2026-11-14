@@ -2,7 +2,7 @@
 
 A run's events (``run_start``, ``probe``, ``diagnosis``, ...) are the
 contract between a diagnosis run and everything downstream (dashboards,
-parsers, the agent's own memory) — RunLoggerV2 stores them bucketed into
+parsers, the agent's own memory) — RunLogger stores them bucketed into
 ``run.json`` + per-stage ``M<n>/log.json`` rather than a flat JSONL file, but
 each individual event has this same shape wherever it lives. Until this
 module existed that contract lived only in docstrings + a table in
@@ -58,7 +58,7 @@ from typing import Any
 #     pre-rename logs.
 # v6: folded in the bucketed-storage events (`model_call`, `diagnose_report`,
 #     `unrouted`) and the `stage`/`event_seq`/`span_id` envelope fields that
-#     were previously a separate, RunLoggerV2-only schema layered on top of
+#     were previously a separate, RunLogger-only schema layered on top of
 #     this one — there is now one event schema, not a base plus an overlay.
 # v7: `run_end`, written when the logger closes: the run-level completion
 #     signal. `loop_end` ends M1-M4 only; M5 and the fix step log after it.
@@ -140,7 +140,7 @@ _EVENTS: dict[str, dict[str, Any]] = {
             "artifact_paths": {"type": "object"},
             # Additive M1 fields (permissive schema): result_paths (per-analyzer
             # complete result json), failed_analyzers (selected-but-errored),
-            # selected_analyzers — see RunLoggerV2.log_probe.
+            # selected_analyzers — see RunLogger.log_probe.
             "selection_rationale": {"type": "string"},
             "duration_sec": {"type": "number"},
             # How many generate/forward/logprobs/chat calls the analyzers made

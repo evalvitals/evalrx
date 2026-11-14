@@ -24,10 +24,10 @@ from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.core.result import Result
 from evalrx.eval_agent.hypothesis import Hypothesis
 from evalrx.eval_agent.loop import VLDiagnoseLoop
-from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+from evalrx.eval_agent.run_logger import RunLogger
 from evalrx.eval_agent.stages.diagnosis import DiagnosisResult, ExploreContext
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
-from evalrx.reporting.run_events import read_v2_events
+from evalrx.reporting.run_events import read_run_events
 from tests.conftest import FakeModel
 
 # ── stubs ─────────────────────────────────────────────────────────────────────
@@ -198,7 +198,7 @@ def test_no_explorer_is_a_noop():
 
 def test_explorer_failure_costs_the_notes_not_the_run(tmp_path):
     calls: list[str] = []
-    logger = RunLoggerV2(run_dir=tmp_path / "logs", observability_mode="offline")
+    logger = RunLogger(run_dir=tmp_path / "logs", observability_mode="offline")
     loop, diag = _loop(calls, _Explorer(calls, raise_exc=RuntimeError("coder down")),
                        run_logger=logger)
 
@@ -208,7 +208,7 @@ def test_explorer_failure_costs_the_notes_not_the_run(tmp_path):
     assert calls[:4] == ["m1", "explore", "m2", "m3"]
     assert report.final_hypotheses            # M3 still ran, on M2 alone
     assert diag.seen_context == [None]
-    events = read_v2_events(tmp_path / "logs")
+    events = read_run_events(tmp_path / "logs")
     ex = [e for e in events if e["event"] == "explore"]
     assert len(ex) == 1 and ex[0]["ok"] is False and "no report" in ex[0]["error"]
     # the failed step is still accounted for
@@ -234,7 +234,7 @@ def test_explore_persists_beside_logs_and_m3_sees_the_rendered_chart(tmp_path):
     calls: list[str] = []
     workdir = tmp_path / "sandbox"
     _seed_workdir(workdir)
-    logger = RunLoggerV2(run_dir=tmp_path / "logs", observability_mode="offline")
+    logger = RunLogger(run_dir=tmp_path / "logs", observability_mode="offline")
     loop, diag = _loop(calls, _Explorer(calls, report=_report(workdir)), run_logger=logger)
 
     loop.run(_batch())
@@ -252,7 +252,7 @@ def test_explore_persists_beside_logs_and_m3_sees_the_rendered_chart(tmp_path):
     ctx = diag.seen_context[0]
     assert ctx.figure_paths == [str(figs[0])]
 
-    events = read_v2_events(tmp_path / "logs")
+    events = read_run_events(tmp_path / "logs")
     ex = next(e for e in events if e["event"] == "explore")
     assert ex["ok"] is True and ex["n_charts"] == 1 and ex["n_charts_rendered"] == 1
     # V2 inlines the ephemeral explore workspace into M2/artifacts (a
@@ -271,7 +271,7 @@ def test_explicit_explore_dir_wins(tmp_path):
     calls: list[str] = []
     workdir = tmp_path / "sandbox"
     _seed_workdir(workdir)
-    logger = RunLoggerV2(run_dir=tmp_path / "logs", observability_mode="offline")
+    logger = RunLogger(run_dir=tmp_path / "logs", observability_mode="offline")
     loop, _ = _loop(calls, _Explorer(calls, report=_report(workdir)), run_logger=logger,
                     explore_dir=tmp_path / "elsewhere")
     loop.run(_batch())
@@ -333,7 +333,7 @@ def test_real_m3_gets_the_explore_notes_and_the_rendered_png(tmp_path):
     workdir = tmp_path / "sandbox"
     _seed_workdir(workdir)
     judge = _ImageJudge()
-    logger = RunLoggerV2(run_dir=tmp_path / "logs", observability_mode="offline")
+    logger = RunLogger(run_dir=tmp_path / "logs", observability_mode="offline")
     loop = VLDiagnoseLoop(
         model=FakeModel(), protocol=ExperimentProtocol(description="chains"),
         probe_agent=_Probe(calls), stats_agent=_Stats(calls),
@@ -349,7 +349,7 @@ def test_real_m3_gets_the_explore_notes_and_the_rendered_png(tmp_path):
     assert "FAIL cases have ~4x longer chains" in prompt
     png = next((tmp_path / "explore" / "figures").glob("*.png"))
     assert str(png) in judge.calls[0]["images"]
-    events = read_v2_events(tmp_path / "logs")
+    events = read_run_events(tmp_path / "logs")
     m3 = next(e for e in events if e["event"] == "diagnosis")
     assert m3.get("explore_context_used") is True
     assert "Mean n_steps by label" in (m3.get("referenced_charts") or [])
@@ -386,7 +386,7 @@ def test_default_explore_dir_beside_a_standalone_logs_dir_and_inside_other_dirs(
     for name, expected in (("logs", tmp_path / "explore"),
                            ("logs_confirm", tmp_path / "explore"),
                            ("run_2026", tmp_path / "run_2026" / "explore")):
-        logger = RunLoggerV2(run_dir=tmp_path / name, observability_mode="offline")
+        logger = RunLogger(run_dir=tmp_path / name, observability_mode="offline")
         loop, _ = _loop(calls, _Explorer(calls, report=_report()), run_logger=logger)
         assert loop._explore_out_dir() == expected, name
         logger.close()
@@ -418,6 +418,6 @@ def test_agentic_explore_publishes_artifacts_and_passes_notes_to_m3(tmp_path):
         loop._do_m3(0, None, [], state.timings, cases=data)
         assert diag.seen_context[-1] is not None
         assert state.timings['explore'] > 0
-    events = read_v2_events(tmp_path / 'run')
+    events = read_run_events(tmp_path / 'run')
     assert any(e['event'] == 'explore' for e in events)
     assert any(e['event'] == 'diagnosis' for e in events)

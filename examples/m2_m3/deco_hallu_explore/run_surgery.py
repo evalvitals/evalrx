@@ -63,10 +63,10 @@ def _lean_fix(event: dict) -> dict:
 
 
 def _fix_event_from_logs(run_dir: Path) -> dict | None:
-    from evalrx.reporting.run_events import read_v2_events
+    from evalrx.reporting.run_events import read_run_events
 
     event = None
-    for o in read_v2_events(run_dir):
+    for o in read_run_events(run_dir):
         if o.get("event") == "fix":
             event = o  # keep the last fix event
     return event
@@ -161,7 +161,7 @@ def main() -> None:
         SurgeryAgent,
         VLDiagnoseLoop,
     )
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.run_logger import RunLogger
     from evalrx.models.backends.base import RuntimeConfig
 
     judge = loop_run.build_judge(loop_run.CFG.get("judge_model", "claude-opus-4-8"),
@@ -172,7 +172,7 @@ def main() -> None:
                           Capability.ATTENTION})
     codegen: CliAgentConfig = loop_run.build_codegen(args.backend)
 
-    run_logger = RunLoggerV2(run_dir=root / "3_surgery" / "logs", verbose=True)
+    run_logger = RunLogger(run_dir=root / "3_surgery" / "logs", verbose=True)
     loop = VLDiagnoseLoop(
         model=model,
         protocol=loop_run.build_protocol(),

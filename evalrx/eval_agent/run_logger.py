@@ -1,8 +1,8 @@
-"""RunLoggerV2 — the diagnose-loop logger.
+"""RunLogger — the diagnose-loop logger.
 
 The only logger: an earlier flat ``run_log.jsonl`` design this one replaced
 coexisted with it for one migration window and has since been removed — see
-``RUN_LOGGER_V2.md`` (next to this file) for the full design rationale,
+``RUN_LOGGER.md`` (next to this file) for the full design rationale,
 layout, and trade-offs; the four rules that shaped it:
 
 1. Few files. One JSON document per pipeline stage, not a scattered pile of
@@ -69,7 +69,7 @@ _STAGE_RE = re.compile(r"m([1-5])", re.IGNORECASE)
 
 #: Tags used somewhere in the codebase that carry no "m<N>" substring at all
 #: (checked against every literal `module=`/`stage=` value passed to a
-#: log_* method as of this writing — see RUN_LOGGER_V2.md's "routing" table).
+#: log_* method as of this writing — see RUN_LOGGER.md's "routing" table).
 _STAGE_ALIASES: dict[str, str] = {
     "fix_pipeline": "M5",
     "fix": "M5",
@@ -96,7 +96,7 @@ def _resolve_stage(tag: "str | None") -> "str | None":
 
     Returns ``None`` when *tag* matches nothing — the caller must not drop
     the event in that case; route it to the run-level "unrouted" bucket
-    instead (see ``RunLoggerV2._route``). A tag is never assumed unroutable
+    instead (see ``RunLogger._route``). A tag is never assumed unroutable
     without trying both the regex AND the alias table.
     """
     if not tag:
@@ -110,7 +110,7 @@ def _resolve_stage(tag: "str | None") -> "str | None":
 def _outbox_dir() -> Path:
     """Per-user temp directory for the Langfuse delivery queue.
 
-    A single shared ``/tmp/evalrx-v2-outbox`` breaks on multi-user hosts: the
+    A single shared ``/tmp/evalrx-outbox`` breaks on multi-user hosts: the
     first user to create it owns it, and everyone else gets "unable to open
     database file".
     """
@@ -118,7 +118,7 @@ def _outbox_dir() -> Path:
         user = getpass.getuser()
     except Exception:  # noqa: BLE001 - no login name (e.g. bare containers)
         user = str(os.getuid()) if hasattr(os, "getuid") else "default"
-    return Path(tempfile.gettempdir()) / f"evalrx-v2-outbox-{user}"
+    return Path(tempfile.gettempdir()) / f"evalrx-outbox-{user}"
 
 
 def _atomic_write_json(path: Path, obj: Any) -> None:
@@ -394,7 +394,7 @@ def _save_artifact_figure(artifact_dir: Path, stem: str, arr: Any) -> None:
             plt.close(fig)
 
 
-class _V2JsonFormatter:
+class _EventLine:
     """Renders one plain one-line console summary per event, for ``verbose=True``.
 
     Intentionally simple — file layout was this module's ask, not console UX;
@@ -409,7 +409,7 @@ class _V2JsonFormatter:
         return f"{where} {event}{tail}"
 
 
-class RunLoggerV2:
+class RunLogger:
     """A tidy, from-scratch M1..M5 logger. See the module docstring + design doc.
 
     Args:
@@ -572,7 +572,7 @@ class RunLoggerV2:
             except ImportError:
                 pass
             except Exception as exc:  # warn-only
-                warnings.warn(f"RunLoggerV2: event {event!r} violates log schema: {exc}")
+                warnings.warn(f"RunLogger: event {event!r} violates log schema: {exc}")
 
     def _append_stage(self, tag: "str | None", key: str, record: "dict[str, Any]") -> str:
         """Route *record* by *tag* into the right stage bucket; flush; return the stage."""
@@ -580,7 +580,7 @@ class RunLoggerV2:
         with self._lock:
             if stage is None:
                 warnings.warn(
-                    f"RunLoggerV2: could not route event {key!r} (tag={tag!r}) to a "
+                    f"RunLogger: could not route event {key!r} (tag={tag!r}) to a "
                     "stage — filed under run.json['unrouted'] instead of being lost.",
                     stacklevel=3,
                 )
@@ -595,7 +595,7 @@ class RunLoggerV2:
         if self._narrator is not None:
             self._narrator.on_event(stage, key, record)
         elif self.verbose:
-            print(_V2JsonFormatter.line(stage, key, record))
+            print(_EventLine.line(stage, key, record))
         return stage
 
     def _append_run(self, key: str, record: "dict[str, Any]") -> None:
@@ -611,7 +611,7 @@ class RunLoggerV2:
         if self._narrator is not None:
             self._narrator.on_run_event(key, record)
         elif self.verbose:
-            print(_V2JsonFormatter.line(None, key, record))
+            print(_EventLine.line(None, key, record))
 
     @property
     def managed_json_paths(self) -> "tuple[Path, ...]":
@@ -641,7 +641,7 @@ class RunLoggerV2:
                 return str(path.relative_to(self.run_dir))
             return None
         except Exception as exc:  # noqa: BLE001
-            warnings.warn(f"RunLoggerV2: could not save artifact {stem!r}: {exc}")
+            warnings.warn(f"RunLogger: could not save artifact {stem!r}: {exc}")
             return None
 
     def _save_case_media(self, path: Path) -> "str | None":
@@ -696,7 +696,7 @@ class RunLoggerV2:
         if self._narrator is not None:
             self._narrator.on_run_start(entry)
         elif self.verbose:
-            print(_V2JsonFormatter.line(None, "run_start", entry))
+            print(_EventLine.line(None, "run_start", entry))
 
         model_name = str(entry.get("model") or "Target Model")
         proto = entry.get("protocol") or {}
@@ -892,7 +892,7 @@ class RunLoggerV2:
             path.write_text(json.dumps(obj, indent=2, default=str), encoding="utf-8")
             return str(path.relative_to(self.run_dir))
         except Exception as exc:  # noqa: BLE001
-            warnings.warn(f"RunLoggerV2: could not save artifact {stem!r}: {exc}")
+            warnings.warn(f"RunLogger: could not save artifact {stem!r}: {exc}")
             return None
 
     # ------------------------------------------------------------------
@@ -933,7 +933,7 @@ class RunLoggerV2:
             self._flush_stage("M1")
             self._pending_model_calls.setdefault(cycle, []).append(record)
         if self.verbose:
-            print(_V2JsonFormatter.line("M1", "model_call", record))
+            print(_EventLine.line("M1", "model_call", record))
 
     # ------------------------------------------------------------------
     # M1 — probe
@@ -975,7 +975,7 @@ class RunLoggerV2:
                         image_overlays(self._stage_artifacts_dir("M1"), f"c{cycle}_{name}")
                     )
                 except Exception as exc:  # noqa: BLE001 - viz must never break the probe
-                    warnings.warn(f"RunLoggerV2: image_overlays failed for {name}: {exc}")
+                    warnings.warn(f"RunLogger: image_overlays failed for {name}: {exc}")
             to_dict = getattr(result, "to_dict", None)
             if callable(to_dict):
                 try:
@@ -985,7 +985,7 @@ class RunLoggerV2:
                         doc["summary"] = summary()
                     result_docs[name] = doc
                 except Exception as exc:  # noqa: BLE001
-                    warnings.warn(f"RunLoggerV2: could not serialise result {name!r}: {exc}")
+                    warnings.warn(f"RunLogger: could not serialise result {name!r}: {exc}")
 
         with self._lock:
             pending_calls = [c for bucket in self._pending_model_calls.values() for c in bucket]
@@ -1765,7 +1765,7 @@ class RunLoggerV2:
                 pass
         self._closed = True
 
-    def __enter__(self) -> "RunLoggerV2":
+    def __enter__(self) -> "RunLogger":
         return self
 
     def __exit__(self, *exc_info: Any) -> None:

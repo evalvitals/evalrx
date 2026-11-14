@@ -52,7 +52,7 @@ def _logged_figures(paths: Iterable[Any], logs_dir: Path, root: Path) -> list[di
         if candidate in seen or not candidate.is_file():
             continue
         seen.add(candidate)
-        stem = re.sub(r"_[0-9a-f]{8}$", "", candidate.stem)   # the content-hash suffix V2 adds
+        stem = re.sub(r"_[0-9a-f]{8}$", "", candidate.stem)   # the content-hash suffix the logger adds
         result.append({
             "id": candidate.stem, "title": stem.replace("_", " ").strip().title(),
             "question": "", "path": os.path.relpath(candidate, root), "reading": "",
@@ -77,9 +77,9 @@ def _explore_figures(explore: Mapping[str, Any], figure_dir: Path, root: Path) -
 
 
 def _snapshot_figures(explore: Mapping[str, Any], logs_dir: Path, root: Path) -> list[dict[str, Any]]:
-    """The explorer's figures as RunLoggerV2 copied them into M2/artifacts/.
+    """The explorer's figures as RunLogger copied them into M2/artifacts/.
 
-    ``media_files`` (see ``RunLoggerV2._inline_workspace``) pairs each sandbox
+    ``media_files`` (see ``RunLogger._inline_workspace``) pairs each sandbox
     file -- ``figures/00_class_balance.png`` -- with its content-hashed copy
     under logs/. The sandbox name is the one the takeaways cite and the visual
     plan is keyed by; the copy is only where the bytes are. So the join runs

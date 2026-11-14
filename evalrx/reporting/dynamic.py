@@ -43,7 +43,7 @@ from evalrx.reporting.stage_views import _stage_detail, _stages
 #     written (the log's `run_end`, schema 7).
 # 20: `setting.kind` (an explore output renders as its own report) and the
 #     explore agent's analysis on `stage_detail.m2.agent`.
-# 19: the M5 confirmation joins the winning candidate a v2 run recorded, and
+# 19: the M5 confirmation joins the winning candidate the fix event records, and
 #     the "Cases repaired" tile reads it.
 # 18: `setting.partitions` + `case.split` — which band of the frozen batch
 #     each case sat in (explore / held-out / confirm), so the Case Studio can
@@ -120,7 +120,7 @@ def build_report_data(run_dir: str | Path) -> dict[str, Any]:
         if isinstance(case, dict):
             local = [p for p in (event.get("media_paths") or []) if isinstance(p, str)]
             # The partition the loop logged the case under (see
-            # RunLoggerV2.log_cases). Absent on runs from before it was recorded.
+            # RunLogger.log_cases). Absent on runs from before it was recorded.
             split = event.get("split")
             extra: dict[str, Any] = {}
             if local:
@@ -539,9 +539,9 @@ def _diagnosed_by(run: Mapping[str, Any]) -> str:
 
 
 def _read_events(root: Path) -> list[dict[str, Any]]:
-    from evalrx.reporting.run_events import read_v2_events
+    from evalrx.reporting.run_events import read_run_events
 
-    return read_v2_events(root)
+    return read_run_events(root)
 
 
 def _debug_event(event: Mapping[str, Any]) -> dict[str, Any]:

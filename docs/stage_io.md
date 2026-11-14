@@ -448,7 +448,7 @@ Two things the contract will not do for you, both deliberate:
   grounded.
 
 The rest of this section describes the raw run directory — `RunContext`'s
-only layout now (`evalrx/eval_agent/RUN_LOGGER_V2.md`; there is no other
+only layout now (`evalrx/eval_agent/RUN_LOGGER.md`; there is no other
 logger to select). `contract/` is unaffected by any of this.
 
 ### 1. Choose a source of truth
@@ -500,8 +500,7 @@ For a finished run, `run.json["manifest"]` is the file inventory. Its shape is:
 
 `config` is intentionally extensible: render recognized values as summary
 chips and preserve the remainder in a raw configuration view. `files` is a
-flat, complete file index (not grouped by category the way V1's was) —
-render it as-is.
+flat, complete file index — render it as-is.
 
 #### Artifact path resolution
 
@@ -626,7 +625,7 @@ but keep the original JSON untouched.
 Each stage document (`M<n>/log.json`) is one JSON object whose keys are event
 names, each mapping to an array of entries for that stage; `run.json` is the
 same shape for run-wide events (`run_start`, `cases`, `manifest`,
-`diagnose_reports`, `loop_end`, …). `evalrx.reporting.run_events.read_v2_events(root)`
+`diagnose_reports`, `loop_end`, …). `evalrx.reporting.run_events.read_run_events(root)`
 flattens all of it into one ordered list of independent event objects — the
 shape this section (and every table below) describes; prefer it over reading
 each file directly. Every event has:

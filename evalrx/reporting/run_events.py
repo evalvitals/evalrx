@@ -1,4 +1,4 @@
-"""Read tidy RunLoggerV2 documents through the existing event-view contract."""
+"""Read tidy RunLogger documents through the existing event-view contract."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from typing import Any
 _STAGES = ("M1", "M2", "M3", "M4", "M5")
 
 
-def resolve_v2_root(root: str | Path) -> Path | None:
-    """Return the directory containing V2 ``run.json`` and stage folders."""
+def resolve_run_root(root: str | Path) -> Path | None:
+    """Return the directory containing ``run.json`` and the stage folders."""
     root = Path(root).resolve()
     candidates = (root, root / "logs")
     for candidate in candidates:
@@ -21,14 +21,13 @@ def resolve_v2_root(root: str | Path) -> Path | None:
     return None
 
 
-def read_v2_events(root: str | Path) -> list[dict[str, Any]]:
-    """Flatten V2 bucketed documents into the legacy read-only event view.
+def read_run_events(root: str | Path) -> list[dict[str, Any]]:
+    """A run's events as one flat list, in the order they were logged.
 
-    The V2 files remain authoritative and are never rewritten by this adapter.
-    It exists so current report/UI code can migrate independently from the
-    storage layout.
+    The log stores them bucketed (``run.json`` plus one document per stage);
+    report code reads this flat view and never rewrites the files.
     """
-    v2_root = resolve_v2_root(root)
+    v2_root = resolve_run_root(root)
     if v2_root is None:
         return []
     try:
@@ -44,7 +43,7 @@ def read_v2_events(root: str | Path) -> list[dict[str, Any]]:
             return
         record = dict(payload)
         # The bucket a record sits in says which event and stage it is, and
-        # the run names its trace once; a bundle rebuilt by write_v2_bundle
+        # the run names its trace once; a bundle rebuilt by write_run_bundle
         # from recovered events may carry none of the three on the record.
         record.setdefault("event", event)
         record.setdefault("stage", stage)
@@ -90,7 +89,7 @@ def read_v2_events(root: str | Path) -> list[dict[str, Any]]:
     return events
 
 
-# Inverse of the RUN-stage bucket mapping `read_v2_events` flattens — event
+# Inverse of the RUN-stage bucket mapping `read_run_events` flattens — event
 # name -> run.json key. These names are always RUN-level regardless of any
 # "stage" tag on the recovered event.
 _RUN_EVENT_TO_KEY = {
@@ -107,8 +106,8 @@ _RUN_EVENT_TO_KEY = {
 # reconstructed from a durable-outbox delivery, which predates per-event
 # "stage" tagging) may hand back events with no "stage" field at all. Route
 # by the event's own name to its canonical stage rather than dumping it into
-# run.json's "unrouted" bucket, where `resolve_v2_root` would never find it
-# (it requires at least one real M<n>/log.json to recognize a V2 root).
+# run.json's "unrouted" bucket, where `resolve_run_root` would never find it
+# (it requires at least one real M<n>/log.json to recognize a run root).
 _NAME_TO_STAGE = {
     "probe": "M1",
     "analysis": "M2", "explore": "M2",
@@ -128,13 +127,13 @@ def _fallback_stage(name: "str | None", row: dict[str, Any]) -> "str | None":
     return _NAME_TO_STAGE.get(name or "")
 
 
-def write_v2_bundle(root: str | Path, events: list[dict[str, Any]]) -> None:
+def write_run_bundle(root: str | Path, events: list[dict[str, Any]]) -> None:
     """Reconstruct ``run.json`` + ``M<n>/log.json`` from a flat event list.
 
-    The exact inverse of :func:`read_v2_events`'s bucketing, for callers that
+    The exact inverse of :func:`read_run_events`'s bucketing, for callers that
     recover events from an out-of-band source (e.g. Langfuse) and need to
-    write a V2-shaped cache directory back for the report/dashboard's
-    normal V2-only read path to find.
+    write a run-log-shaped cache directory back for the report's normal
+    read path to find.
     """
     root = Path(root)
     run_doc: dict[str, Any] = {}
@@ -170,4 +169,4 @@ def write_v2_bundle(root: str | Path, events: list[dict[str, Any]]) -> None:
         )
 
 
-__all__ = ["read_v2_events", "resolve_v2_root", "write_v2_bundle"]
+__all__ = ["read_run_events", "resolve_run_root", "write_run_bundle"]

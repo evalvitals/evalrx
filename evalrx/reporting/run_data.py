@@ -143,15 +143,15 @@ def _extract_agent_layer(
 
 
 def _snapshot_explore_report(explore_event: dict[str, Any]) -> dict[str, Any]:
-    """The explore step's own report, read back out of a V2 explore event.
+    """The explore step's own report, read back out of the explore event.
 
-    RunLoggerV2 keeps no explore/ directory beside the logs. It inlines the
+    RunLogger keeps no explore/ directory beside the logs. It inlines the
     coder-agent's whole working directory on the explore event
     (``workspace_snapshot.files``) and copies every figure into M2/artifacts/
     under a content-hashed name, recording the original -> copied path pairs
-    as ``media_files``. The inlined ``exploratory_report.json`` is the very
-    document V1 wrote to explore/: the ranked takeaways with the charts each
-    one cites, the visual plan, the chart readings. Without it the M2 record
+    as ``media_files``. The inlined ``exploratory_report.json`` is the
+    explorer's own document: the ranked takeaways with the charts each one
+    cites, the visual plan, the chart readings. Without it the M2 record
     fell back to the event's observation sentences, which cite nothing, and
     every finding rendered as "referenced visual evidence was not found" with
     all of its charts filed under supporting material.
@@ -191,9 +191,9 @@ def _snapshot_explore_report(explore_event: dict[str, Any]) -> dict[str, Any]:
 
 def _latest_run_events(logs_dir: Path) -> list[dict[str, Any]]:
     """The run log's events, from the latest run only when a directory was reused."""
-    from evalrx.reporting.run_events import read_v2_events
+    from evalrx.reporting.run_events import read_run_events
 
-    events: list[dict[str, Any]] = read_v2_events(logs_dir)
+    events: list[dict[str, Any]] = read_run_events(logs_dir)
     run_starts = [e for e in events if e.get("event") == "run_start"]
     if not run_starts:
         return events
@@ -317,7 +317,7 @@ def _explore_report(
     """The explore step's report, from the best source the run has.
 
     The report file it wrote, else the copy inlined in the explore event's
-    workspace snapshot (RunLoggerV2 records the explore step as an M2 event),
+    workspace snapshot (RunLogger records the explore step as an M2 event),
     else the events' own sentences.
     """
     report: dict[str, Any] = {}
@@ -407,7 +407,7 @@ def extract_run_data(run_dir: Path) -> dict[str, Any]:
             "duration": analysis.get("duration_sec"),
             "stats": _m2_stats(analysis),
             "explore": explore_report,
-            # The analysis step's own figures (V2 paths under logs/).
+            # The analysis step's own figures (paths under logs/).
             "figures": [f for f in analysis.get("figures") or [] if isinstance(f, str)],
         },
         "m3": {

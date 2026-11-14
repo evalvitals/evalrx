@@ -113,10 +113,10 @@ def quarantine_run_dir(
         run_dir:      The run directory (``baseline.json``, ``logs/``, ...).
         append_logs:  Files that a live handler holds open in append mode.
                       They are truncated to zero length instead of unlinked
-                      and restored as ``old + new``. RunLoggerV2 rewrites its
+                      and restored as ``old + new``. RunLogger rewrites its
                       documents atomically instead of appending, so its
                       callers pass ``rewrite_logs`` (see
-                      ``RunLoggerV2.managed_json_paths``), not this.
+                      ``RunLogger.managed_json_paths``), not this.
         keep:         Relative path prefixes (POSIX style) to leave visible,
                       e.g. ``("logs/fixes",)`` when resuming a fix search.
         write_manifest: Write ``fix_quarantine.json`` into *run_dir* on exit.

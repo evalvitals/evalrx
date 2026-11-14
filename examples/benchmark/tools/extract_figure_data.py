@@ -73,7 +73,7 @@ def load_json(path: str, default: Any = None) -> Any:
 _STAGES = ("M1", "M2", "M3", "M4", "M5")
 
 # RUN-stage bucket name -> flattened event name (mirrors
-# evalrx.reporting.run_events.read_v2_events; duplicated here rather than
+# evalrx.reporting.run_events.read_run_events; duplicated here rather than
 # imported so this tool stays usable standalone, without the evalrx package
 # installed, against a bare run directory).
 _RUN_KEY_TO_EVENT = {
@@ -88,7 +88,7 @@ _RUN_KEY_TO_EVENT = {
 
 
 def load_v2_events(logs_dir: str) -> List[dict]:
-    """Flatten RunLoggerV2's ``run.json`` + ``M<n>/log.json`` into the same
+    """Flatten RunLogger's ``run.json`` + ``M<n>/log.json`` into the same
     ordered, flat event-dict list this tool used to get from ``run_log.jsonl``."""
     run = load_json(os.path.join(logs_dir, "run.json"), {}) or {}
     events: List[dict] = []
@@ -161,7 +161,7 @@ class Run:
 
         self.summary = load_json(os.path.join(self.root, "summary.json"), {}) or {}
         run_doc = load_json(os.path.join(self.logs, "run.json"), {}) or {}
-        # manifest lives inline in run.json under RunLoggerV2 (no separate
+        # manifest lives inline in run.json under RunLogger (no separate
         # manifest.json file) — same {"run_id", "config", "files"} shape.
         self.manifest = run_doc.get("manifest") or {}
         self.config = self.manifest.get("config", {}) or {}
@@ -172,7 +172,7 @@ class Run:
         self.manifest_run_id = self.manifest.get("run_id")
 
         # every case in the batch, with prompt / gold / baseline output / label.
-        # RunLoggerV2 inlines this into the diagnose_reports entry it wrote
+        # RunLogger inlines this into the diagnose_reports entry it wrote
         # (no separate report/discovery_cases.json file).
         diagnose_reports = run_doc.get("diagnose_reports") or []
         discovery = diagnose_reports[-1].get("discovery") if diagnose_reports else []
@@ -244,7 +244,7 @@ class Run:
 
         Convention: cycle 0 is the discovery cycle ("explore"), cycle -1 is
         the held-out confirmation pass ("heldout"); any other cycle keeps its
-        own ``cN`` label. RunLoggerV2 inlines ``stats_results`` directly on
+        own ``cN`` label. RunLogger inlines ``stats_results`` directly on
         the ``analysis`` entry — no sibling ``*_m2_stats_results.json`` file.
         """
         out = []
@@ -299,7 +299,7 @@ class Run:
         """Per-case rows for *analyzer* at the probe cycle named by
         *cycle_prefix* (``"c0"``, ``"c1"``, ..., ``"post"``/``"c-1"``).
 
-        RunLoggerV2 inlines every analyzer's complete result (including
+        RunLogger inlines every analyzer's complete result (including
         ``findings.per_case``) into its ``M1/log.json`` probe entry — no
         sibling ``<cycle>_<analyzer>.result.json`` file to read.
         """

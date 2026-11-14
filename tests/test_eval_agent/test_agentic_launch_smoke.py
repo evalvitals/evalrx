@@ -19,7 +19,7 @@ from evalrx.eval_agent.log_schema import validate_event
 from evalrx.eval_agent.run_context import RunContext
 from evalrx.eval_agent.stages.probe_agent import ProbeAgent
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
-from evalrx.reporting.run_events import read_v2_events
+from evalrx.reporting.run_events import read_run_events
 from tests.conftest import FakeModel
 
 
@@ -144,7 +144,7 @@ def test_agentic_loop_reaches_a_supported_hypothesis_via_scripted_actions(tmp_pa
     # probe/analysis/diagnosis/surgery events from the wrapped M1-M4 stages,
     # bracketed by run_start/loop_end so the dashboard can show run provenance.
     ctx.finalize()
-    lines = read_v2_events(ctx.root)
+    lines = read_run_events(ctx.root)
     for event in lines:
         validate_event(event)
     events = {line["event"] for line in lines}
@@ -229,7 +229,7 @@ def test_benchmark_controller_cannot_open_confirmation_or_repair(tmp_path):
     report = loop.run(_cases())
     assert report.stopped_by == "agent_stop"
     ctx.finalize()
-    events = read_v2_events(ctx.root)
+    events = read_run_events(ctx.root)
     tools = [e for e in events if e["event"] == "agent_tool"]
     assert len(judge.calls) == 2  # forbidden action is rejected before dispatch
     assert all(e["tool"] != "run_fix" for e in tools)

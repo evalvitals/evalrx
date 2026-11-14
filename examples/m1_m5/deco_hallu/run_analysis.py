@@ -71,7 +71,7 @@ def main() -> None:
     from evalrx.analysis.stats_agent import StatsAnalysisAgent
     from evalrx.eval_agent import (
         CliAgentConfig,
-        RunLoggerV2,
+        RunLogger,
         VLDiagnoseLoop,
     )
     from evalrx.eval_agent.hypothesis import hypothesis_to_dict
@@ -101,7 +101,7 @@ def main() -> None:
               f"{len(explore_report.get('charts') or [])} chart(s), "
               f"{len(explore_report.get('observations') or [])} observation(s)")
 
-    run_logger = RunLoggerV2(run_dir=OUT / "logs_analysis", narrate=True)
+    run_logger = RunLogger(run_dir=OUT / "logs_analysis", narrate=True)
     loop = VLDiagnoseLoop(
         model=model,
         protocol=run.build_protocol(),

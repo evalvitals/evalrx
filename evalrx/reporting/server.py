@@ -115,9 +115,9 @@ def _run_label(root: Path) -> str:
     return f"{root.parent.name}/{root.name}" if root.name == "logs" else root.name
 
 
-#: RunLoggerV2's per-stage documents (evalrx/eval_agent/run_logger_v2.py).
+#: RunLogger's per-stage documents (evalrx/eval_agent/run_logger.py).
 #: A run.json + at least one of these is its on-disk signature, matching
-#: find_run_root's marker and reporting/run_events.py's resolve_v2_root.
+#: find_run_root's marker and reporting/run_events.py's resolve_run_root.
 _STAGES = ("M1", "M2", "M3", "M4", "M5")
 
 

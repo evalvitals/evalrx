@@ -20,7 +20,7 @@ from evalrx.eval_agent import AgenticDiagnoseLoop, CaseDiscoveryAgent, VLDiagnos
 from evalrx.eval_agent.loop_reports import AutoDiagnoseReport
 from evalrx.eval_agent.stages.fix.tiers import FixTier
 from evalrx.eval_agent.stages.fix.types import FixCandidate, FixOutcome, FixValidation
-from evalrx.reporting.run_events import read_v2_events
+from evalrx.reporting.run_events import read_run_events
 from evalrx.specs import get_spec
 from tests.conftest import FakeModel
 
@@ -118,7 +118,7 @@ class Cell:
         return self.read("logs/run.json")["manifest"]["config"]
 
     def events(self) -> list[str]:
-        return [e["event"] for e in read_v2_events(self.run_dir / "logs")]
+        return [e["event"] for e in read_run_events(self.run_dir / "logs")]
 
 
 @pytest.fixture

@@ -219,7 +219,7 @@ eval_agent/
 ├── run_metadata.py       shared run-provenance + logging-wiring helpers
 ├── agentic/              AgenticDiagnoseLoop — judge-decided M1-M4 (see below)
 ├── run_context.py        RunContext, Trial — single owner of a run's output directory
-├── run_logger_v2.py       RunLoggerV2 — run.json + per-stage M<n>/log.json event log
+├── run_logger.py       RunLogger — run.json + per-stage M<n>/log.json event log
 ├── log_schema.py          published event JSON Schema
 ├── hypothesis.py         Hypothesis, HypothesisStatus — shared across M3/M4/M5
 ├── store.py              Store / InMemoryStore / JsonlStore
@@ -467,7 +467,7 @@ result.image_overlays(fig_dir, stem_prefix)                 # -> list[Path]
 lazy `Inputs.image` paths/URLs the same way the model's forward pass did
 (`transformers.image_utils.load_image`), so the overlay matches what was
 actually fed to the model. `image_overlays()` is a duck-typed hook:
-`RunLoggerV2` calls it on any `Result` that defines it and saves the PNGs
+`RunLogger` calls it on any `Result` that defines it and saves the PNGs
 into `M1/artifacts/` alongside the bare heatmaps, so overlays flow into the
 same artifact list a multimodal judge already receives — no per-analyzer
 wiring required.
@@ -478,7 +478,7 @@ wiring required.
 files, a logger buried under a `logs/` subdir, hand-built figure-dir paths,
 and M5 sandboxes living in ephemeral temp dirs deleted on success.  One
 `RunContext` owns the whole run root and hands every producer its
-subdirectory, always through `RunLoggerV2` (`evalrx/eval_agent/RUN_LOGGER_V2.md`) —
+subdirectory, always through `RunLogger` (`evalrx/eval_agent/RUN_LOGGER.md`) —
 there is no other logger to select:
 
 ```text
@@ -509,19 +509,18 @@ run provenance — `model`, `judge`, `git_commit` (falls back to the
 the example Docker images), `data_fingerprint` (an order-independent hash of
 the case batch, so two runs can be confirmed to use the same data) and
 `label_distribution` (the base PASS/FAIL/UNKNOWN counts the diagnosis is
-conditioned on). Nothing is externalized the way V1's `{"path", "n_items",
-"bytes"}` payload placeholder was — `stats_results`, `findings`, and every
-other per-event field are inlined verbatim in the stage's JSON document.
-`evalrx/reporting/run_events.py`'s `read_v2_events(root)` flattens `run.json`
+conditioned on). Nothing is externalized — `stats_results`, `findings`, and
+every other per-event field are inlined verbatim in the stage's JSON document.
+`evalrx/reporting/run_events.py`'s `read_run_events(root)` flattens `run.json`
 + every `M<n>/log.json` back into one ordered, flat event list (the same
 shape every downstream reader — dynamic report, HTML export, dashboard,
 Langfuse backfill — consumes), so most code never has to know about the
 per-stage bucketing directly:
 
 ```python
-from evalrx.reporting.run_events import read_v2_events
+from evalrx.reporting.run_events import read_run_events
 
-events = read_v2_events("run_dir")                          # run_dir or run_dir/logs
+events = read_run_events("run_dir")                          # run_dir or run_dir/logs
 diagnoses = [e for e in events if e["event"] == "diagnosis"]  # all judge outputs
 probes = [e for e in events if e["event"] == "probe"]          # M1 findings
 ```
@@ -548,7 +547,7 @@ from evalrx.eval_agent import validate_event
 validate_event(event)  # raises jsonschema.ValidationError on a violation
 ```
 
-Set `EVALRX_VALIDATE_LOG=1` to have `RunLoggerV2` self-check every event it
+Set `EVALRX_VALIDATE_LOG=1` to have `RunLogger` self-check every event it
 writes against the schema and warn (never raise) on a violation — a CI/dev aid
 to catch a producer drifting from the contract. Both paths need the optional
 `jsonschema` dependency (`pip install evalrx[dev]`).
@@ -581,8 +580,8 @@ on first write, so a candidate discarded before producing anything (e.g. a
 deduped proposal) leaves no empty folder — a gap in the numbering honestly
 means "proposed, then discarded," not a missing record.  `ctx.new_workdir(label)`
 is the non-trial equivalent for sandboxes that don't belong to a numbered
-attempt (e.g. M1/M2 tool codegen). Under V2 there are no persisted trial
-folders at all — a trial's generated code/output is inlined into its stage's
+attempt (e.g. M1/M2 tool codegen). There are no persisted trial
+folders — a trial's generated code/output is inlined into its stage's
 JSON, and the sandbox it ran in lives under an ephemeral `ctx.runtime_root`
 tempdir that's deleted at `finalize()`, not `fixes/`/`experiments/`.
 
@@ -658,7 +657,7 @@ evalrx.FailureCase
 evalrx.Result
 
 # Diagnosis stages and logging
-from evalrx.eval_agent import DiagnosisAgent, RunLoggerV2, StrategyProbe, SurgeryAgent
+from evalrx.eval_agent import DiagnosisAgent, RunLogger, StrategyProbe, SurgeryAgent
 
 # Protocol-guided diagnosis — VLDiagnoseLoop (M1→M2→M3→M4, M5 post-loop)
 from evalrx.eval_agent import (

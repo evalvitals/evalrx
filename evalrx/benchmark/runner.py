@@ -664,7 +664,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         from evalrx.eval_agent import RunContext
         from evalrx.eval_agent.model_instrumentation import InstrumentedModel
 
-        # Create the V2 sink before Stage-0 so each discovery request is durable
+        # Create the run log before Stage-0 so each discovery request is durable
         # as it happens, including its real latency and any transport error.
         ctx = RunContext(
             # narrate: aligned live M1-M5 lines ("M1  probe ···· cycle 0 · ..."),

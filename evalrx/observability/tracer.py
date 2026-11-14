@@ -469,10 +469,10 @@ def _resolve_trace_id(run_dir: Path, fingerprint: str) -> str:
         except Exception:
             pass
     try:
-        from evalrx.reporting.run_events import read_v2_events
+        from evalrx.reporting.run_events import read_run_events
 
         start = next(
-            (event for event in read_v2_events(run_dir) if event.get("event") == "run_start"),
+            (event for event in read_run_events(run_dir) if event.get("event") == "run_start"),
             {},
         )
         if start.get("trace_id"):
@@ -732,14 +732,14 @@ def backfill_run_to_langfuse(run_dir: str | Path, *, dry_run: bool = False) -> d
     envelope IDs are deterministic and the outbox primary key de-duplicates
     them.
     """
-    from evalrx.reporting.run_events import read_v2_events, resolve_v2_root
+    from evalrx.reporting.run_events import read_run_events, resolve_run_root
 
     root = Path(run_dir)
-    v2_root = resolve_v2_root(root)
+    v2_root = resolve_run_root(root)
     if v2_root is None:
         raise FileNotFoundError(f"No run bundle (run.json) found under {run_dir}")
     root = v2_root
-    records: list[dict[str, Any]] = read_v2_events(root)
+    records: list[dict[str, Any]] = read_run_events(root)
     if not records:
         return {"trace_id": "", "events": 0, "pending": 0, "published": 0}
 

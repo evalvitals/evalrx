@@ -516,7 +516,7 @@ for the stage contracts, M1's two-tier analyzer selection, and what M2/M4 ask.
 ```python
 from evalrx import compose
 from evalrx.core.capability import Capability
-from evalrx.eval_agent import VLDiagnoseLoop, AgyModel, RunLoggerV2
+from evalrx.eval_agent import VLDiagnoseLoop, AgyModel, RunLogger
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 from evalrx.eval_agent.stages.probe_agent import ProbeAgent
 from evalrx.analysis.stats_agent import StatsAnalysisAgent
@@ -539,7 +539,7 @@ loop = VLDiagnoseLoop(
     diagnosis_agent=DiagnosisAgent(judge=judge),
     max_cycles=3,
     protocol=protocol,
-    run_logger=RunLoggerV2(),
+    run_logger=RunLogger(),
 )
 report = loop.run(failure_cases)
 
@@ -549,7 +549,7 @@ print(report.final_hypotheses)   # list[Hypothesis] — status SUPPORTED/REFUTED
 fix = loop.run_m5(report, failure_cases)   # post-loop fix proposal
 ```
 
-`RunLoggerV2()` above writes just its own `run.json` + `M<n>/log.json` files at
+`RunLogger()` above writes just its own `run.json` + `M<n>/log.json` files at
 the given (or auto-generated) path — no other producer's output directory.
 For a full managed output directory — figures, per-trial fix/experiment
 sandboxes, contract export — construct a `RunContext` and pass
@@ -595,7 +595,7 @@ loop = AgenticDiagnoseLoop(
     protocol=protocol,
     judge=ClaudeModel(),        # the decision judge — any CLI-backed Model
     max_actions=12,             # hard cap on judge decision turns
-    run_logger=RunLoggerV2(),
+    run_logger=RunLogger(),
 )
 report = loop.run(failure_cases)   # same AutoDiagnoseReport shape as VLDiagnoseLoop
 ```

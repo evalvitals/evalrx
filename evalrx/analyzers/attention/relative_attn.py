@@ -261,7 +261,7 @@ class RelativeAttentionResult(Result):
     def image_overlays(self, fig_dir: "Any", stem_prefix: str) -> "list[Any]":
         """Save every available overlay under ``fig_dir``; return the paths.
 
-        Hook called by :class:`~evalrx.eval_agent.run_logger_v2.RunLoggerV2`
+        Hook called by :class:`~evalrx.eval_agent.run_logger.RunLogger`
         (duck-typed — any :class:`Result` subclass may define this) so the
         overlay PNGs land alongside the bare heatmaps and get forwarded to a
         multimodal judge the same way.

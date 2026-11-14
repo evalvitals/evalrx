@@ -6,6 +6,22 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed — the run logger and its readers lose their "V2" names
+
+There has been one run logger since 0.1.2, so its names no longer carry a
+version. The old names are gone, with nothing forwarding to the new ones:
+
+| was | is |
+|---|---|
+| `evalrx.eval_agent.run_logger_v2` | `evalrx.eval_agent.run_logger` |
+| `RunLoggerV2` | `RunLogger` |
+| `read_v2_events` | `read_run_events` |
+| `write_v2_bundle` | `write_run_bundle` |
+| `resolve_v2_root` | `resolve_run_root` |
+| `evalrx/eval_agent/RUN_LOGGER_V2.md` | `RUN_LOGGER.md`, rewritten to describe the current design |
+
+The Langfuse delivery queue's temp directory is `evalrx-outbox-<user>`.
+
 ### Removed — reading runs written by earlier log versions
 
 A run is read from its log: `run.json` and `M1..M5/log.json`, as the current

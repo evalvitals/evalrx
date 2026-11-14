@@ -24,7 +24,7 @@ For stage contracts and full data flow, see
 ## Quickstart — verify, then fix
 
 ```python
-from evalrx.eval_agent import RunLoggerV2, VLDiagnoseLoop
+from evalrx.eval_agent import RunLogger, VLDiagnoseLoop
 from evalrx.eval_agent.stages.probe_agent import ProbeAgent
 from evalrx.analysis.stats_agent import StatsAnalysisAgent
 from evalrx.eval_agent.stages.diagnosis import DiagnosisAgent
@@ -36,7 +36,7 @@ loop = VLDiagnoseLoop(
     stats_agent=StatsAnalysisAgent(judge=judge),      # feeds M4
     diagnosis_agent=DiagnosisAgent(judge=judge),
     max_cycles=3,
-    run_logger=RunLoggerV2(),
+    run_logger=RunLogger(),
 )
 report = loop.run(failure_cases)   # M1→M2→M3→M4; stops on a supported, consistent hypothesis
 

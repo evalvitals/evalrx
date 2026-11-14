@@ -68,6 +68,6 @@ def test_loop_stage_narration_is_actually_visible(capsys):
 # corrected_rejections/etc. field-by-field, which is where this suite used
 # to guard against a real crash (an externalised {path, n_items, bytes}
 # stand-in iterated as if it were still the raw list — see git history for
-# the fix). RunLoggerV2's narration (_V2JsonFormatter.line) is a one-line
+# the fix). RunLogger's narration (_EventLine.line) is a one-line
 # `[stage] event cycle=N` summary that never touches those fields, so that
 # bug class does not exist to regress here anymore.

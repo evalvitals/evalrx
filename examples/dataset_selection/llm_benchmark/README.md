@@ -811,7 +811,7 @@ outputs/
         │   ├── figures/*.png      # host 从 spec + csv 渲染的图(M3 看到的就是这些)
         │   ├── analysis.py        # coder 生成的分析代码(可审计、可重跑)
         │   └── sandbox/           # 该步的工作目录
-        └── logs/                  # RunLoggerV2:M1-M5 逐阶段轨迹(run.json + M<n>/log.json,无 run_log.jsonl)
+        └── logs/                  # RunLogger:M1-M5 逐阶段轨迹(run.json + M<n>/log.json,无 run_log.jsonl)
             ├── run.json           # 运行级事件(run_start / cases / diagnose_reports / …)
             ├── M1/log.json … M5/log.json   # 每阶段一个文件;`explore` 事件在 M2 里(计数 + 路径,描述性)
             ├── artifacts/         # M2 统计结果 JSON(c0_m2_stats_results.json 等)

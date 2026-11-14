@@ -2109,12 +2109,12 @@ def test_broken_cases_counted_and_net_negative_not_fixed():
 
 
 def test_outcome_serializes_and_logs(tmp_path):
-    from evalrx.eval_agent import RunLoggerV2
+    from evalrx.eval_agent import RunLogger
 
     judge = ScriptedJudge(
         json.dumps([{"name": "careful", "prompt_template": "Look carefully. {prompt}"}])
     )
-    logger = RunLoggerV2(tmp_path / "logs", observability_mode="offline")
+    logger = RunLogger(tmp_path / "logs", observability_mode="offline")
     agent = FixAgent(judge=judge, max_tier="L1", run_logger=logger)
     out = agent.propose_and_validate(BaselineFailsModel(), _gold_yes_batch(), [_hyp("x")])
     d = out.to_dict()
@@ -2447,9 +2447,9 @@ class CodeWritingJudge(Model):
 
 def test_fix_agent_coded_candidate_fixes_and_logs(tmp_path):
     pytest.importorskip("PIL")
-    from evalrx.eval_agent import RunLoggerV2
+    from evalrx.eval_agent import RunLogger
 
-    logger = RunLoggerV2(tmp_path / "logs", observability_mode="offline")
+    logger = RunLogger(tmp_path / "logs", observability_mode="offline")
     agent = FixAgent(
         judge=CodeWritingJudge(), max_tier="L2", run_logger=logger, exec_timeout_sec=30
     )
@@ -3870,9 +3870,9 @@ def test_a_coded_pipeline_that_reads_baseline_output_needs_no_repair_round(tmp_p
     the first attempt, the host states the support threshold it enforces, the
     guard anchors every case on its record, the frozen control still holds,
     and no repair round is spent."""
-    from evalrx.eval_agent import RunLoggerV2
+    from evalrx.eval_agent import RunLogger
 
-    logger = RunLoggerV2(tmp_path / "logs", observability_mode="offline")
+    logger = RunLogger(tmp_path / "logs", observability_mode="offline")
     judge = _BaselineOutputJudge()
     agent = FixAgent(
         judge=judge, max_tier="L2", run_logger=logger, exec_timeout_sec=30,

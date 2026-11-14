@@ -51,7 +51,7 @@ Guidelines:
 - If an artifact is a 2-D spatial map over a case's image (e.g. an attention
   heatmap), add `overlay()` / `image_overlays(fig_dir, stem_prefix)` methods to
   your `Result` subclass (see `RelativeAttentionResult` in
-  `analyzers/attention/relative_attn.py`). `RunLoggerV2` calls `image_overlays()`
+  `analyzers/attention/relative_attn.py`). `RunLogger` calls `image_overlays()`
   on any `Result` that defines it — no per-analyzer wiring needed to get the
   overlay PNGs into `M1/artifacts/` alongside the bare heatmap.
 
@@ -317,7 +317,7 @@ analyzer off a batch with no audio in it.
 
 The recommended way to persist a run is `RunContext` — it owns the whole
 output directory and hands every producer its subdirectory, including a
-bound `RunLoggerV2`, always: `run.json` plus one `M1/log.json`..`M5/log.json`
+bound `RunLogger`, always: `run.json` plus one `M1/log.json`..`M5/log.json`
 per stage. See [Architecture](architecture.md)'s "RunContext" section for the
 full layout.
 
@@ -337,22 +337,22 @@ with RunContext("runs/exp_01") as ctx:
 ```
 
 If you only want the event log and artifact sink — without `RunContext`'s
-figures/contract/per-trial layout — construct `RunLoggerV2` standalone:
+figures/contract/per-trial layout — construct `RunLogger` standalone:
 
 ```python
-from evalrx.eval_agent import DiagnosisAgent, RunLoggerV2, VLDiagnoseLoop
+from evalrx.eval_agent import DiagnosisAgent, RunLogger, VLDiagnoseLoop
 
 loop = VLDiagnoseLoop(
     model=model,
     protocol=protocol,
     diagnosis_agent=DiagnosisAgent(),
-    run_logger=RunLoggerV2("runs/exp_01"),   # explicit path
-    # run_logger=RunLoggerV2()              # auto: runs/<YYYYMMDD_HHMMSS>/
+    run_logger=RunLogger("runs/exp_01"),   # explicit path
+    # run_logger=RunLogger()              # auto: runs/<YYYYMMDD_HHMMSS>/
 )
 report = loop.run(cases)
 ```
 
-Output layout (standalone `RunLoggerV2`, no `RunContext`):
+Output layout (standalone `RunLogger`, no `RunContext`):
 
 ```text
 runs/exp_01/
@@ -387,15 +387,15 @@ The full, authoritative field contract is the published JSON Schema
 (`evalrx/eval_agent/run_log.schema.json`, from `log_schema.py`); validate one
 event with `from evalrx.eval_agent import validate_event` (needs the
 optional `jsonschema` dep). See `docs/architecture.md` for details, and
-`evalrx.reporting.run_events.read_v2_events(root)` for a flat, ordered view
+`evalrx.reporting.run_events.read_run_events(root)` for a flat, ordered view
 across every stage at once — the shape most downstream code wants instead of
 reading each `M<n>/log.json` file directly.
 
-`RunLoggerV2` is also a context manager, which ensures every document is
+`RunLogger` is also a context manager, which ensures every document is
 closed even if the loop raises:
 
 ```python
-with RunLoggerV2("runs/exp_01") as logger:
+with RunLogger("runs/exp_01") as logger:
     loop = VLDiagnoseLoop(model=model, protocol=protocol, run_logger=logger)
     loop.run(cases)
 ```

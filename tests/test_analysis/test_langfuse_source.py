@@ -85,7 +85,7 @@ def test_langfuse_source_materializes_media_only_inside_cache(tmp_path):
 def test_materialized_langfuse_run_builds_the_report(tmp_path):
     from evalrx.reporting.dynamic import build_report_data
     from evalrx.reporting.langfuse_source import LangfuseRunSource
-    from evalrx.reporting.run_events import read_v2_events
+    from evalrx.reporting.run_events import read_run_events
 
     observations = [
         SimpleNamespace(
@@ -103,10 +103,10 @@ def test_materialized_langfuse_run_builds_the_report(tmp_path):
     )))
 
     root = LangfuseRunSource(client).materialize("trace", tmp_path / "cache")
-    # A real V2 root, not just a stray run.json: read_v2_events (the same
+    # A real V2 root, not just a stray run.json: read_run_events (the same
     # read path the report uses) must recover both events, not silently
-    # nothing — resolve_v2_root requires a real M<n>/log.json too.
-    events = read_v2_events(root)
+    # nothing — resolve_run_root requires a real M<n>/log.json too.
+    events = read_run_events(root)
     assert {e["event"] for e in events} == {"run_start", "probe"}
 
     data = build_report_data(root)

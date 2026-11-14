@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from evalrx.core.case import CaseBatch
     from evalrx.core.model import Model
     from evalrx.eval_agent.run_context import Trial
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.run_logger import RunLogger
     from evalrx.eval_agent.stages.fix.types import FixOutcome
 
 logger = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ class FixRecorder:
     def judge_exchange(
         self, operation: str, prompt: str, output: str, *, error: "str | None" = None,
     ) -> None:
-        """Best-effort detailed V2 model-call logging without changing V1."""
+        """Log one fix-judge exchange; logging must never break repair."""
         fn = getattr(self.run_logger, "log_model_exchange", None)
         if not callable(fn):
             return
@@ -135,7 +135,7 @@ class FixRecorder:
             extra = {**(extra or {}), "trial_root": str(trial.root)}
             prompt, code, raw = "", "", ""
         elif trial is not None:
-            # V2 keeps the exact prompt/code/response in M5/log.json.  The
+            # The run log keeps the exact prompt/code/response in M5/log.json.  The
             # trial workspace is ephemeral execution state and is snapshotted
             # separately by log_experiment/log_fix.
             extra = {**(extra or {}), "trial_root": str(trial.root)}
@@ -165,7 +165,7 @@ class FixRecorder:
         from evalrx.eval_agent.model_instrumentation import InstrumentedModel
 
         return InstrumentedModel(
-            model, cast("RunLoggerV2", self.run_logger), stage="M5",  # only RunLoggerV2 sets preserve_full_model_io
+            model, cast("RunLogger", self.run_logger), stage="M5",  # only RunLogger sets preserve_full_model_io
             cycle=int(getattr(self.run_logger, "current_cycle", -1)),
             analyzer=analyzer,
             case_prompts={case.inputs.prompt: case.id for case in data},

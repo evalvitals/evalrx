@@ -60,14 +60,14 @@ def test_a_full_m1_to_m5_run_conforms(tmp_path):
 
 def test_a_logged_run_with_examples_and_a_repair_conforms(tmp_path):
     from evalrx.core import CaseBatch, FailureCase, Label, Result
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.run_logger import RunLogger
     from evalrx.reporting.dynamic import build_report_data
 
     cases = CaseBatch([
         FailureCase.from_prompt("Q1", id="c1", expected="a", observed="b", label=Label.FAIL),
         FailureCase.from_prompt("Q2", id="c2", expected="a", observed="a", label=Label.PASS),
     ])
-    logger = RunLoggerV2(tmp_path, observability_mode="offline")
+    logger = RunLogger(tmp_path, observability_mode="offline")
     logger.log_run_start({"model": "demo", "n_cases": 2})
     logger.log_cases(cases)
     logger.log_probe(0, {"format_check": Result(
@@ -88,10 +88,10 @@ def test_a_logged_run_with_examples_and_a_repair_conforms(tmp_path):
 
 
 def test_an_empty_run_conforms(tmp_path):
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.run_logger import RunLogger
     from evalrx.reporting.dynamic import build_report_data
 
-    logger = RunLoggerV2(tmp_path, observability_mode="offline")
+    logger = RunLogger(tmp_path, observability_mode="offline")
     logger.log_run_start({"model": "demo", "n_cases": 0})
     logger.close()
     StageDetail.model_validate(build_report_data(tmp_path)["stage_detail"])

@@ -4,8 +4,8 @@ Before InstrumentedModel existed, an analyzer like self_consistency could call
 ``model.generate()`` N times per case and reduce that to one derived score
 (``consistency``) with the N raw generations gone — no way to see what the
 model was actually asked or actually said at each of those calls. This is the
-gap RunLoggerV2.log_model_call / model_instrumentation.InstrumentedModel
-closes; see run_logger_v2.py's log_probe (drains + nests into Langfuse) and
+gap RunLogger.log_model_call / model_instrumentation.InstrumentedModel
+closes; see run_logger.py's log_probe (drains + nests into Langfuse) and
 model_instrumentation.py.
 """
 
@@ -15,7 +15,7 @@ import json
 
 from evalrx.core.capability import Capability
 from evalrx.core.case import CaseBatch, FailureCase, Inputs
-from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+from evalrx.eval_agent.run_logger import RunLogger
 from evalrx.eval_agent.stages.probe_agent import ProbeAgent
 from tests.conftest import FakeModel
 
@@ -47,7 +47,7 @@ def _batch(n: int = 2) -> CaseBatch:
 
 def test_self_consistency_calls_are_recorded_and_survive_the_analyzer(tmp_path):
     model = _CountingModel(capabilities={Capability.GENERATE})
-    run_logger = RunLoggerV2(run_dir=tmp_path / "run1")
+    run_logger = RunLogger(run_dir=tmp_path / "run1")
     run_logger.current_cycle = 0
     agent = ProbeAgent(run_logger=run_logger)
     batch = _batch()
@@ -56,7 +56,7 @@ def test_self_consistency_calls_are_recorded_and_survive_the_analyzer(tmp_path):
     run_logger.log_probe(0, results)
     run_logger.close()
 
-    # RunLoggerV2 inlines model_call records into M1/log.json's "model_calls"
+    # RunLogger inlines model_call records into M1/log.json's "model_calls"
     # array rather than a sibling model_calls.jsonl file.
     m1 = _load(tmp_path / "run1", "M1", "log.json")
     records = m1["model_calls"]
@@ -89,7 +89,7 @@ def test_perturbation_analyzer_calls_carry_the_rewritten_prompt(tmp_path):
     exercise. A rewritten call won't exact-match the case's own prompt, so it
     should fall back to batch_case_ids (scoped) rather than case_id (exact)."""
     model = _CountingModel(capabilities={Capability.GENERATE})
-    run_logger = RunLoggerV2(run_dir=tmp_path / "run3")
+    run_logger = RunLogger(run_dir=tmp_path / "run3")
     run_logger.current_cycle = 0
     agent = ProbeAgent(run_logger=run_logger)
     batch = CaseBatch([FailureCase(
@@ -114,7 +114,7 @@ def test_wrapping_does_not_change_result_model_repr(tmp_path):
     InstrumentedModel must forward it unchanged or every call fragments the
     experiment cache and mislabels its Result."""
     model = FakeModel(capabilities={Capability.GENERATE})
-    run_logger = RunLoggerV2(run_dir=tmp_path / "run2")
+    run_logger = RunLogger(run_dir=tmp_path / "run2")
     run_logger.current_cycle = 0
     agent = ProbeAgent(run_logger=run_logger)
 
@@ -144,7 +144,7 @@ def test_log_probe_drains_calls_tagged_under_a_stale_cycle(tmp_path):
     forever (they stay durably in M1/log.json's model_calls either way — this
     is specifically about the buffer/Langfuse side)."""
     model = _CountingModel(capabilities={Capability.GENERATE})
-    run_logger = RunLoggerV2(run_dir=tmp_path / "run4")
+    run_logger = RunLogger(run_dir=tmp_path / "run4")
     agent = ProbeAgent(run_logger=run_logger)
 
     run_logger.current_cycle = 7  # stale: set as if a PRIOR cycle never advanced

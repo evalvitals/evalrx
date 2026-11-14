@@ -249,7 +249,7 @@ print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
 
 
 def test_candidate_outputs_and_truncation_are_recorded(tmp_path):
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.run_logger import RunLogger
 
     class Truncating(CountingModel):
         def generate(self, inputs, **kwargs):
@@ -259,7 +259,7 @@ def test_candidate_outputs_and_truncation_are_recorded(tmp_path):
     judge = ScriptedJudge(json.dumps([
         {"name": "rewrite", "prompt_template": "Think step by step. {prompt}"},
     ]))
-    logger = RunLoggerV2(run_dir=tmp_path / "logs", observability_mode="offline")
+    logger = RunLogger(run_dir=tmp_path / "logs", observability_mode="offline")
     agent = FixAgent(judge=judge, max_tier="L1", run_logger=logger)
     batch = _mc_batch(2, 2)
     out = agent.propose_and_validate(Truncating(), batch, [_hyp("h")])
@@ -268,7 +268,7 @@ def test_candidate_outputs_and_truncation_are_recorded(tmp_path):
     assert all(o.endswith("Answer: (B)") for o in v.outputs.values())
     assert v.n_truncated == len(batch)
     assert "hit the decode cap" in v.summary
-    # RunLoggerV2 keeps per-case outputs inline under the candidate's own
+    # RunLogger keeps per-case outputs inline under the candidate's own
     # "outputs" key in M5/log.json — no sibling outputs.jsonl file.
     logger.close()
     m5 = json.loads((tmp_path / "logs" / "M5" / "log.json").read_text())

@@ -4,7 +4,7 @@ These tests are the teeth behind log_schema.py: they prove the committed
 ``run_log.schema.json`` is (1) in sync with the schema-as-code builder, and
 (2) a well-formed Draft 2020-12 schema. (3) — that what a run actually
 emits for *every* event type validates against it — lives in
-``test_run_logger_v2.py``'s
+``test_run_logger.py``'s
 ``test_persisted_event_identity_orders_concurrent_calls_and_validates``,
 next to the producer it's checking.
 """

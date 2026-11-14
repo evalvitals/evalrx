@@ -51,7 +51,7 @@ export function metric(report: ReportData, id: string): number | undefined {
  *
  * An e-value IS odds against the null: e=45 means the evidence runs about 45 to
  * 1 against this being luck. "Reject at 0.05" is the same statement in a
- * dialect nobody outside the field speaks. RunLoggerV2's console narration is
+ * dialect nobody outside the field speaks. RunLogger's console narration is
  * a simplified one-line summary with no equivalent phrasing helper, so this
  * formatter is this report's own source of truth for that phrasing.
  */

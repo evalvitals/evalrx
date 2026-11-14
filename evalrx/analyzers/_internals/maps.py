@@ -8,7 +8,7 @@ same way:
 * ``artifacts["spatial_map"]`` (first case), ``per_case_maps`` (float16 per
   case), ``fail_mean_map`` / ``pass_mean_map`` / ``diff_map_fail_minus_pass``;
 * ``findings["<key>_case_id"]`` naming the case whose image each map overlays;
-* :class:`SpatialMapResult.image_overlays` — the duck-typed hook RunLoggerV2
+* :class:`SpatialMapResult.image_overlays` — the duck-typed hook RunLogger
   calls to save heatmap-on-photo PNGs.
 
 numpy and the overlay helpers are imported inside functions: this module is
@@ -126,7 +126,7 @@ class SpatialMapResult(Result):
             return None
 
     def image_overlays(self, fig_dir: Any, stem_prefix: str) -> "list[Any]":
-        """Save every available overlay under ``fig_dir`` (RunLoggerV2 hook)."""
+        """Save every available overlay under ``fig_dir`` (RunLogger hook)."""
         from pathlib import Path
 
         out = []

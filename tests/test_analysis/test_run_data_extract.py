@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from evalrx.reporting.run_data import extract_run_data
-from evalrx.reporting.run_events import write_v2_bundle
+from evalrx.reporting.run_events import write_run_bundle
 
 TRACE = "00000000-0000-0000-0000-00000000000a"
 LONG_NEED = "count how often the answer changes when the same question is asked " * 4
@@ -19,7 +19,7 @@ def _event(seq: int, name: str, stage: str = "RUN", **payload: Any) -> dict[str,
 
 
 def _run(root: Path, events: list[dict[str, Any]]) -> Path:
-    write_v2_bundle(root / "logs", events)
+    write_run_bundle(root / "logs", events)
     return root
 
 

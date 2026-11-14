@@ -15,7 +15,7 @@ so neither package depends on the other.
 Top-level (shared / orchestration):
   loop.py              VLDiagnoseLoop
   loop_fix.py          run_fix orchestration: fix targets, tier ladder, EXPLORE→CONFIRM
-  run_logger_v2.py     RunLoggerV2 — run.json + per-stage M<n>/log.json event log
+  run_logger.py     RunLogger — run.json + per-stage M<n>/log.json event log
   hypothesis.py        Hypothesis, HypothesisStatus, serialization helpers
   store.py             Store / InMemoryStore / JsonlStore — persistent memory
 
@@ -145,7 +145,7 @@ from evalrx.eval_agent.loop import VLDiagnoseLoop
 from evalrx.eval_agent.loop_reports import AutoDiagnoseReport
 from evalrx.eval_agent.nl_runner import scaffold_from_description
 from evalrx.eval_agent.run_context import RunContext
-from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+from evalrx.eval_agent.run_logger import RunLogger
 from evalrx.eval_agent.stages.case_discovery import (
     CaseDiscoveryAgent,
     CaseDiscoveryReport,
@@ -271,7 +271,7 @@ __all__ = [
     "InMemoryStore",
     "JsonlStore",
     "RunContext",
-    "RunLoggerV2",
+    "RunLogger",
     # Published event schema
     "RUN_LOG_SCHEMA_VERSION",
     "build_schema",

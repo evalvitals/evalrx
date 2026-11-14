@@ -181,7 +181,7 @@ def _m5_examples(
         if not case:
             return None
         # `case["observed"]` is the Stage-0 baseline, written once per case id
-        # (RunLoggerV2.log_cases dedupes by id) and never updated — it is NOT
+        # (RunLogger.log_cases dedupes by id) and never updated — it is NOT
         # this candidate's repaired answer, no matter which case_record last
         # touched it. The only place a candidate's own per-case output lives
         # is `case["repair"]`, which build_report_data attached from the fix

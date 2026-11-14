@@ -573,8 +573,8 @@ def build_analyzer_overrides(max_cases: int, model=None, verbose: bool = True) -
 
 
 def _stats_report_from(diagnosis: dict, analysis: dict, raw_results: dict, logs_dir: Path):
-    """Shared V1/V2 tail of :func:`load_prior_run`: rebuild the
-    ``StatsAnalysisReport`` once the per-version reader has produced plain
+    """The tail of :func:`load_prior_run`: rebuild the
+    ``StatsAnalysisReport`` once the reader has produced plain
     dicts for the last M3 diagnosis / M2 analysis / M1 probe events."""
     from evalrx.analysis.stats_agent import StatsAnalysisReport
     from evalrx.analysis.stats_tools import StatsToolResult
@@ -612,7 +612,7 @@ def _stats_report_from(diagnosis: dict, analysis: dict, raw_results: dict, logs_
 
 
 def _load_prior_run_v2(logs_dir: Path):
-    """RunLoggerV2 layout: one JSON document per stage, same-event arrays.
+    """RunLogger layout: one JSON document per stage, same-event arrays.
     M1/M2/M3 each keep every cycle's entry in an array under their own key
     (``probe`` / ``analysis`` / ``diagnosis``); the last entry is the latest
     cycle. Nothing here is externalized to a sibling file (v2 inlines
@@ -786,7 +786,7 @@ def main() -> None:
     from evalrx.eval_agent import (
         ExperimentWriterConfig,
         FixAgent,
-        RunLoggerV2,
+        RunLogger,
         SurgeryAgent,
         VLDiagnoseLoop,
     )
@@ -850,9 +850,9 @@ def main() -> None:
     overrides = (build_analyzer_overrides(args.analyzer_max_cases, model=model)
                  if args.analyzer_max_cases > 0 else {})
     # A confirm-only pass logs beside the analysis it reuses, never over it.
-    # RunLoggerV2 writes run.json + one JSON per M-stage (M1/log.json ..
-    # M5/log.json) under this dir — see evalrx/eval_agent/RUN_LOGGER_V2.md.
-    logger = RunLoggerV2(run_dir=out / ("logs_confirm" if args.confirm_only else "logs"),
+    # RunLogger writes run.json + one JSON per M-stage (M1/log.json ..
+    # M5/log.json) under this dir — see evalrx/eval_agent/RUN_LOGGER.md.
+    logger = RunLogger(run_dir=out / ("logs_confirm" if args.confirm_only else "logs"),
                          verbose=True)
 
     # max_cases_per_analyzer is the BACKSTOP for analyzer_overrides: the

@@ -1,6 +1,6 @@
 """M1 (ProbeAgent) full-output logging.
 
-RunLoggerV2.log_probe must capture *everything* M1 generates so a run is
+RunLogger.log_probe must capture *everything* M1 generates so a run is
 fully observable afterwards: per-analyzer COMPLETE results (metadata +
 n_cases + rendered summary, not just the inlined findings), the heavy
 artifacts, and the analyzers that were selected but errored at runtime.
@@ -13,9 +13,9 @@ import json
 
 def test_log_probe_persists_full_results_and_failed_analyzers(tmp_path):
     from evalrx.core.result import Result
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.run_logger import RunLogger
 
-    logger = RunLoggerV2(run_dir=tmp_path / "run", observability_mode="offline")
+    logger = RunLogger(run_dir=tmp_path / "run", observability_mode="offline")
     res = Result(
         analyzer="self_consistency",
         model="FakeVLM()",
@@ -47,9 +47,9 @@ def test_log_probe_persists_full_results_and_failed_analyzers(tmp_path):
 def test_log_probe_without_failures_omits_failed_analyzers(tmp_path):
     """No failures -> no failed_analyzers key (kept optional/additive)."""
     from evalrx.core.result import Result
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.run_logger import RunLogger
 
-    logger = RunLoggerV2(run_dir=tmp_path / "run", observability_mode="offline")
+    logger = RunLogger(run_dir=tmp_path / "run", observability_mode="offline")
     logger.log_probe(0, {"pope": Result(analyzer="pope", model="m", findings={"acc": 0.9})})
     logger.close()
 

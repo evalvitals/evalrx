@@ -208,10 +208,10 @@ def test_loop_init_stores_coerced_explore_context():
 def test_log_diagnosis_records_explore_provenance(tmp_path):
     import json
 
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.run_logger import RunLogger
     from evalrx.eval_agent.stages.diagnosis import DiagnosisResult
 
-    logger = RunLoggerV2(run_dir=tmp_path / "run1", observability_mode="offline")
+    logger = RunLogger(run_dir=tmp_path / "run1", observability_mode="offline")
     diag = DiagnosisResult(
         model_name="vlm",
         hypotheses=[],
@@ -234,10 +234,10 @@ def test_log_diagnosis_persists_the_critic_prompt_beside_its_response(tmp_path):
     import json
 
     from evalrx.eval_agent.hypothesis import Hypothesis
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.run_logger import RunLogger
     from evalrx.eval_agent.stages.diagnosis import DiagnosisResult
 
-    logger = RunLoggerV2(run_dir=tmp_path / "run2", observability_mode="offline")
+    logger = RunLogger(run_dir=tmp_path / "run2", observability_mode="offline")
     h1 = Hypothesis(statement="h1", target_model="vlm", predicted_failure_mode="x")
     diag = DiagnosisResult(
         model_name="vlm", hypotheses=[h1], raw_judge_output="...",

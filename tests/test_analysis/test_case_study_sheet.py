@@ -34,7 +34,7 @@ def _write(path: Path, payload) -> None:
 
 
 def make_run(root: Path, *, n_broken: int = 1, verdict_status: str = "supported") -> Path:
-    """A run directory in the RunLoggerV2 shape RunContext + the benchmark
+    """A run directory in the RunLogger shape RunContext + the benchmark
     runner produce: run.json (run-wide events + manifest) plus one JSON
     document per stage under M1..M5."""
     logs = root / "logs"
@@ -81,7 +81,7 @@ def make_run(root: Path, *, n_broken: int = 1, verdict_status: str = "supported"
         {"cycle": 0,
          "selected_analyzers": ["coverage_verification_gap", "logprob_entropy"],
          # entry["findings"][analyzer] and entry["results"][analyzer]["findings"]
-         # are the SAME object in a real RunLoggerV2 probe entry (both derive
+         # are the SAME object in a real RunLogger probe entry (both derive
          # from Result.findings) — populate both so every real reader finds it.
          "findings": {"coverage_verification_gap": {"per_case": per_case}},
          "results": {"coverage_verification_gap": {"findings": {"per_case": per_case}}}},
@@ -137,9 +137,9 @@ def _number_events(logs: Path) -> None:
 
 
 def _events(root: Path) -> list[dict]:
-    from evalrx.reporting.run_events import read_v2_events
+    from evalrx.reporting.run_events import read_run_events
 
-    return read_v2_events(root)
+    return read_run_events(root)
 
 
 @pytest.fixture

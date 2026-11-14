@@ -557,7 +557,7 @@ def test_a_freshly_built_batch_is_not_reported_stale():
 
 
 def test_load_prior_run_reads_the_last_cycle_and_rebuilds_the_report(pipe, tmp_path):
-    """RunLoggerV2 keeps every cycle's entry in an array under its own stage;
+    """RunLogger keeps every cycle's entry in an array under its own stage;
     the last entry is the one confirm-only reloads. Nothing is externalised
     to a sibling file under V2 — stats_results and analyzer results are
     inline — so this only needs the three stage documents, no artifacts/."""
