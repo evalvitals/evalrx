@@ -145,7 +145,7 @@ from evalrx.eval_agent.log_schema import (
     validate_event,
 )
 from evalrx.eval_agent.loop import VLDiagnoseLoop
-from evalrx.eval_agent.loop_reports import AutoDiagnoseReport, VLDiagnoseReport
+from evalrx.eval_agent.loop_reports import AutoDiagnoseReport
 from evalrx.eval_agent.nl_runner import scaffold_from_description
 from evalrx.eval_agent.run_context import RunContext
 from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
@@ -228,7 +228,6 @@ __all__ = [
     # Loop
     "AutoDiagnoseReport",
     "VLDiagnoseLoop",
-    "VLDiagnoseReport",
     # Agentic loop (judge-decided M1-M4, alternative to VLDiagnoseLoop's fixed cycle)
     "AgenticDiagnoseLoop",
     "ToolSpec",

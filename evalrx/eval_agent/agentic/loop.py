@@ -22,7 +22,7 @@ from evalrx.eval_agent.agentic.actions import decide
 from evalrx.eval_agent.agentic.board import BudgetState, EvidenceBoard
 from evalrx.eval_agent.agentic.tools import ToolRegistry, _RunState, build_default_registry
 from evalrx.eval_agent.loop import VLDiagnoseLoop
-from evalrx.eval_agent.loop_reports import VLDiagnoseReport
+from evalrx.eval_agent.loop_reports import AutoDiagnoseReport
 from evalrx.eval_agent.run_metadata import _data_provenance
 
 if TYPE_CHECKING:
@@ -94,7 +94,7 @@ class AgenticDiagnoseLoop(VLDiagnoseLoop):
         self.time_budget_sec = time_budget_sec
         self._registry_factory = registry_factory
 
-    def run(self, data: "CaseBatch") -> VLDiagnoseReport:
+    def run(self, data: "CaseBatch") -> AutoDiagnoseReport:
         """Drive the judge-decided action loop to a stop or a budget limit."""
         self._tokens_used = 0
         timings: dict[str, float] = {}
@@ -173,7 +173,7 @@ class AgenticDiagnoseLoop(VLDiagnoseLoop):
         if state.diagnosis_failed:
             stopped_by = "diagnosis_error"
         verified = self.hypothesis_tester.best_hypotheses(state.all_test_results)
-        report = VLDiagnoseReport(
+        report = AutoDiagnoseReport(
             cycles=step,
             resolved=bool(verified),
             stopped_by=stopped_by,

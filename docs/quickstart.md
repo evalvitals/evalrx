@@ -597,7 +597,7 @@ loop = AgenticDiagnoseLoop(
     max_actions=12,             # hard cap on judge decision turns
     run_logger=RunLoggerV2(),
 )
-report = loop.run(failure_cases)   # same VLDiagnoseReport shape as VLDiagnoseLoop
+report = loop.run(failure_cases)   # same AutoDiagnoseReport shape as VLDiagnoseLoop
 ```
 
 `report.stopped_by` is one of `agent_stop` / `max_actions` / `budget` /

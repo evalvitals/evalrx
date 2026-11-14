@@ -119,13 +119,13 @@ def main() -> None:
     run_logger.close()
 
     print(f"\nstopped_by={report.stopped_by} "
-          f"proposed={len(report.all_hypotheses)} (UNCONFIRMED — no M4/M5/Fix yet)")
-    for h in report.all_hypotheses:
+          f"proposed={len(report.final_hypotheses)} (UNCONFIRMED — no M4/M5/Fix yet)")
+    for h in report.final_hypotheses:
         print(f" - [{h.predicted_failure_mode}] {h.statement[:110]}")
 
     # ── Persist the artifacts PHASE 2 reuses (same hypotheses + same stats) ──
     ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
-    hyp_dicts = [hypothesis_to_dict(h) for h in report.all_hypotheses]
+    hyp_dicts = [hypothesis_to_dict(h) for h in report.final_hypotheses]
     (ANALYSIS_DIR / "proposed_hypotheses.json").write_text(
         json.dumps(hyp_dicts, indent=2), encoding="utf-8")
 

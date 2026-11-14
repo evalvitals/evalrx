@@ -2129,14 +2129,14 @@ def test_outcome_serializes_and_logs(tmp_path):
 
 
 def test_run_fix_on_loop_report():
-    from evalrx.eval_agent import VLDiagnoseLoop, VLDiagnoseReport
+    from evalrx.eval_agent import AutoDiagnoseReport, VLDiagnoseLoop
     from evalrx.eval_agent.hypothesis import HypothesisStatus
     from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTestResult
     from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
     h = _hyp("prompt phrasing underspecifies the task")
     h.status = HypothesisStatus.SUPPORTED
-    report = VLDiagnoseReport(
+    report = AutoDiagnoseReport(
         cycles=1,
         stopped_by="max_cycles",
         verified_hypotheses=[

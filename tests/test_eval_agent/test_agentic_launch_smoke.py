@@ -133,7 +133,7 @@ def test_agentic_loop_reaches_a_supported_hypothesis_via_scripted_actions(tmp_pa
 
     assert report.stopped_by == "agent_stop"
     assert len(action_judge.calls) == 5  # exactly the scripted sequence, no repairs
-    assert [h.predicted_failure_mode for h in report.all_hypotheses] == ["attention"]
+    assert [h.predicted_failure_mode for h in report.final_hypotheses] == ["attention"]
     assert len(report.all_test_results) == 1
     assert report.all_test_results[0].status.value == "supported"
     assert report.all_test_results[0].effect_size == 1.0

@@ -865,7 +865,7 @@ def main() -> None:
     print(f"\n{'='*64}")
     print(f"LOOP RESULT  stopped_by={report.stopped_by}  cycles={report.cycles}")
     print(f"{'='*64}")
-    print(f"  total hypotheses proposed : {len(report.all_hypotheses)}")
+    print(f"  total hypotheses proposed : {len(report.final_hypotheses)}")
     print(f"  verified (protocol-consistent + statistically supported): "
           f"{len(report.verified_hypotheses)}")
     for vr in report.verified_hypotheses:

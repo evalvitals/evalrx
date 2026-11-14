@@ -998,7 +998,7 @@ def main() -> None:
                               else bool(CFG.get("fix_on_unverified", True))),
         "fix_candidate_repeats": int(CFG.get("fix_candidate_repeats", 1)),
         "n_hypotheses": len(getattr(report, "hypotheses", None)
-                            or getattr(report, "all_hypotheses", None) or []),
+                            or getattr(report, "final_hypotheses", None) or []),
         "n_verified": len(getattr(report, "verified_hypotheses", []) or []),
         "model_calls": model.n_calls,
         "model_truncated": model.n_truncated,

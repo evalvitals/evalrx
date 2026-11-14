@@ -424,7 +424,7 @@ def test_run_context_v2_keeps_only_json_and_media_and_inlines_reports(tmp_path):
         code="print('candidate')",
     )
     report = SimpleNamespace(
-        cycles=1, stopped_by="done", resolved=False, all_hypotheses=[],
+        cycles=1, stopped_by="done", resolved=False,
         final_hypotheses=[], verified_hypotheses=[], all_test_results=[],
     )
     ctx.write_diagnose_report(report, [], discovery=[{"id": "case-1"}])
@@ -507,7 +507,7 @@ def test_run_context_v2_root_holds_no_v1_named_directories(tmp_path):
 
     ctx.logger.log_run_start({"model": "fake"})
     report = SimpleNamespace(
-        cycles=1, stopped_by="done", resolved=False, all_hypotheses=[],
+        cycles=1, stopped_by="done", resolved=False,
         final_hypotheses=[], verified_hypotheses=[], all_test_results=[],
     )
     ctx.write_diagnose_report(report, [], discovery=[])
@@ -655,7 +655,7 @@ def test_loop_summary_keeps_verified_hypothesis_evidence(tmp_path):
     )
     with RunLoggerV2(tmp_path, observability_mode="offline") as logger:
         logger.log_loop_end(SimpleNamespace(
-            cycles=1, stopped_by="verified", all_hypotheses=[hypothesis], verified_hypotheses=[result],
+            cycles=1, stopped_by="verified", final_hypotheses=[hypothesis], verified_hypotheses=[result],
         ))
     assert _load(tmp_path, "run.json")["loop_end"][0]["verified_hypotheses"] == [{
         "statement": "why", "failure_mode": "mode", "status": "supported",

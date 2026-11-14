@@ -52,7 +52,7 @@ from evalrx.eval_agent.loop_fix import (
     _propose_and_validate,
     _unverified_hypotheses,
 )
-from evalrx.eval_agent.loop_reports import VLDiagnoseReport
+from evalrx.eval_agent.loop_reports import AutoDiagnoseReport
 from evalrx.eval_agent.run_metadata import (
     _attach_run_logger,
     _coerce_explore_context,
@@ -158,7 +158,7 @@ class VLDiagnoseLoop:
     """M1→M2→M3→M4 failure-analysis loop for VL tasks (Plan A architecture).
 
     M5 (**SurgeryAgent**) is intentionally excluded from the inner loop.
-    Call :meth:`run_m5` on the returned :class:`VLDiagnoseReport` to obtain
+    Call :meth:`run_m5` on the returned :class:`AutoDiagnoseReport` to obtain
     a fix proposal based on the best verified hypothesis candidates.
 
     Inner loop::
@@ -1046,7 +1046,7 @@ class VLDiagnoseLoop:
     # Public API
     # ──────────────────────────────────────────────────────────────────
 
-    def run(self, data: "CaseBatch") -> VLDiagnoseReport:
+    def run(self, data: "CaseBatch") -> AutoDiagnoseReport:
         """Drive the M1→M2→M3→M4 loop to convergence.
 
         Args:
@@ -1054,7 +1054,7 @@ class VLDiagnoseLoop:
                   values for the M4 statistical tests to work).
 
         Returns:
-            :class:`VLDiagnoseReport` with the final state.
+            :class:`AutoDiagnoseReport` with the final state.
             Call :meth:`run_m5` on this to get a fix proposal (Plan A).
         """
         self._tokens_used = 0
@@ -1097,7 +1097,7 @@ class VLDiagnoseLoop:
             )
         verified = self.hypothesis_tester.best_hypotheses(state.test_results)
 
-        report = VLDiagnoseReport(
+        report = AutoDiagnoseReport(
             cycles=cycle + 1 if self.max_cycles > 0 else 0,  # type: ignore[possibly-undefined]
             resolved=bool(verified),
             stopped_by=stopped_by,
@@ -1228,12 +1228,12 @@ class VLDiagnoseLoop:
             if batch is not None:
                 self.run_logger.log_cases(batch, split=split)
 
-    def _end_run(self, report: VLDiagnoseReport, timings: dict[str, float]) -> VLDiagnoseReport:
+    def _end_run(self, report: AutoDiagnoseReport, timings: dict[str, float]) -> AutoDiagnoseReport:
         if self.run_logger:
             self.run_logger.log_loop_end(report, tokens_used=self._tokens_used, timings=timings)
         return report
 
-    def run_analysis(self, data: "CaseBatch") -> VLDiagnoseReport:
+    def run_analysis(self, data: "CaseBatch") -> AutoDiagnoseReport:
         """Phase 1 — analyse + propose, WITHOUT confirming (no M4, no fix).
 
         Runs a single **M1 → M2 → M3** pass: select+execute analyzers (M1),
@@ -1242,7 +1242,7 @@ class VLDiagnoseLoop:
         that feeds the report *before* deciding whether to confirm and
         repair.
 
-        The returned :class:`VLDiagnoseReport` carries:
+        The returned :class:`AutoDiagnoseReport` carries:
           - ``final_hypotheses``   — the M3 proposals (UNCONFIRMED), and
           - ``final_stats_report`` — the M2 report,
         with ``all_test_results`` / ``verified_hypotheses`` left empty (M4 has
@@ -1298,7 +1298,7 @@ class VLDiagnoseLoop:
                     self.store.add_hypothesis(h)
                 all_hypotheses.extend(diag.hypotheses)
 
-        report = VLDiagnoseReport(
+        report = AutoDiagnoseReport(
             cycles=1,
             stopped_by=stopped_by,
             verified_hypotheses=[],
@@ -1316,7 +1316,7 @@ class VLDiagnoseLoop:
         hypotheses: "list[Any]",
         *,
         stats_report: "Any | None" = None,
-    ) -> VLDiagnoseReport:
+    ) -> AutoDiagnoseReport:
         """Phase 2a — confirm previously-proposed hypotheses with M4.
 
         Runs **M4** (:class:`~evalrx.eval_agent.stages.hypothesis_tester.HypothesisTester`)
@@ -1331,7 +1331,7 @@ class VLDiagnoseLoop:
         M1→M2 are re-run silently (not logged — they belong to the analysis
         phase) to regenerate it.
 
-        Returns a :class:`VLDiagnoseReport` with ``all_test_results`` and
+        Returns a :class:`AutoDiagnoseReport` with ``all_test_results`` and
         ``verified_hypotheses`` populated. Feed it into :meth:`run_m5` /
         :meth:`run_fix` for the repair step.
         """
@@ -1352,7 +1352,7 @@ class VLDiagnoseLoop:
         if stats_report is None:
             stats_report = self._confirm_stats(data, hypotheses, timings)
             if stats_report is None:
-                report = VLDiagnoseReport(
+                report = AutoDiagnoseReport(
                     cycles=1, stopped_by=_STOPPED_BY_NO_PROBE,
                     final_hypotheses=hypotheses, store=self.store, _run_id=self._run_id,
                 )
@@ -1372,7 +1372,7 @@ class VLDiagnoseLoop:
         verified = self.hypothesis_tester.best_hypotheses(test_results)
         stopped_by = _STOPPED_BY_CRITERIA if verified else _STOPPED_BY_MAX
 
-        report = VLDiagnoseReport(
+        report = AutoDiagnoseReport(
             cycles=1,
             resolved=bool(verified),
             stopped_by=stopped_by,
@@ -1427,7 +1427,7 @@ class VLDiagnoseLoop:
 
     def run_m5(
         self,
-        report: VLDiagnoseReport,
+        report: AutoDiagnoseReport,
         data: "CaseBatch",
         *,
         allow_unverified: bool = False,
@@ -1436,7 +1436,7 @@ class VLDiagnoseLoop:
 
         Called *after* :meth:`run` to avoid polluting the inner loop with
         fix-execution noise.  Operates on the highest-confidence verified
-        hypothesis from :attr:`VLDiagnoseReport.verified_hypotheses`; with
+        hypothesis from :attr:`AutoDiagnoseReport.verified_hypotheses`; with
         ``allow_unverified=True`` and no verified hypothesis it falls back to
         the best *unverified* one (see :func:`_unverified_hypotheses`) — the
         experiment is then a genuine test of a lead M4 could not decide, and
@@ -1516,7 +1516,7 @@ class VLDiagnoseLoop:
 
     def run_fix(
         self,
-        report: VLDiagnoseReport,
+        report: AutoDiagnoseReport,
         data: "CaseBatch",
         max_tier: "str | Any | None" = None,
         fix_agent: "Any | None" = None,
@@ -1649,7 +1649,7 @@ class VLDiagnoseLoop:
         _log_fix(agent_logger, outcome)
         return self._set_fix_outcome(report, outcome)
 
-    def _skip_fix(self, report: VLDiagnoseReport, agent: "Any") -> "Any":
+    def _skip_fix(self, report: AutoDiagnoseReport, agent: "Any") -> "Any":
         """Record a skipped M5 stage: no hypothesis passed the evidence gate.
 
         A repair proposal is an intervention, not another exploratory probe,

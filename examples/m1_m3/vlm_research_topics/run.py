@@ -903,7 +903,7 @@ def main() -> None:
 
     print(f"\n{'='*64}")
     print(f"LOOP RESULT  stopped_by={report.stopped_by}  cycles={report.cycles}")
-    print(f"  total hypotheses   : {len(getattr(report, 'all_hypotheses', []))}")
+    print(f"  total hypotheses   : {len(getattr(report, 'final_hypotheses', []))}")
     print(f"  verified hypotheses: {len(getattr(report, 'verified_hypotheses', []))}")
     for vr in getattr(report, "verified_hypotheses", []):
         print(f"    [{vr.status.value}] {vr.hypothesis.statement}")

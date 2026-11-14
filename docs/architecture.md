@@ -205,8 +205,7 @@ The agent touches models only through the `Model` protocol and stores all
 evidence in a `Store`.
 
 `.run()` on both loops returns the same class, `AutoDiagnoseReport`
-(`loop_reports.py`; `VLDiagnoseReport` is a back-compat alias for the
-identical class). Each loop populates only the fields relevant to what it
+(`loop_reports.py`). Each loop populates only the fields relevant to what it
 ran — see [Stage Input/Output Reference](stage_io.md#loop-level-output) for
 the full field table.
 
@@ -216,8 +215,7 @@ the full field table.
 eval_agent/
 ├── loop.py               VLDiagnoseLoop (current)
 ├── loop_fix.py           run_fix orchestration: fix targets, tier ladder, EXPLORE→CONFIRM
-├── loop_reports.py       AutoDiagnoseReport (VLDiagnoseReport is an alias — all
-│                         both loops return this one unified report class)
+├── loop_reports.py       AutoDiagnoseReport — the one report class both loops return
 ├── run_metadata.py       shared run-provenance + logging-wiring helpers
 ├── agentic/              AgenticDiagnoseLoop — judge-decided M1-M4 (see below)
 ├── run_context.py        RunContext, Trial — single owner of a run's output directory

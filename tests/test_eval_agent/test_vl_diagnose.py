@@ -18,6 +18,7 @@ from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.core.result import Result
 from evalrx.eval_agent import (
     AnalysisModule,
+    AutoDiagnoseReport,
     CaseDiscoveryAgent,
     DiagnosisAgent,
     HypothesisTester,
@@ -27,7 +28,6 @@ from evalrx.eval_agent import (
     StatsAnalysisReport,
     StatsToolAgent,
     VLDiagnoseLoop,
-    VLDiagnoseReport,
 )
 from evalrx.eval_agent.hypothesis import Hypothesis, HypothesisStatus
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol, ProbingSchema
@@ -733,7 +733,7 @@ class TestVLDiagnoseLoop:
             max_cycles=1,
         )
         report = loop.run(_labeled_batch())
-        assert isinstance(report, VLDiagnoseReport)
+        assert isinstance(report, AutoDiagnoseReport)
 
     def test_report_has_cycles(self):
         loop = VLDiagnoseLoop(
@@ -745,7 +745,7 @@ class TestVLDiagnoseLoop:
         report = loop.run(_labeled_batch())
         assert report.cycles >= 1
 
-    def test_report_has_all_hypotheses(self):
+    def test_report_has_final_hypotheses(self):
         loop = VLDiagnoseLoop(
             model=_vlm(),
             protocol=_spatial_protocol(),
@@ -753,7 +753,7 @@ class TestVLDiagnoseLoop:
             max_cycles=1,
         )
         report = loop.run(_labeled_batch())
-        assert len(report.all_hypotheses) >= 1
+        assert len(report.final_hypotheses) >= 1
 
     def test_report_has_test_results(self):
         loop = VLDiagnoseLoop(
@@ -833,7 +833,7 @@ class TestVLDiagnoseLoop:
             diagnosis_agent=_scripted_diagnosis_agent(),
             max_cycles=1,
         )
-        report = VLDiagnoseReport(cycles=1, stopped_by="max_cycles")
+        report = AutoDiagnoseReport(cycles=1, stopped_by="max_cycles")
         result = loop.run_m5(report, _labeled_batch())
         assert result is None
 
@@ -855,7 +855,7 @@ class TestVLDiagnoseLoop:
             confidence=0.7,
             verdict="supported",
         )
-        report = VLDiagnoseReport(
+        report = AutoDiagnoseReport(
             cycles=1,
             stopped_by="criteria_met",
             verified_hypotheses=[tr],
@@ -903,7 +903,7 @@ class TestVLDiagnoseLoop:
         report = loop.run(_labeled_batch())
         assert report.cycles == 1
         assert report.final_stats_report is not None
-        assert report.all_hypotheses == []
+        assert report.final_hypotheses == []
         assert report.all_test_results == []
 
     def test_no_diagnosis_agent_stops_early(self, monkeypatch):
@@ -961,7 +961,7 @@ class TestVLDiagnoseTwoPhase:
         report = loop.run_analysis(data)
         assert report.stopped_by == "analysis_complete"
         assert report.cycles == 1
-        assert len(report.all_hypotheses) >= 1
+        assert len(report.final_hypotheses) >= 1
         # M4 did not run: no test results, nothing verified.
         assert report.all_test_results == []
         assert report.verified_hypotheses == []
@@ -974,7 +974,7 @@ class TestVLDiagnoseTwoPhase:
         # Swap in a diagnosis agent whose judge returns no hypotheses.
         loop.diagnosis_agent = DiagnosisAgent(judge=ScriptedModel(["[]"]))
         report = loop.run_analysis(data)
-        assert report.all_hypotheses == []
+        assert report.final_hypotheses == []
         assert report.stopped_by == "no_hypotheses"
         assert report.final_stats_report is not None
 
@@ -989,7 +989,7 @@ class TestVLDiagnoseTwoPhase:
         loop, data = self._signal_setup()
         analysis = loop.run_analysis(data)
         reloaded = [hypothesis_from_dict(hypothesis_to_dict(h))
-                    for h in analysis.all_hypotheses]
+                    for h in analysis.final_hypotheses]
 
         confirmed = loop.run_confirm(
             data, reloaded, stats_report=analysis.final_stats_report
@@ -1008,7 +1008,7 @@ class TestVLDiagnoseTwoPhase:
         loop, data = self._signal_setup()
         analysis = loop.run_analysis(data)
         reloaded = [hypothesis_from_dict(hypothesis_to_dict(h))
-                    for h in analysis.all_hypotheses]
+                    for h in analysis.final_hypotheses]
         # No stats_report supplied → run_confirm re-runs M1→M2 silently.
         confirmed = loop.run_confirm(data, reloaded)
         assert len(confirmed.all_test_results) == len(reloaded)
@@ -1023,7 +1023,7 @@ class TestVLDiagnoseTwoPhase:
         loop, data = self._signal_setup()
         analysis = loop.run_analysis(data)
         reloaded = [hypothesis_from_dict(hypothesis_to_dict(h))
-                    for h in analysis.all_hypotheses]
+                    for h in analysis.final_hypotheses]
         confirmed = loop.run_confirm(
             data, reloaded, stats_report=analysis.final_stats_report
         )
@@ -1056,7 +1056,7 @@ class TestVLDiagnoseTwoPhase:
         loop, data = self._signal_setup()
         analysis = loop.run_analysis(data)
         confirmed = loop.run_confirm(
-            data, list(analysis.all_hypotheses),
+            data, list(analysis.final_hypotheses),
             stats_report=analysis.final_stats_report,
         )
         sr = confirmed.final_stats_report
@@ -1136,14 +1136,14 @@ class TestM3FaultTolerance:
             max_cycles=2, run_logger=run_logger,
         )
         report = loop.run(_labeled_batch())
-        assert isinstance(report, VLDiagnoseReport)
+        assert isinstance(report, AutoDiagnoseReport)
         assert report.stopped_by == "diagnosis_error"
         errors = json.loads((tmp_path / "logs/M3/log.json").read_text())["model_calls"]
         assert len(errors) == 2
         assert errors[0]["metadata"]["retrying"] is True
         assert errors[1]["metadata"]["retrying"] is False
         assert all("timed out" in e["error"] for e in errors)
-        assert report.all_hypotheses == []
+        assert report.final_hypotheses == []
 
 
 def test_default_is_a_single_diagnosis_cycle():

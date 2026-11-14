@@ -586,7 +586,7 @@ def main() -> int:
     ctx.write_diagnose_report(report, cases)
 
     print(f"\n{'='*64}\nLOOP RESULT  stopped_by={report.stopped_by}  cycles={report.cycles}\n{'='*64}")
-    print(f"  total hypotheses proposed : {len(report.all_hypotheses)}")
+    print(f"  total hypotheses proposed : {len(report.final_hypotheses)}")
     print(f"  verified (protocol-consistent + statistically supported): "
           f"{len(report.verified_hypotheses)}")
     for vr in report.verified_hypotheses:

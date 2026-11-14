@@ -358,7 +358,7 @@ def test_floor_skipped_for_image_yes_no_batches():
 
 
 def test_run_fix_drops_m5_refuted_hypothesis_and_tells_the_proposer():
-    from evalrx.eval_agent import VLDiagnoseLoop, VLDiagnoseReport
+    from evalrx.eval_agent import AutoDiagnoseReport, VLDiagnoseLoop
     from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTestResult
     from evalrx.eval_agent.stages.protocol import ExperimentProtocol
     from evalrx.eval_agent.stages.surgery import InterventionResult
@@ -374,7 +374,7 @@ def test_run_fix_drops_m5_refuted_hypothesis_and_tells_the_proposer():
                                     is_consistent_with_protocol=True, confidence=0.9,
                                     verdict="signal vs FAIL effect=+0.9")
 
-    report = VLDiagnoseReport(cycles=1, stopped_by="criteria_met",
+    report = AutoDiagnoseReport(cycles=1, stopped_by="criteria_met",
                               verified_hypotheses=[_tr(h_bad), _tr(h_ok)],
                               final_hypotheses=[h_bad, h_ok])
     report.fix_proposal = InterventionResult(
@@ -412,7 +412,7 @@ def test_run_fix_drops_m5_refuted_hypothesis_and_tells_the_proposer():
 
 def test_run_fix_with_no_verified_hypothesis_does_not_call_minimal_agent():
     """Even a legacy minimal proposer cannot bypass the M4 evidence gate."""
-    from evalrx.eval_agent import VLDiagnoseLoop, VLDiagnoseReport
+    from evalrx.eval_agent import AutoDiagnoseReport, VLDiagnoseLoop
     from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
     class Minimal:
@@ -426,7 +426,7 @@ def test_run_fix_with_no_verified_hypothesis_does_not_call_minimal_agent():
     stub = Minimal()
     loop = VLDiagnoseLoop(model=CountingModel(), protocol=ExperimentProtocol(description="d"),
                           fix_agent=stub)
-    report = VLDiagnoseReport(cycles=1, stopped_by="max_cycles", final_hypotheses=[_hyp("x")])
+    report = AutoDiagnoseReport(cycles=1, stopped_by="max_cycles", final_hypotheses=[_hyp("x")])
     outcome = loop.run_fix(report, _mc_batch())
     assert stub.seen is None
     assert outcome.stage_status == "skipped"
@@ -630,7 +630,7 @@ def test_spec_template_with_literal_braces_renders_and_never_aborts_the_stage():
 
 
 def _inconclusive_report():
-    from evalrx.eval_agent import VLDiagnoseReport
+    from evalrx.eval_agent import AutoDiagnoseReport
     from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTestResult
 
     hs = [_hyp("lead A (weak)"), _hyp("lead B (best)"), _hyp("lead C (refuted)")]
@@ -647,7 +647,7 @@ def _inconclusive_report():
                              effect_size=-0.3, is_consistent_with_protocol=True, confidence=0.5,
                              verdict="refuted"),
     ]
-    return VLDiagnoseReport(cycles=1, stopped_by="max_cycles", verified_hypotheses=[],
+    return AutoDiagnoseReport(cycles=1, stopped_by="max_cycles", verified_hypotheses=[],
                             all_test_results=trs, final_hypotheses=hs), hs
 
 
@@ -819,7 +819,7 @@ def test_fix_agent_passes_concurrency_to_the_coded_bridge(monkeypatch):
 def test_run_fix_allow_unverified_keeps_a_minimal_fix_agent_working():
     """A stub that only accepts (model, data, hypotheses) keeps working and
     receives the final proposals when nothing was verified."""
-    from evalrx.eval_agent import VLDiagnoseLoop, VLDiagnoseReport
+    from evalrx.eval_agent import AutoDiagnoseReport, VLDiagnoseLoop
     from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
     class Minimal:
@@ -833,7 +833,7 @@ def test_run_fix_allow_unverified_keeps_a_minimal_fix_agent_working():
     stub = Minimal()
     loop = VLDiagnoseLoop(model=CountingModel(), protocol=ExperimentProtocol(description="d"),
                           fix_agent=stub)
-    report = VLDiagnoseReport(cycles=1, stopped_by="max_cycles", final_hypotheses=[_hyp("x")])
+    report = AutoDiagnoseReport(cycles=1, stopped_by="max_cycles", final_hypotheses=[_hyp("x")])
     loop.run_fix(report, _mc_batch(), allow_unverified=True)
     assert stub.seen and stub.seen[0].statement == "x"
 

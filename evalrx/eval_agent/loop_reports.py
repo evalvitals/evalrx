@@ -24,16 +24,9 @@ class AutoDiagnoseReport:
     """Summary returned by every diagnosis loop:
     :class:`~evalrx.eval_agent.loop.VLDiagnoseLoop.run` and
     :class:`~evalrx.eval_agent.agentic.AgenticDiagnoseLoop.run` both return
-    this one class — ``VLDiagnoseReport`` below is a back-compat alias for
-    it, not a separate type, so ``isinstance(report, VLDiagnoseReport)``
-    holds for a report from either loop.
-
-    Unified 2026-08 from two previously-separate dataclasses
-    (``AutoDiagnoseReport`` / ``VLDiagnoseReport``) that carried the same
-    information under different field names. Every field below is populated
-    by both loops except where noted "M4-only" (or ``final_results``), which stay
-    at their default (``None`` / empty) when the producing loop has no
-    equivalent concept.
+    this one class. Every field below is populated by both loops except
+    where noted "M4-only" (or ``final_results``), which stay at their default
+    (``None`` / empty) when the producing loop has no equivalent concept.
 
     Attributes:
         cycles:               Number of M1→M4/M5 cycles executed (or agentic
@@ -53,10 +46,7 @@ class AutoDiagnoseReport:
                               means M3 failed after bounded retries; it is not an empty finding. ``None``
                               for the legacy M5-per-cycle loop, which has no
                               single stopping-reason concept.
-        final_hypotheses:      All M3 proposals across every cycle. (Formerly
-                              ``all_hypotheses`` on the VL-shaped report —
-                              ``all_hypotheses`` is now a read-only alias
-                              for this field, kept for existing callers.)
+        final_hypotheses:      All M3 proposals across every cycle.
         verified_hypotheses:  M4-only. Statistically supported, protocol-consistent
                               test results — sorted highest confidence first.
                               Feed into ``run_m5``.
@@ -103,15 +93,3 @@ class AutoDiagnoseReport:
         # M4 path can satisfy readers that only know the Auto-shaped field.
         if self.final_analysis is None and self.final_stats_report is not None:
             self.final_analysis = self.final_stats_report
-
-    @property
-    def all_hypotheses(self) -> "list[Any]":
-        """Read-only back-compat alias for :attr:`final_hypotheses`."""
-        return self.final_hypotheses
-
-
-# Back-compat alias — the two report shapes were merged into one class (see
-# AutoDiagnoseReport's docstring). Keep the name importable for existing
-# code; it is literally the same class, so isinstance checks against either
-# name succeed for a report from any loop.
-VLDiagnoseReport = AutoDiagnoseReport

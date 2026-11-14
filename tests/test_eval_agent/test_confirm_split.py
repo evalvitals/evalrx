@@ -16,7 +16,7 @@ from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.core.model import Model
 from evalrx.eval_agent.hypothesis import Hypothesis
 from evalrx.eval_agent.loop import VLDiagnoseLoop
-from evalrx.eval_agent.loop_reports import VLDiagnoseReport
+from evalrx.eval_agent.loop_reports import AutoDiagnoseReport
 from evalrx.eval_agent.stages.fix.agent import FixCandidate, FixOutcome, FixValidation
 from evalrx.eval_agent.stages.fix.tiers import FixTier
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
@@ -130,7 +130,7 @@ class _RecordingFixAgent:
 
 def _report():
     h = Hypothesis(statement="x", target_model="m", predicted_failure_mode="")
-    return VLDiagnoseReport(cycles=1, stopped_by="max_cycles", final_hypotheses=[h])
+    return AutoDiagnoseReport(cycles=1, stopped_by="max_cycles", final_hypotheses=[h])
 
 
 # The reports below carry proposals only (nothing M4-verified): since the

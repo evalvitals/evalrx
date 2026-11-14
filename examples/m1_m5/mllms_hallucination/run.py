@@ -357,7 +357,7 @@ def main() -> None:
 
     n_verified = len(report.verified_hypotheses)
     _bar(f"DIAGNOSIS  {report.cycles} cycle(s) / stopped: {report.stopped_by}")
-    print(f"  {len(report.all_hypotheses)} hypothesis/es generated / {n_verified} verified")
+    print(f"  {len(report.final_hypotheses)} hypothesis/es generated / {n_verified} verified")
     for vr in report.verified_hypotheses:
         stmt = textwrap.shorten(vr.hypothesis.statement, width=90, placeholder="...")
         print(f"\n  SUPPORTED: {stmt}")

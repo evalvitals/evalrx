@@ -388,7 +388,7 @@ attached to a specific claim.
 ## Loop-level output
 
 Both loops — `VLDiagnoseLoop` and `AgenticDiagnoseLoop` — return the **same
-class**: `AutoDiagnoseReport` (`VLDiagnoseReport` is a
+class**: `AutoDiagnoseReport` (`AutoDiagnoseReport` is a
 back-compat alias for the identical class, so `isinstance` checks against
 either name succeed for a report from any loop). Each loop populates the
 subset of fields relevant to what it ran; fields the loop has no equivalent
@@ -399,7 +399,7 @@ concept for stay at their default (`None` / empty):
 | `cycles` | all | M1→M4/M5 cycles executed (or agentic decision steps). |
 | `resolved: bool` | all | Diagnosis considered closed: `bool(verified_hypotheses)`. |
 | `stopped_by: str \| None` | VL / agentic | Why the loop stopped: `"criteria_met"` / `"max_cycles"` / `"budget"` / `"no_hypotheses"` / `"no_probe_results"` / `"analysis_complete"`, or agentic's `"agent_stop"` / `"max_actions"` / `"time_budget"` / `"invalid_actions"`. |
-| `final_hypotheses: list[Hypothesis]` | all | All M3 proposals across every cycle. (`all_hypotheses` is a read-only alias, kept for existing callers.) |
+| `final_hypotheses: list[Hypothesis]` | all | All M3 proposals across every cycle. |
 | `verified_hypotheses: list[HypothesisTestResult]` | VL / agentic (M4) | SUPPORTED + protocol-consistent, highest confidence first — feed into `run_m5`. |
 | `all_test_results: list[HypothesisTestResult]` | VL / agentic (M4) | All M4 test results across every cycle. |
 | `final_results: dict[str, Result]` | — | Left empty by both loops (it was the removed `AutoDiagnoseLoop`'s); M1's results are in the run log and `final_analysis`. |

@@ -114,7 +114,7 @@ def test_vl_agent_launches_m1_to_m4_and_dashboard_loader_reads_run(tmp_path):
 
     assert report.stopped_by == "criteria_met"
     assert report.cycles == 1
-    assert [h.predicted_failure_mode for h in report.all_hypotheses] == ["attention"]
+    assert [h.predicted_failure_mode for h in report.final_hypotheses] == ["attention"]
     assert len(report.all_test_results) == 1
     assert report.all_test_results[0].status.value == "supported"
     assert report.all_test_results[0].effect_size == 1.0

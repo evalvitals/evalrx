@@ -789,9 +789,7 @@ class RunLoggerV2:
         """Inline the standard post-diagnosis report into ``run.json`` as one
         detailed machine-readable record; a UI renders prose from this data
         rather than reading separate JSON/Markdown siblings."""
-        hyps_src = getattr(report, "all_hypotheses", None)
-        if hyps_src is None:
-            hyps_src = getattr(report, "final_hypotheses", [])
+        hyps_src = getattr(report, "final_hypotheses", [])
         hypotheses = [
             {
                 "statement": h.statement,
@@ -1670,7 +1668,7 @@ class RunLoggerV2:
             ]
         if hasattr(report, "stopped_by"):
             entry["stopped_by"] = report.stopped_by
-            all_hyps = getattr(report, "all_hypotheses", [])
+            all_hyps = getattr(report, "final_hypotheses", [])
             verified = getattr(report, "verified_hypotheses", [])
             entry["n_hypotheses"] = len(all_hyps)
             entry["n_verified"] = len(verified)
