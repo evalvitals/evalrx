@@ -491,7 +491,8 @@ class StatsAnalysisAgent:
         # (analysis-phase) mode; the confirm phase recomputes it.
         corrected = (
             fdr_correct(stats_results) if confirmatory
-            else {"method": "e-BH", "deferred": True, "n_tested": 0, "rejected_tools": [],
+            else {"method": "e-BH", "deferred": True, "n_tested": 0,
+                  "rejected_result_keys": [],
                   "note": "validity deferred to the confirm phase (descriptive_only)"}
         )
 
@@ -645,9 +646,10 @@ class StatsAnalysisAgent:
                 chain.append(f"[stats:{r.tool}] {r.summary}")
             else:
                 chain.append(f"[stats:{r.tool}] N/A ({r.error})")
-        if corrected.get("rejected_tools"):
+        if corrected.get("rejected_result_keys"):
             chain.append(
-                f"FDR (e-BH) survivors: {', '.join(corrected['rejected_tools'])}"
+                f"FDR ({corrected.get('method') or 'e-BH'}) survivors: "
+                f"{', '.join(corrected['rejected_result_keys'])}"
             )
 
         qualitative = [str(f) for f in base.findings]
@@ -824,13 +826,13 @@ def _format_stats_for_prompt(
       bbh_word_sorting, 23 of 42 ``signal_label_assoc`` results printed
       REJECT H0 while BH kept 13; of the other ten, one rested on a single case
       at permutation p = 1.000.
-    * The footer used to list ``rejected_tools`` — a set of TOOL NAMES. Every
-      per-signal test shares the name ``signal_label_assoc``, so a 42-signal
-      family collapsed to the single word "signal_label_assoc" and no reader
-      could tell WHICH signals survived. The judge on that run reconciled the
-      mismatch the only way left to it, concluding the tool had not run at all,
-      and discarded the entire family. ``rejected_result_keys`` was already in
-      the same dict, at per-signal granularity.
+    * The footer lists ``rejected_result_keys``, one per surviving test, not
+      the surviving TOOL NAMES. Every per-signal test shares the name
+      ``signal_label_assoc``, so a 42-signal family named by tool collapses to
+      the single word "signal_label_assoc" and no reader can tell WHICH signals
+      survived. The judge on that run reconciled the mismatch the only way
+      left to it, concluding the tool had not run at all, and discarded the
+      entire family.
 
     ``reject`` itself is deliberately not touched here: for the BH family it
     keeps the tool's raw CI verdict for the M1-M4 loop (see

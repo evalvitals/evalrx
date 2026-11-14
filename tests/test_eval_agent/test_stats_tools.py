@@ -285,7 +285,6 @@ def test_fdr_correct_signal_pvalues_use_bh():
     out = fdr_correct([r])  # unpaired signal test enters the BH p-value family
     assert out["method"] == "BH"
     assert out["n_tested"] == 1
-    assert out["rejected_tools"] == ["signal_label_assoc"]
     assert out["rejected_result_keys"] == ["signal_label_assoc:attention.low_img_attn"]
     assert r.fdr_corrected is True and r.correction_method == "BH"
 

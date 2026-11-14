@@ -1092,9 +1092,8 @@ def run_stats_tool(name: str, inp: StatsInput, config: dict | None = None) -> St
 def fdr_correct(results: list[StatsToolResult], alpha: float = 0.05) -> dict[str, Any]:
     """Apply multiplicity correction across all supported result families.
 
-    e-values use e-BH; p-values use BH. The returned ``rejected_tools`` field is
-    preserved for existing M1-M4 consumers, while ``rejected_result_keys`` and
-    ``families`` expose the precise generalized-M2 family membership.
+    e-values use e-BH; p-values use BH. ``rejected_result_keys`` names each
+    surviving result and ``families`` the family it was corrected in.
     """
     return correct_results(results, alpha=alpha)
 

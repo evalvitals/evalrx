@@ -152,6 +152,13 @@ working. They are gone, with no forwarding name left behind.
   `evalrx.models._media`): nothing called them.
 - The held-out M4 probe no longer retries without `analyzers=` when a probe
   agent raises `TypeError`.
+- `rejected_tools` in the multiplicity report (`fdr_correct`,
+  `StatsAnalysisReport.corrected_rejections`, `FusedReport.adjudication`):
+  read `rejected_result_keys`. A tool name stood for every result of that
+  tool, so one surviving signal marked all of `signal_label_assoc` as
+  surviving. M2's evidence chain, which M3 reads, now lists the surviving
+  results by key and names the correction that was applied (BH, e-BH or
+  mixed) instead of always saying e-BH.
 - `evalrx.analysis.default_plan` and `AnalysisPlanItem.as_legacy_tuple`: call
   `plan_stats_input`, which returns the `AnalysisPlanItem`s (`.tool`,
   `.config`, `.rationale`) the tuples were made from.
