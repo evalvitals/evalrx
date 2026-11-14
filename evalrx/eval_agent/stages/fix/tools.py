@@ -458,6 +458,7 @@ def annotate_horizontal_band_count(
     banner_h = max(44, int(round(0.16 * h)))
     draw.rectangle([0, 0, w - 1, banner_h], fill=(255, 255, 255), outline=(0, 0, 0))
     text = f"COUNT: {count}"
+    font: ImageFont.FreeTypeFont | ImageFont.ImageFont
     try:
         font = ImageFont.truetype("DejaVuSans-Bold.ttf", max(28, int(round(banner_h * 0.55))))
     except Exception:

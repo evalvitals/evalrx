@@ -148,7 +148,10 @@ class SpecialistRepairsMixin:
                 from transformers import ClapModel, ClapProcessor
 
                 processor = ClapProcessor.from_pretrained(model_id)
-                clap = ClapModel.from_pretrained(model_id).to(device).eval()
+                # transformers 5.2x types ``.to`` as an unbound wrapper, so a
+                # device string fails mypy there; the call itself is fine.
+                clap: Any = ClapModel.from_pretrained(model_id)
+                clap = clap.to(device).eval()
 
                 def engine(waveform: Any, text: str) -> float:
                     samples = resample_poly(waveform, 3, 1).astype("float32")
