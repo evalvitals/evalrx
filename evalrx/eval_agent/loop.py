@@ -440,12 +440,7 @@ class VLDiagnoseLoop:
             ))
         return outcome
 
-    def publish_report(
-        self,
-        *,
-        model: "Any | None" = None,
-        example_dir: "str | Path | None" = None,
-    ) -> "Any":
+    def publish_report(self, *, model: "Any | None" = None) -> "Any":
         """Compose the completed-run UI, reusing the M3 judge when available."""
         if self.run_logger is None:
             raise RuntimeError("publish_report needs a run_logger with a durable run directory")
@@ -453,12 +448,7 @@ class VLDiagnoseLoop:
             model = getattr(self.diagnosis_agent, "judge", None)
         from evalrx.reporting.dynamic import publish_report
 
-        return publish_report(
-            self.run_logger.run_dir,
-            example_dir=example_dir,
-            model=model,
-            run_logger=self.run_logger,
-        )
+        return publish_report(self.run_logger.run_dir, model=model, run_logger=self.run_logger)
 
     @staticmethod
     def _strat_key(case: "Any") -> "tuple":

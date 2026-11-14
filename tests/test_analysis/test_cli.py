@@ -253,14 +253,14 @@ def test_publish_report_prints_what_it_wrote(monkeypatch, capsys):
 
     seen = {}
 
-    def _publish(source_dir, example_dir=None):
-        seen.update(source_dir=source_dir, example_dir=example_dir)
+    def _publish(source_dir):
+        seen.update(source_dir=source_dir)
         return SimpleNamespace(data_path="d.json", spec_path="s.json", generated_by="deterministic")
 
     monkeypatch.setattr(dynamic_mod, "publish_report", _publish)
 
-    assert main(["publish-report", "out", "--example-dir", "ex"]) == 0
-    assert seen == {"source_dir": "out", "example_dir": "ex"}
+    assert main(["publish-report", "out"]) == 0
+    assert seen == {"source_dir": "out"}
     assert capsys.readouterr().out.splitlines() == [
         "Published report data: d.json", "Published report layout: s.json (deterministic)"]
 
@@ -268,7 +268,7 @@ def test_publish_report_prints_what_it_wrote(monkeypatch, capsys):
 def test_publish_report_failure_is_a_usage_error(monkeypatch, capsys):
     import evalrx.reporting.dynamic as dynamic_mod
 
-    def _missing(source_dir, example_dir=None):
+    def _missing(source_dir):
         raise LookupError("no run found")
 
     monkeypatch.setattr(dynamic_mod, "publish_report", _missing)

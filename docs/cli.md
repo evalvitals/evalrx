@@ -199,7 +199,6 @@ evalrx report outputs/qwen3.5-2b/chartqa --out chartqa_report.html
 | Flag | Default | Purpose |
 |---|---|---|
 | `run_dir` (positional) | `outputs` | Run directory holding `run.json`/`M1..M5`, or a `logs/` folder. |
-| `--example-dir` | — | Root holding a benchmark/example's `data/` manifest, for legacy runs. |
 | `--out, -o` | `<run_dir>/report.html` | Output HTML path. |
 | `--embed-media` | `representative` | `representative` \| `all` \| `none` — how much image/audio to inline. |
 | `--audio-bitrate` | `48k` | Transcodes inlined lossless audio to mono MP3 via `ffmpeg` (needs `ffmpeg` on `PATH`); `none` inlines the original bytes. |
@@ -216,8 +215,8 @@ HTML file. Useful for pre-warming a run's cache, or in CI.
 evalrx publish-report outputs/qwen3.5-2b/chartqa
 ```
 
-Takes `run_dir` (positional, default `outputs`), `--example-dir`,
-`--source`, `--trace-id` — same meanings as `report`.
+Takes `run_dir` (positional, default `outputs`), `--source`, `--trace-id` —
+same meanings as `report`.
 
 ## `evalrx export-langfuse`
 

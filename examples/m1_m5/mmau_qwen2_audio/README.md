@@ -231,22 +231,17 @@ included and hoped-for.
 ## Case study: listen to the clips, answer them yourself
 
 ```bash
-evalrx report examples/m1_m5/mmau_qwen2_audio/outputs \
-  --example-dir examples/m1_m5/mmau_qwen2_audio
+evalrx report examples/m1_m5/mmau_qwen2_audio/outputs
 evalrx serve examples/m1_m5/mmau_qwen2_audio/outputs
 ```
 
-The report re-joins case ids to
-`data/mmau_test_mini.jsonl`, so each case shows up with its `.wav` in an
-audio player, its question and its four options. Requires `./data` to be
-populated — playback needs the audio files `download_mmau.py` fetched.
+The run log keeps every case with a copy of its `.wav`, so each case shows up
+with an audio player and its question.
 
 ## Demo page: the whole loop as one shareable HTML file
 
 ```bash
-evalrx report outputs \
-  --example-dir . \
-  --out demo_page/index.html
+evalrx report outputs --out demo_page/index.html
 ```
 
 This renders one finished run as a single self-contained page (every figure and

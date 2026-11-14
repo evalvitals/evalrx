@@ -303,7 +303,6 @@ def _add_report(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> Non
         description="Uses the same React/json-render layout as `serve`; the dynamic UI remains the primary experience.",
     )
     report_cmd.add_argument("run_dir", nargs="?", default="outputs", help="Run directory holding run.json/M1..M5, or logs/")
-    report_cmd.add_argument("--example-dir", default=None, help="Root holding data/ manifest.")
     report_cmd.add_argument("--out", "-o", default=None, help="Output HTML path (default: <run_dir>/report.html).")
     report_cmd.add_argument("--no-audio", action="store_true", help="Skip audio transcoding.")
     report_cmd.add_argument("--embed-media", choices=["representative", "all", "none"], default="representative", help="Media to inline in the portable export (default: representative).")
@@ -323,7 +322,6 @@ def _report(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
 
     export_static_report(
         run_dir=source_dir,
-        example_dir=args.example_dir,
         out_path=args.out,
         embed_media="none" if args.no_audio else args.embed_media,
         audio_bitrate=None if str(getattr(args, "audio_bitrate", "48k")).lower() == "none" else args.audio_bitrate,
@@ -337,7 +335,6 @@ def _add_publish_report(sub: argparse._SubParsersAction[argparse.ArgumentParser]
         help="Compile and cache ReportData plus a validated json-render layout.",
     )
     publish_cmd.add_argument("run_dir", nargs="?", default="outputs", help="Completed run directory.")
-    publish_cmd.add_argument("--example-dir", default=None, help="Optional benchmark/example root for legacy runs.")
     publish_cmd.add_argument("--source", choices=["auto", "local", "langfuse"], default="auto")
     publish_cmd.add_argument("--trace-id", default=None)
     publish_cmd.set_defaults(handler=_publish_report)
@@ -348,7 +345,7 @@ def _publish_report(args: argparse.Namespace, parser: argparse.ArgumentParser) -
 
     try:
         source_dir = _resolve_report_source(args.source, args.trace_id, args.run_dir)
-        published = publish_report(source_dir, example_dir=args.example_dir)
+        published = publish_report(source_dir)
     except (ImportError, LookupError, RuntimeError, ValueError) as exc:
         parser.error(str(exc))
     print(f"Published report data: {published.data_path}")

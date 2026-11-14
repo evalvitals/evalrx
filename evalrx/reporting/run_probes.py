@@ -1,15 +1,12 @@
 """M1's probe results as a report shows them.
 
 One entry per analyzer the probe step ran: what it asks, its headline numbers
-and its findings, read from the probe event or from the result file an older
-run wrote beside the log.
+and the findings the probe event recorded for it.
 """
 
 from __future__ import annotations
 
-import json
 import re
-from pathlib import Path
 from typing import Any
 
 ANALYZER_GLOSSARY: dict[str, tuple[str, str, str, list[tuple[str, str, str]]]] = {
@@ -149,52 +146,6 @@ def _dig(d: dict, path: str) -> Any:
     return cur
 
 
-def _flag_case(row: dict[str, Any], flags: dict[str, list[str]]) -> None:
-    """Note what one per-case probe row says about its case."""
-    sid = str(row.get("sample_id", ""))
-    if not sid:
-        return
-    if sid not in flags:
-        flags[sid] = []
-    if row.get("format_flip_rate", 0) > 0:
-        flags[sid].append(f"Option Order Flip ({row['format_flip_rate']:.0%})")
-    if row.get("conf_logprob", 0) > 0.8 and row.get("correct") == 0:
-        flags[sid].append(f"Overconfident on Error ({row['conf_logprob']:.0%})")
-    if row.get("pass_at_k") == 1.0:
-        flags[sid].append("Pass@5 Capable")
-    elif row.get("pass_at_k") == 0.0:
-        flags[sid].append("Pass@5 Zero-Coverage")
-
-
-def _read_findings(
-    path: Path, inline: Any, flags: dict[str, list[str]],
-) -> tuple[dict[str, Any], Any, list[Any]]:
-    """One analyzer's (findings, case count, per-case rows).
-
-    V1 externalised each analyzer's result to artifacts/; RunLoggerV2 keeps
-    the findings inline on the probe entry itself. Only a result file feeds
-    the per-case ``flags``.
-    """
-    findings: dict[str, Any] = {}
-    n = None
-    per_case: list[Any] = []
-    if not path.exists() and isinstance(inline, dict):
-        findings = inline
-        n = findings.get("n_cases") or findings.get("n_scored")
-        per_case = findings.get("per_case") or []
-    if path.exists():
-        try:
-            raw = json.loads(path.read_text())
-            findings = raw.get("findings") or {}
-            n = findings.get("n_cases") or findings.get("n_scored")
-            per_case = findings.get("per_case") or []
-            for row in per_case:
-                _flag_case(row, flags)
-        except Exception:
-            pass
-    return findings, n, per_case
-
-
 def _generated_meta(tool: str, need: str, findings: dict[str, Any]) -> tuple[str, str, str, list[tuple[str, str, str]]]:
     """Glossary-shaped entry for a probe the agent wrote during this run.
 
@@ -228,10 +179,8 @@ def _headline(findings: dict[str, Any], fields: list[tuple[str, str, str]]) -> l
     return headline
 
 
-def probe_section(
-    probe: dict[str, Any], codegen_events: list[dict[str, Any]], logs_dir: Path,
-) -> tuple[dict[str, Any], dict[str, list[str]]]:
-    """(the M1 section, per-case flags by sample id) for a run's probe event."""
+def probe_section(probe: dict[str, Any], codegen_events: list[dict[str, Any]]) -> dict[str, Any]:
+    """The M1 section for a run's probe event, largest sample first."""
     # An agent-written probe ("generated:probe1") has no glossary entry; the
     # need it was written for is the only description that exists, and the
     # codegen event carries it verbatim.
@@ -241,14 +190,11 @@ def probe_section(
         if tool and event.get("need"):
             generated_need[tool] = str(event["need"])
 
-    cycle = int(probe.get("cycle", 0) or 0)
     analyzers = probe.get("analyzers") or probe.get("selected_analyzers") or []
-    flags: dict[str, list[str]] = {}
     results = []
     for name in analyzers:
-        result_paths = probe.get("result_paths") or {}
-        path = logs_dir / str(result_paths.get(name) or f"artifacts/c{cycle}_{name}.result.json")
-        findings, n, per_case = _read_findings(path, (probe.get("findings") or {}).get(name), flags)
+        inline = (probe.get("findings") or {}).get(name)
+        findings: dict[str, Any] = inline if isinstance(inline, dict) else {}
         if name.startswith("generated:"):
             tool = name.split(":", 1)[1]
             meta = _generated_meta(tool, generated_need.get(tool, ""), findings)
@@ -261,10 +207,10 @@ def probe_section(
             "display_name": meta[0],
             "question": meta[1],
             "description": meta[2],
-            "n": n,
+            "n": findings.get("n_cases") or findings.get("n_scored"),
             "headline": _headline(findings, meta[3]),
             "findings": findings,
-            "per_case": per_case,
+            "per_case": findings.get("per_case") or [],
         })
     results.sort(key=lambda r: -(r["n"] or 0))
-    return {"analyzers": analyzers, "duration": probe.get("duration_sec"), "results": results}, flags
+    return {"analyzers": analyzers, "duration": probe.get("duration_sec"), "results": results}

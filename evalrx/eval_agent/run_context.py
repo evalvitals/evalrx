@@ -288,18 +288,11 @@ class RunContext:
         """
         self.logger.log_diagnose_report(report, cases, discovery=discovery)
 
-    def publish_report(
-        self,
-        *,
-        model: "Any | None" = None,
-        example_dir: "str | Path | None" = None,
-    ) -> "Any":
+    def publish_report(self, *, model: "Any | None" = None) -> "Any":
         """Publish the dynamic report after all diagnostic/fix stages finish."""
         from evalrx.reporting.dynamic import publish_report
 
-        return publish_report(
-            self.root, example_dir=example_dir, model=model, run_logger=self._logger,
-        )
+        return publish_report(self.root, model=model, run_logger=self._logger)
 
     # ------------------------------------------------------------------
     # Lifecycle

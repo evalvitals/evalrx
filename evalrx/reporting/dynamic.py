@@ -99,18 +99,13 @@ class ReportSpecError(ValueError):
     """Raised when a Report Agent emits an unsafe or invalid layout."""
 
 
-def build_report_data(
-    run_dir: str | Path,
-    *,
-    example_dir: str | Path | None = None,
-) -> dict[str, Any]:
+def build_report_data(run_dir: str | Path) -> dict[str, Any]:
     """Build the renderer-neutral data model for any completed EvalRX run."""
     root = Path(run_dir).resolve()
     from evalrx.reporting.case_study import build_case_study
     from evalrx.reporting.run_data import extract_run_data
 
-    resolved_example = Path(example_dir).resolve() if example_dir else _infer_example_dir(root)
-    raw = extract_run_data(root, resolved_example)
+    raw = extract_run_data(root)
     events = _read_events(root)
     # The logger copies each case's media under artifacts/case_media/ and records
     # the RUN-RELATIVE path beside the case. Carry it onto the case: inputs.<slot>
@@ -133,7 +128,7 @@ def build_report_data(
             if isinstance(split, str) and split:
                 extra["_split"] = split
             case_events.append({**case, **extra} if extra else case)
-    cases = [case for case in case_events if isinstance(case, dict)] or list(raw.get("cases") or [])
+    cases = case_events
     run = dict(raw.get("run") or {})
     trace_id = str((events[-1] if events else {}).get("trace_id") or root.name)
     reader = dict(raw.get("reader_report") or {})
@@ -389,13 +384,12 @@ def validate_spec(spec: Any, *, data: Mapping[str, Any] | None = None) -> dict[s
 def publish_report(
     run_dir: str | Path,
     *,
-    example_dir: str | Path | None = None,
     model: Any | None = None,
     run_logger: Any | None = None,
 ) -> PublishedReport:
     """Compile, compose, validate, cache, and optionally log a completed report."""
     root = Path(run_dir).resolve()
-    data = build_report_data(root, example_dir=example_dir)
+    data = build_report_data(root)
     mode = "deterministic"
     model_name: str | None = None
     spec = fallback_spec(data)
@@ -583,14 +577,6 @@ def _read_events(root: Path) -> list[dict[str, Any]]:
     from evalrx.reporting.run_events import read_v2_events
 
     return read_v2_events(root)
-
-
-def _infer_example_dir(root: Path) -> Path | None:
-    """Find a nearby legacy manifest; v4 case events do not need this join."""
-    for candidate in (root, root.parent, root.parent.parent):
-        if any((candidate / "data").glob("*.jsonl")) or any((candidate / "data").glob("*.json")):
-            return candidate
-    return None
 
 
 def _debug_event(event: Mapping[str, Any]) -> dict[str, Any]:

@@ -568,14 +568,13 @@ def _run_tcd_confirmation(args: argparse.Namespace) -> int:
         ebh_survivors=[candidate.name] if validation.fixed else [],
     )
     ctx.logger.log_fix(outcome)
-    ctx.publish_report(example_dir=HERE)
+    ctx.publish_report()
     ctx.finalize()
     from evalrx.reporting.static_export import export_static_report
 
     report_html_path = Path(args.run_dir).resolve() / "report.html"
     export_static_report(
         ctx.root,
-        example_dir=HERE,
         out_path=report_html_path,
         embed_media="all" if args.report_media == "inline" else "none",
     )
@@ -904,14 +903,13 @@ def main() -> int:
         else:
             print(f"  VERDICT    : not fixed; already at the highest tier ({args.fix_max_tier})")
 
-    loop.publish_report(example_dir=HERE)
+    loop.publish_report()
     ctx.finalize()
     from evalrx.reporting.static_export import export_static_report
 
     report_html_path = Path(args.run_dir).resolve() / "report.html"
     export_static_report(
         ctx.root,
-        example_dir=HERE,
         out_path=report_html_path,
         embed_media="all" if args.report_media == "inline" else "none",
     )

@@ -6,6 +6,31 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Removed — reading runs written by earlier log versions
+
+A run is read from its log: `run.json` and `M1..M5/log.json`, as the current
+logger writes them. The readers for what earlier versions kept in files
+beside the log are gone:
+
+- `artifacts/c<N>_<analyzer>.result.json`, `fixes/*/result.json` and
+  `outputs.jsonl`, `report/hypotheses.json`, `report/m4_results.json`,
+  `prompts/`, `tools/`, `manifest.json`, and an `explore/` directory beside
+  the logs of a loop run.
+- The join against a benchmark data manifest that supplied case text for
+  runs whose log did not carry the cases. With it go `--example-dir` on
+  `evalrx report` / `evalrx publish-report` and the `example_dir` argument of
+  `build_report_data`, `publish_report`, `export_static_report`,
+  `RunContext.publish_report` and `VLDiagnoseLoop.publish_report`.
+
+A run directory from an earlier version has to be brought up to the current
+log format before it is opened.
+
+### Changed — the explore agent's record shows for loop runs too
+
+M2's full record now carries the explore agent's code, output and audit for a
+diagnosis run as well, read from the files the logger inlines on the explore
+event. It was filled only for standalone explore outputs.
+
 ### Removed — names and code paths kept from earlier iterations
 
 Each of these had a current replacement and stayed only so older code kept

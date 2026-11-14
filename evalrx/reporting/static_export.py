@@ -26,7 +26,6 @@ def export_static_report(
     run_dir: str | Path,
     *,
     out_path: str | Path | None = None,
-    example_dir: str | Path | None = None,
     embed_media: EmbedMedia = "representative",
     model: object | None = None,
     audio_bitrate: str | None = "48k",
@@ -39,7 +38,7 @@ def export_static_report(
     # that drove the run). One resolver for both entry points.
     root = _resolve_report_root(Path(run_dir).resolve())
     if model is not None or not report_is_current(root):
-        publish_report(root, example_dir=example_dir, model=model)
+        publish_report(root, model=model)
     data, layout = load_published_report(root)
     _embed_media(root, data, mode=embed_media, audio_bitrate=audio_bitrate)
     _embed_stage_figures(root, data)

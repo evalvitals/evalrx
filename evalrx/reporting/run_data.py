@@ -13,7 +13,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-from evalrx.reporting.run_cases import case_rows, find_manifest
 from evalrx.reporting.run_probes import probe_section
 
 
@@ -32,9 +31,9 @@ def clean_model_display_name(raw: str) -> str:
     return clean or raw
 
 
-def clean_benchmark_name(protocol: str, manifest_path: str) -> str:
-    """Extract a friendly benchmark name from protocol or manifest path."""
-    text = (protocol + " " + manifest_path).lower()
+def clean_benchmark_name(protocol: str) -> str:
+    """A friendly benchmark name for the benchmarks a protocol text names."""
+    text = protocol.lower()
     if "mmau" in text:
         return "MMAU (Multi-Modal Audio Understanding)"
     if "chartqa" in text:
@@ -55,11 +54,12 @@ def clean_benchmark_name(protocol: str, manifest_path: str) -> str:
 EXPLORE_REPORTS = ("exploratory_report.json", "fused_report.json")
 
 
-def resolve_run_dirs(run_dir: Path) -> tuple[Path, Path | None, Path | None]:
-    """Return (logs_dir, explore_dir, fixes_dir).
+def resolve_run_dirs(run_dir: Path) -> tuple[Path, Path | None]:
+    """Return (logs_dir, explore_dir).
 
-    An explore output (``evalrx explore``, run-codebase, a fused run) has no
-    run log and holds its report at the top: it is its own explore directory.
+    A loop run keeps its log under ``logs/`` (or at the top). An explore
+    output (``evalrx explore``, run-codebase, a fused run) holds its report at
+    the top and is its own explore directory; a run without one has none.
     """
     run_dir = run_dir.resolve()
     logs_dir = run_dir
@@ -69,137 +69,55 @@ def resolve_run_dirs(run_dir: Path) -> tuple[Path, Path | None, Path | None]:
         for child in run_dir.glob("*/run.json"):
             logs_dir = child.parent
             break
-
     own_report = any((run_dir / name).is_file() for name in EXPLORE_REPORTS)
-    explore_dir: Path | None
-    if own_report and not (logs_dir / "run.json").exists():
-        explore_dir = run_dir  # an explore output; a sibling explore/ is another run's
-    else:
-        explore_dir = logs_dir / "explore"
-        if not explore_dir.is_dir() and (logs_dir.parent / "explore").is_dir():
-            explore_dir = logs_dir.parent / "explore"
-        if not explore_dir.is_dir():
-            explore_dir = run_dir if own_report else None
-
-    fixes_dir: Path | None
-    fixes_dir = logs_dir / "fixes"
-    if not fixes_dir.is_dir() and (logs_dir.parent / "fixes").is_dir():
-        fixes_dir = logs_dir.parent / "fixes"
-    if not fixes_dir.is_dir():
-        fixes_dir = None
-
-    return logs_dir, explore_dir, fixes_dir
+    return logs_dir, run_dir if own_report else None
 
 
-def _extract_agent_layer(logs_dir: Path, explore_dir: "Path | None") -> dict[str, Any]:
-    """The agent layer of a run: verbatim judge I/O, the explore coder-agent's
-    trajectory, synthesized tool codegen attempts, and the Langfuse trace bundle.
+#: The explore coder-agent's own files, by the key the report shows them under.
+_EXPLORE_AGENT_FILES = {
+    "raw_output": "agent_raw_output.txt",
+    "raw_streams": "agent_raw_streams.txt",
+    "code": "analysis.py",
+    "stdout": "stdout.txt",
+    "stderr": "stderr.txt",
+    "audit": "agent_audit.json",
+}
 
-    This is what makes the report drill below the pipeline stages: a reader who
-    sees a probe or a hypothesis and asks "what did the agent actually see and
-    say?" can expand down to the raw prompt/response text.
+
+def _explore_agent_files(explore_dir: "Path | None", explore_event: dict[str, Any]) -> dict[str, str]:
+    """The text of each explore-agent file that exists, by file name.
+
+    On disk for an explore output; for a loop run they are the files the
+    logger inlined on the explore event (``workspace_snapshot.files``).
     """
-    agents: dict[str, Any] = {
-        "judge_calls": [],
-        "explore": {},
-        "tool_codegen": [],
-        "langfuse": {},
-    }
-
-    # -- Verbatim judge calls (prompts/<stem>.prompt.txt + .response.txt) ----
-    def _stage_of(stem: str) -> str:
-        if "_m1_" in stem:
-            return "M1 Analyzer Selection"
-        if "_m2_" in stem:
-            return "M2 Statistical Screening"
-        if "_m3_" in stem:
-            return "M3 AI Doctor Diagnosis"
-        if "_m4_" in stem:
-            return "M4 Protocol Consistency"
-        if "_m5_" in stem:
-            return "M5 Intervention"
-        if "_agent_decision" in stem:
-            return "Agentic Loop Decision"
-        return "Other"
-
-    prompts_dir = logs_dir / "prompts"
-    if prompts_dir.exists():
-        for pf in sorted(prompts_dir.glob("*.prompt.txt")):
-            stem = pf.name[: -len(".prompt.txt")]
-            rf = pf.with_name(stem + ".response.txt")
+    files: dict[str, str] = {}
+    if explore_dir is not None:
+        for name in _EXPLORE_AGENT_FILES.values():
             try:
-                prompt = pf.read_text(encoding="utf-8")
-            except Exception:
-                prompt = ""
-            try:
-                response = rf.read_text(encoding="utf-8") if rf.exists() else ""
-            except Exception:
-                response = ""
-            if not prompt and not response:
-                continue
-            agents["judge_calls"].append({
-                "stem": stem,
-                "stage": _stage_of(stem),
-                "prompt": prompt,
-                "response": response,
-                "prompt_chars": len(prompt),
-                "raw_chars": len(response),
-            })
-
-    # -- Explore coder-agent trajectory --------------------------------------
-    exp: dict[str, Any] = {}
-    if explore_dir is not None and Path(explore_dir).exists():
-        ed = Path(explore_dir)
-        for key, fname in (
-            ("raw_output", "agent_raw_output.txt"),
-            ("raw_streams", "agent_raw_streams.txt"),
-            ("code", "analysis.py"),
-            ("stdout", "stdout.txt"),
-            ("stderr", "stderr.txt"),
-        ):
-            p = ed / fname
-            if p.exists():
-                try:
-                    exp[key] = p.read_text(encoding="utf-8")
-                except Exception:
-                    pass
-        audit_p = ed / "agent_audit.json"
-        if audit_p.exists():
-            try:
-                exp["audit"] = json.loads(audit_p.read_text(encoding="utf-8"))
-            except Exception:
+                files[name] = (Path(explore_dir) / name).read_text(encoding="utf-8")
+            except (OSError, UnicodeError):
                 pass
-    agents["explore"] = exp
+        return files
+    snapshot = explore_event.get("workspace_snapshot")
+    inlined = snapshot.get("files") if isinstance(snapshot, dict) else None
+    return {name: text for name, text in (inlined or {}).items()
+            if name in _EXPLORE_AGENT_FILES.values() and isinstance(text, str)}
 
-    # -- Synthesized tool codegen attempts (tools/) --------------------------
-    tools_dir = logs_dir / "tools"
-    if tools_dir.exists():
-        groups: dict[str, dict[str, str]] = {}
-        order: list[str] = []
-        for f in sorted(tools_dir.iterdir()):
-            if not f.is_file():
-                continue
-            name = f.name
-            for suffix, kind in (
-                ("_code.py", "code"), ("_prompt.txt", "prompt"),
-                ("_agent_thinking.txt", "agent_thinking"), ("_stdout.txt", "stdout"),
-                ("_agent_raw_stream.txt", "raw_stream"),
-            ):
-                if name.endswith(suffix):
-                    stem = name[: -len(suffix)]
-                    if stem not in groups:
-                        groups[stem] = {}
-                        order.append(stem)
-                    try:
-                        groups[stem][kind] = f.read_text(encoding="utf-8")
-                    except Exception:
-                        pass
-                    break
-        for stem in order:
-            if groups[stem]:
-                agents["tool_codegen"].append({"stem": stem, "files": groups[stem]})
 
-    # -- Langfuse trace bundle summary ---------------------------------------
+def _extract_agent_layer(
+    logs_dir: Path, explore_dir: "Path | None", explore_event: dict[str, Any],
+) -> dict[str, Any]:
+    """What sits below the pipeline stages: the explore coder-agent's code,
+    output and audit, and a summary of the Langfuse trace bundle."""
+    files = _explore_agent_files(explore_dir, explore_event)
+    exp: dict[str, Any] = {key: files[name] for key, name in _EXPLORE_AGENT_FILES.items() if name in files}
+    if "audit" in exp:
+        try:
+            exp["audit"] = json.loads(exp["audit"])
+        except ValueError:
+            del exp["audit"]
+    agents: dict[str, Any] = {"explore": exp, "langfuse": {}}
+
     lf = logs_dir / "langfuse_trace.json"
     if lf.exists():
         try:
@@ -277,32 +195,17 @@ def _latest_run_events(logs_dir: Path) -> list[dict[str, Any]]:
 
     events: list[dict[str, Any]] = read_v2_events(logs_dir)
     run_starts = [e for e in events if e.get("event") == "run_start"]
-    trace_id = run_starts[-1].get("trace_id") if run_starts else None
-    # Directories are commonly reused.  Keep a report internally consistent by
-    # selecting the events from the latest run's trace only.
-    if trace_id:
-        scoped = [e for e in events if e.get("trace_id") == trace_id]
-        # Keep compatibility with pre-trace legacy logs, where only run_start
-        # may have a trace id (or none of the events do).
-        if len(scoped) > 1:
-            return scoped
-    return events
+    if not run_starts:
+        return events
+    trace_id = run_starts[-1].get("trace_id")
+    return [e for e in events if e.get("trace_id") == trace_id]
 
 
 def _run_section(
     run_start: dict[str, Any], loop_end: dict[str, Any], logs_dir: Path,
-    manifest_path: Path | None, n_manifest: int,
 ) -> dict[str, Any]:
     """What ran: the model, the benchmark, its size and how the loop ended."""
-    manifest_json = logs_dir / "manifest.json"
-    cfg = json.loads(manifest_json.read_text()) if manifest_json.exists() else {}
-
-    raw_model_name = (
-        run_start.get("model")
-        or cfg.get("model")
-        or cfg.get("config", {}).get("model")
-        or "Target Model"
-    )
+    raw_model_name = run_start.get("model") or "Target Model"
     clean_model = clean_model_display_name(raw_model_name)
     protocol = run_start.get("protocol") or {}
     protocol_desc = (
@@ -310,7 +213,7 @@ def _run_section(
         if isinstance(protocol, dict)
         else str(protocol)
     )
-    benchmark_name = clean_benchmark_name(protocol_desc, str(manifest_path or ""))
+    benchmark_name = clean_benchmark_name(protocol_desc)
     # The run's own summary.json (written by run_pipeline beside logs/) names
     # the model and dataset the way the user typed them — "qwen3.5-2b",
     # "bbh_word_sorting". It beats both a stringified Model repr and the
@@ -340,7 +243,7 @@ def _run_section(
         "model": clean_model,
         "raw_model": raw_model_name,
         "benchmark_name": benchmark_name,
-        "n_cases": run_start.get("n_cases") or n_manifest or 0,
+        "n_cases": run_start.get("n_cases") or 0,
         "label_distribution": run_start.get("label_distribution") or {},
         "protocol": protocol_desc,
         "cycles": loop_end.get("cycles", 1),
@@ -349,29 +252,13 @@ def _run_section(
         "version": run_start.get("evalrx_version", "0.2.0"),
         "data_fingerprint": run_start.get("data_fingerprint", ""),
         "logs_dir": str(logs_dir),
-        "manifest_path": str(manifest_path) if manifest_path else "",
     }
 
 
-def _m2_stats(analysis: dict[str, Any], probe: dict[str, Any], logs_dir: Path) -> list[dict[str, Any]]:
-    """The analysis step's test rows, rejected nulls first, largest effect first.
-
-    An analysis event that names no cycle ran in the probe's.
-    """
-    cycle = int(analysis.get("cycle", probe.get("cycle", 0)) or 0)
-    stats_path = logs_dir / f"artifacts/c{cycle}_m2_stats_results.json"
-    stats_ref = analysis.get("stats_results")
-    if isinstance(stats_ref, dict) and stats_ref.get("path"):
-        stats_path = logs_dir / str(stats_ref["path"])
-    try:
-        raw_stats = json.loads(stats_path.read_text()) if stats_path.exists() else []
-    except (OSError, json.JSONDecodeError):
-        raw_stats = []
-    if not raw_stats and isinstance(stats_ref, list):
-        # RunLoggerV2 keeps the M2 rows inline on the analysis entry rather
-        # than externalising them to artifacts/.
-        raw_stats = [row for row in stats_ref if isinstance(row, dict)]
-    stats = [
+def _m2_stats(analysis: dict[str, Any]) -> list[dict[str, Any]]:
+    """The analysis step's test rows, rejected nulls first, largest effect first."""
+    rows = analysis.get("stats_results")
+    stats: list[dict[str, Any]] = [
         {
             "tool": s.get("tool"),
             "config": s.get("config") or {},
@@ -382,7 +269,8 @@ def _m2_stats(analysis: dict[str, Any], probe: dict[str, Any], logs_dir: Path) -
             "p_value": s.get("p_value"),
             "underpowered": bool(s.get("underpowered")),
         }
-        for s in raw_stats
+        for s in (rows if isinstance(rows, list) else [])
+        if isinstance(s, dict)
     ]
     stats.sort(key=lambda s: (not s["reject"], -abs(s.get("effect") or 0)))
     return stats
@@ -440,72 +328,23 @@ def _explore_report(
     return report or _snapshot_explore_report(explore_event) or _explore_from_sentences(explore_event, analysis)
 
 
-def _hypotheses(diagnosis: dict[str, Any], logs_dir: Path) -> list[Any]:
-    """The diagnosis event's hypotheses, else the ones an older run wrote to report/."""
-    hypotheses = diagnosis.get("hypotheses") or []
-    if not hypotheses and (logs_dir / "report" / "hypotheses.json").exists():
-        try:
-            hypotheses = json.loads((logs_dir / "report" / "hypotheses.json").read_text())
-        except Exception:
-            pass
-    return hypotheses
+def _m4_results(m4_surgeries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One verdict row per hypothesis M4 adjudicated.
 
-
-def _m4_results(m4_surgeries: list[dict[str, Any]], logs_dir: Path) -> list[Any]:
-    """One verdict row per hypothesis M4 adjudicated."""
-    m4_results_file = logs_dir / "report" / "m4_results.json"
-    try:
-        m4_results = json.loads(m4_results_file.read_text()) if m4_results_file.exists() else []
-    except (OSError, json.JSONDecodeError):
-        m4_results = []
-    if m4_surgeries:
-        # The JSONL event is trace-scoped; a report artifact can be stale when
-        # the same run directory is appended to later. One hypothesis can be
-        # tested more than once across cycles — every hypothesis this run
-        # actually adjudicated belongs here, not just the most recent verdict,
-        # otherwise a 3-hypothesis M4 pass reports as if only 1 ran.
-        m4_results = [{
-            "hypothesis_id": event.get("hypothesis_id"),
-            "hypothesis": event.get("hypothesis"),
-            "status": event.get("status"),
-            "effect_size": (event.get("evidence") or {}).get("m4_effect_size"),
-            "confidence": event.get("confidence_score"),
-            "verdict": (event.get("evidence") or {}).get("m4_verdict"),
-            "evidence_grade": (event.get("evidence") or {}).get("m4_evidence_grade"),
-            "protocol_consistent": (event.get("evidence") or {}).get("m4_protocol_consistent"),
-        } for event in m4_surgeries]
-    return m4_results
-
-
-def _confirmed_fix(fixes_dir: Path | None, best_fix: Any) -> tuple[dict[str, Any], Path | None]:
-    """(the fix result to report, the fixes/ candidate directory it came from).
-
-    The first candidate under fixes/ that fixed the failure, else the last
-    one tried; a run with no fixes/ directory reports its fix event's best.
+    One hypothesis can be tested more than once across cycles — every
+    hypothesis this run actually adjudicated belongs here, not just the most
+    recent verdict, otherwise a 3-hypothesis M4 pass reports as if only 1 ran.
     """
-    confirmed_fix: dict[str, Any] = {}
-    fix_dir = None
-    if fixes_dir:
-        cand_dirs = sorted(fixes_dir.glob("*/result.json"))
-        if cand_dirs:
-            picked = cand_dirs[-1]
-            for cd in cand_dirs:
-                try:
-                    res_j = json.loads(cd.read_text())
-                    if res_j.get("fixed"):
-                        picked = cd
-                        break
-                except Exception:
-                    pass
-            fix_dir = picked.parent
-            try:
-                confirmed_fix = json.loads(picked.read_text())
-            except Exception:
-                pass
-
-    if not confirmed_fix and isinstance(best_fix, dict):
-        confirmed_fix = best_fix
-    return confirmed_fix, fix_dir
+    return [{
+        "hypothesis_id": event.get("hypothesis_id"),
+        "hypothesis": event.get("hypothesis"),
+        "status": event.get("status"),
+        "effect_size": (event.get("evidence") or {}).get("m4_effect_size"),
+        "confidence": event.get("confidence_score"),
+        "verdict": (event.get("evidence") or {}).get("m4_verdict"),
+        "evidence_grade": (event.get("evidence") or {}).get("m4_evidence_grade"),
+        "protocol_consistent": (event.get("evidence") or {}).get("m4_protocol_consistent"),
+    } for event in m4_surgeries]
 
 
 def _mark_explore_output(data: dict[str, Any], report: dict[str, Any]) -> None:
@@ -526,10 +365,9 @@ def _mark_explore_output(data: dict[str, Any], report: dict[str, Any]) -> None:
     )
 
 
-def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str, Any]:
-    """Parse all run artifacts dynamically into a unified dictionary."""
-    logs_dir, explore_dir, fixes_dir = resolve_run_dirs(run_dir)
-    manifest_path, manifest = find_manifest(example_dir or logs_dir.parent, logs_dir)
+def extract_run_data(run_dir: Path) -> dict[str, Any]:
+    """Read a run's log, or an explore output's report, into one dictionary."""
+    logs_dir, explore_dir = resolve_run_dirs(run_dir)
     events = _latest_run_events(logs_dir)
 
     def named(event: str) -> list[dict[str, Any]]:
@@ -539,17 +377,17 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
         found = named(event)
         return found[-1] if found else {}
 
-    run = _run_section(last("run_start"), last("loop_end"), logs_dir, manifest_path, len(manifest))
+    run = _run_section(last("run_start"), last("loop_end"), logs_dir)
     probe_searches = named("probe_search")
     probe, analysis, diagnosis, fix = last("probe"), last("analysis"), last("diagnosis"), last("fix")
-    m1, probe_flags = probe_section(probe, named("tool_codegen"), logs_dir)
+    m1 = probe_section(probe, named("tool_codegen"))
     explore_report = _explore_report(explore_dir, last("explore"), analysis)
     surgeries = named("surgery")
     m4_surgeries = [s for s in surgeries if s.get("module") == "m4" or s.get("adjudication")]
-    m4_results = _m4_results(m4_surgeries, logs_dir)
+    m4_results = _m4_results(m4_surgeries)
     m5_surgeries = [s for s in surgeries if s.get("module") != "m4"]
     best_fix = fix.get("best") or {}
-    confirmed_fix, fix_dir = _confirmed_fix(fixes_dir, best_fix)
+    confirmed_fix = best_fix if isinstance(best_fix, dict) else {}
 
     data: dict[str, Any] = {
         "run": run,
@@ -563,13 +401,13 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
             "narrative": analysis.get("narrative") or "",
             "severity": analysis.get("severity") or "medium",
             "duration": analysis.get("duration_sec"),
-            "stats": _m2_stats(analysis, probe, logs_dir),
+            "stats": _m2_stats(analysis),
             "explore": explore_report,
             # The analysis step's own figures (V2 paths under logs/).
             "figures": [f for f in analysis.get("figures") or [] if isinstance(f, str)],
         },
         "m3": {
-            "hypotheses": _hypotheses(diagnosis, logs_dir),
+            "hypotheses": diagnosis.get("hypotheses") or [],
             # The proposer's own list, kept beside the (possibly reordered and
             # critic-annotated) accepted list. It is the only place a run
             # recorded before the log writer carried `plain_statement` on
@@ -595,11 +433,9 @@ def extract_run_data(run_dir: Path, example_dir: Path | None = None) -> dict[str
             "best": best_fix,
             "prompt_template": (confirmed_fix.get("payload") or {}).get("prompt_template") or "",
         },
-        "cases": case_rows(logs_dir, fix_dir, manifest, confirmed_fix, probe_flags),
-        "agents": _extract_agent_layer(logs_dir, explore_dir),
+        "agents": _extract_agent_layer(logs_dir, explore_dir, last("explore")),
         "logs_dir": logs_dir,
         "explore_dir": explore_dir,
-        "example_dir": example_dir or logs_dir.parent,
     }
     if not events and explore_report and explore_dir == logs_dir:
         # A loop run's explore/ child is not an explore output; only a report
