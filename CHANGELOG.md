@@ -152,6 +152,12 @@ working. They are gone, with no forwarding name left behind.
   `evalrx.models._media`): nothing called them.
 - The held-out M4 probe no longer retries without `analyzers=` when a probe
   agent raises `TypeError`.
+- `compile_diagnostic_report` with `DiagnosticReport`, `Claim`, `Evidence`
+  and `ReportStep` (exported from `evalrx.reporting` and `evalrx.analysis`),
+  `evalrx.reporting.stages` (`STAGE_SPECS`, `StageSpec`,
+  `stage_specs_as_dicts`), `evalrx.viz.prompts` and `evalrx.viz.schema`: they
+  fed the dashboard server this release removes, and nothing else read them.
+  The report's opening summary (`compile_reader_report`) is unchanged.
 - `evalrx.eval_agent.iter_log_errors` (it validated a `run_log.jsonl`, which
   no logger writes; use `validate_event` per event), and the schema entries
   for fields only the flat logger wrote: `judge_io`, `model_calls_path`,
@@ -240,8 +246,7 @@ with everything only they used:
 - `evalrx.eval_agent.orchestrator` (`EvalOrchestrator`) and what only it used:
   `ab_runner` (`ABRunner`, `ABResult`), `preregister` (`DataSplit`, `Split`,
   `PreregisteredHypothesis`, `PreregistrationLog`) and `report`
-  (`DiagnosticReport` — `evalrx.reporting.DiagnosticReport` is a different,
-  kept class). For a paired comparison use `evalrx.stats.compare`.
+  (`DiagnosticReport`). For a paired comparison use `evalrx.stats.compare`.
 - `evalrx.eval_agent._tools`, whose one live function `SurgeryAgent`'s
   parameter sweep now calls directly.
 

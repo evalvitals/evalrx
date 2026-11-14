@@ -66,8 +66,6 @@ from evalrx.analysis.workbench import (
     extract_archive,
     ingest_directory,
 )
-from evalrx.reporting.compiler import compile_diagnostic_report
-from evalrx.reporting.model import Claim, DiagnosticReport, Evidence, ReportStep
 
 __all__ = [
     "explore",
@@ -107,11 +105,6 @@ __all__ = [
     "run_fused_analysis",
     "FusedReport",
     "FusedSignal",
-    "DiagnosticReport",
-    "Claim",
-    "Evidence",
-    "ReportStep",
-    "compile_diagnostic_report",
     "load_records_from_path",
     "scan_folder",
     "StatsInput",
