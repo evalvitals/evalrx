@@ -117,6 +117,10 @@ working. They are gone, with no forwarding name left behind.
   `evalrx.models._media`): nothing called them.
 - The held-out M4 probe no longer retries without `analyzers=` when a probe
   agent raises `TypeError`.
+- `evalrx.eval_agent.iter_log_errors` (it validated a `run_log.jsonl`, which
+  no logger writes; use `validate_event` per event), and the schema entries
+  for fields only the flat logger wrote: `judge_io`, `model_calls_path`,
+  `code_paths`, `output_paths`, `record`.
 
 ## [0.2.0] — 2026-11-13
 

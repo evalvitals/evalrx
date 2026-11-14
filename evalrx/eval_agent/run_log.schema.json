@@ -151,31 +151,11 @@
             "selection_rationale": {
               "type": "string"
             },
-            "judge_io": {
-              "type": "object",
-              "properties": {
-                "prompt_path": {
-                  "type": "string"
-                },
-                "prompt_chars": {
-                  "type": "integer"
-                },
-                "raw_path": {
-                  "type": "string"
-                },
-                "raw_chars": {
-                  "type": "integer"
-                }
-              }
-            },
             "duration_sec": {
               "type": "number"
             },
             "n_model_calls": {
               "type": "integer"
-            },
-            "model_calls_path": {
-              "type": "string"
             }
           },
           "required": [
@@ -240,23 +220,6 @@
             },
             "figures": {
               "type": "array"
-            },
-            "judge_io": {
-              "type": "object",
-              "properties": {
-                "prompt_path": {
-                  "type": "string"
-                },
-                "prompt_chars": {
-                  "type": "integer"
-                },
-                "raw_path": {
-                  "type": "string"
-                },
-                "raw_chars": {
-                  "type": "integer"
-                }
-              }
             },
             "duration_sec": {
               "type": "number"
@@ -432,23 +395,6 @@
             "failure_modes_used": {
               "type": "boolean"
             },
-            "judge_io": {
-              "type": "object",
-              "properties": {
-                "prompt_path": {
-                  "type": "string"
-                },
-                "prompt_chars": {
-                  "type": "integer"
-                },
-                "raw_path": {
-                  "type": "string"
-                },
-                "raw_chars": {
-                  "type": "integer"
-                }
-              }
-            },
             "duration_sec": {
               "type": "number"
             }
@@ -513,23 +459,6 @@
             },
             "duration_sec": {
               "type": "number"
-            },
-            "judge_io": {
-              "type": "object",
-              "properties": {
-                "prompt_path": {
-                  "type": "string"
-                },
-                "prompt_chars": {
-                  "type": "integer"
-                },
-                "raw_path": {
-                  "type": "string"
-                },
-                "raw_chars": {
-                  "type": "integer"
-                }
-              }
             }
           },
           "required": [
@@ -606,20 +535,11 @@
                 "null"
               ]
             },
-            "code_paths": {
-              "type": "object"
-            },
-            "output_paths": {
-              "type": "object"
-            },
             "workspace_snapshot": {
               "type": [
                 "object",
                 "null"
               ]
-            },
-            "record": {
-              "type": "string"
             }
           },
           "required": [
@@ -646,9 +566,6 @@
               "const": "fix"
             },
             "module": {
-              "type": "string"
-            },
-            "record": {
               "type": "string"
             }
           },
@@ -796,9 +713,6 @@
                 "string",
                 "null"
               ]
-            },
-            "code_paths": {
-              "type": "object"
             }
           },
           "required": [
@@ -875,23 +789,6 @@
             },
             "fallback_used": {
               "type": "boolean"
-            },
-            "judge_io": {
-              "type": "object",
-              "properties": {
-                "prompt_path": {
-                  "type": "string"
-                },
-                "prompt_chars": {
-                  "type": "integer"
-                },
-                "raw_path": {
-                  "type": "string"
-                },
-                "raw_chars": {
-                  "type": "integer"
-                }
-              }
             },
             "duration_sec": {
               "type": "number"

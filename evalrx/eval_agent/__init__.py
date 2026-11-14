@@ -138,7 +138,6 @@ from evalrx.eval_agent.log_schema import (
     RUN_LOG_SCHEMA_VERSION,
     SCHEMA_PATH,
     build_schema,
-    iter_log_errors,
     load_schema,
     validate_event,
 )
@@ -278,7 +277,6 @@ __all__ = [
     "build_schema",
     "load_schema",
     "validate_event",
-    "iter_log_errors",
     "SCHEMA_PATH",
     # Experiment execution
     "ExperimentWriter",
