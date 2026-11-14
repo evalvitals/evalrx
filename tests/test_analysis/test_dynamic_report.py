@@ -281,6 +281,70 @@ def test_external_case_media_is_copied_into_durable_run(tmp_path):
     assert path.read_bytes() == b"RIFF-fake-audio"
 
 
+def _report_of_cases(tmp_path, cases):
+    from evalrx.core import CaseBatch
+    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.reporting.dynamic import build_report_data
+
+    run = tmp_path / "run"
+    logger = RunLogger(run)
+    logger.log_run_start({"model": "demo", "n_cases": len(cases)})
+    logger.log_cases(CaseBatch(cases))
+    logger.close()
+    return build_report_data(run)
+
+
+def test_each_media_slot_is_paired_with_its_own_copy(tmp_path):
+    from evalrx.core import FailureCase, Inputs
+
+    image = tmp_path / "scene.png"
+    image.write_bytes(b"fake-png")
+    audio = tmp_path / "clip.wav"
+    audio.write_bytes(b"RIFF-fake-audio")
+    data = _report_of_cases(tmp_path, [
+        FailureCase(inputs=Inputs(prompt="both", image=str(image), audio=str(audio)), id="both"),
+    ])
+
+    by_kind = {item["kind"]: item["path"] for item in data["media"]}
+    assert by_kind["image"].startswith("media/") and by_kind["image"].endswith("_scene.png")
+    assert by_kind["audio"].startswith("media/") and by_kind["audio"].endswith("_clip.wav")
+    assert len(data["cases"][0]["media_ids"]) == 2
+
+
+def test_a_slot_the_logger_could_not_copy_does_not_take_another_slots_copy(tmp_path):
+    from evalrx.core import FailureCase, Inputs
+
+    audio = tmp_path / "clip.wav"
+    audio.write_bytes(b"RIFF-fake-audio")
+    missing = str(tmp_path / "gone.png")
+    data = _report_of_cases(tmp_path, [
+        FailureCase(inputs=Inputs(prompt="one", image=missing, audio=str(audio)), id="one"),
+    ])
+
+    by_kind = {item["kind"]: item["path"] for item in data["media"]}
+    assert by_kind["image"] == missing
+    assert by_kind["audio"].endswith("_clip.wav")
+
+
+def test_case_choices_and_task_come_from_the_case_metadata(tmp_path):
+    from evalrx.core import FailureCase
+
+    data = _report_of_cases(tmp_path, [
+        FailureCase.from_prompt("mc", id="mc", metadata={
+            "task": "multiple_choice_letter", "category": "Reasoning",
+            "choices": ["A", "B"], "options": ["(A) cat", "(B) dog"],
+        }),
+        FailureCase.from_prompt("numeric", id="numeric", metadata={"task": "exact_or_numeric"}),
+        FailureCase.from_prompt("bare", id="bare"),
+    ])
+
+    cases = {case["id"]: case for case in data["cases"]}
+    assert cases["mc"]["choices"] == ["(A) cat", "(B) dog"]
+    assert cases["mc"]["task"] == "Reasoning"
+    assert cases["numeric"]["choices"] == [] and cases["numeric"]["task"] == "exact_or_numeric"
+    assert cases["bare"]["choices"] == [] and cases["bare"]["task"] == ""
+
+
 def test_m1_examples_are_logged_and_reconstructed_from_case_evidence(tmp_path):
     from evalrx.core import CaseBatch, FailureCase, Label, Result
     from evalrx.eval_agent.run_logger import RunLogger

@@ -86,7 +86,16 @@ Re-run it to open it with this version.
 - Each M4 verdict card shows its own test statistics. With several
   hypotheses, every card borrowed the last verdict's interval.
 
-Report data is version 22.
+- A case with more than one media slot shows each file in its own slot. The
+  report paired a case's inputs with the copies the logger made by position,
+  in a different slot order than the logger wrote them, so an image-and-audio
+  case had the two swapped. They are paired by file name.
+- The Case Studio lists a multiple-choice case's options (`metadata.options`,
+  else `metadata.choices`); the block was always empty. A case's label is its
+  `metadata.category`, else the task kind, so it is no longer blank on
+  datasets without categories.
+
+Report data is version 23.
 
 ### Changed — the explore agent's record shows for loop runs too
 

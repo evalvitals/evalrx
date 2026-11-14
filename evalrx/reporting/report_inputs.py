@@ -102,6 +102,12 @@ def _contract_stats(contract: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     return []
 
 
+def _in_run_copy(source: str, copies: list[str]) -> str | None:
+    """The logger's copy of *source*, which it names ``<content hash>_<file name>``."""
+    name = Path(source).name
+    return next((c for c in copies if Path(c).name.partition("_")[2] == name), None)
+
+
 def _media_index(cases: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """One entry per distinct media file, preferring the copy inside the run.
 
@@ -115,15 +121,12 @@ def _media_index(cases: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
     seen: set[str] = set()
     for case in cases:
         inputs = found if isinstance(found := case.get("inputs"), dict) else {}
-        # Slots and copies are recorded in the same order, so they zip up.
-        local = [p for p in (case.get("_media_paths") or []) if isinstance(p, str)]
-        i = 0
+        copies = [p for p in (case.get("_media_paths") or []) if isinstance(p, str)]
         for kind in ("audio", "image", "video"):
             source = inputs.get(kind)
             if not isinstance(source, str) or not source or source.startswith("<"):
                 continue
-            path = local[i] if i < len(local) else source
-            i += 1
+            path = _in_run_copy(source, copies) or source
             if path in seen:
                 continue
             seen.add(path)
@@ -134,6 +137,7 @@ def _media_index(cases: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
 
 def _normalise_case(case: Mapping[str, Any], media: list[dict[str, Any]]) -> dict[str, Any]:
     inputs = found if isinstance(found := case.get("inputs"), dict) else {}
+    metadata = found if isinstance(found := case.get("metadata"), dict) else {}
     # Match on either key: the index prefers the in-run copy, and a file the
     # logger could not copy still resolves through the producer's path.
     media_by_path: dict[str, str] = {}
@@ -156,9 +160,12 @@ def _normalise_case(case: Mapping[str, Any], media: list[dict[str, Any]]) -> dic
         "prompt": inputs.get("prompt") or "",
         "expected": case.get("expected"),
         "observed": case.get("observed"),
-        "choices": case.get("choices") or [],
+        # The answer texts when the task has them, else the bare letters.
+        "choices": metadata.get("options") or metadata.get("choices") or [],
         "tags": case.get("tags") or [],
-        "task": (case.get("metadata") or {}).get("category") or "",
+        # The case's own category where the dataset has one; the task kind is
+        # the same for every case in a run.
+        "task": str(metadata.get("category") or metadata.get("task") or ""),
         "media_ids": media_ids,
         "trajectory": case.get("trajectory"),
         # explore / confirm / test, as the loop logged it; None when the run
