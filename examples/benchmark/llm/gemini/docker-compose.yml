@@ -40,6 +40,10 @@ services:
     <<: *gemini
     command: >
       sh -c "python -m _common.run --modality llm --model gemini-3.1-flash-lite --backend gemini --concurrency ${CONCURRENCY:-4} --dataset ${DATASET:-bbh_causal_judgement} --limit ${LIMIT:-0} ${EXTRA_ARGS:-}"
+  gemini-3.1-pro-preview:
+    <<: *gemini
+    command: >
+      sh -c "python -m _common.run --modality llm --model gemini-3.1-pro-preview --backend gemini --concurrency ${CONCURRENCY:-4} --dataset ${DATASET:-bbh_causal_judgement} --limit ${LIMIT:-0} ${EXTRA_ARGS:-}"
   gemini-2.5-flash:
     <<: *gemini
     command: >

@@ -16,7 +16,7 @@ Flow::
       -> explore(records)              # M2 + M3, unchanged
 
 ``run_codebase_cli`` is the CLI-facing counterpart: same pipeline, prints a
-summary and optionally opens the dashboard.
+summary and optionally opens the report.
 """
 
 from __future__ import annotations
@@ -184,16 +184,14 @@ def run_codebase_cli(
     max_attempts: int = 2,
     question: str = "Explore this dataset and surface the patterns that matter.",
     analyze: bool = True,
-    dashboard: bool = False,
-    dashboard_port: int | None = None,
+    open_report: bool = False,
     progress_sink: Any = None,
 ) -> int:
     """Run *path* and persist its harvested records + explore artifacts under *out*.
 
     Prints a short summary and returns a process exit code: ``0`` if records
     were harvested (and, when *analyze*, the exploration succeeded), else
-    ``1``. When *dashboard* is set, the return value is the dashboard
-    process's code instead.
+    ``1``. *open_report* opens the written ``report.html`` in a browser.
     """
     out_dir = Path(out).resolve()
     result = run_codebase(
@@ -231,12 +229,9 @@ def run_codebase_cli(
     ok = result.ran_ok and (result.explore is None or result.explore.ok)
 
     if ok:
-        from evalrx.reporting.html_report import build_html_report
+        from evalrx.reporting.html_report import build_html_report, open_in_browser
 
-        build_html_report(out_dir, out_path=out_dir / "report.html")
-
-    if dashboard:
-        from evalrx.analysis.dashboard import launch_dashboard
-
-        return launch_dashboard(out_dir, port=dashboard_port)
+        written = build_html_report(out_dir, out_path=out_dir / "report.html")
+        if open_report:
+            open_in_browser(written)
     return 0 if ok else 1

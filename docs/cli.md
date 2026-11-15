@@ -1,7 +1,7 @@
 # Command-Line Interface
 
 Installing the package installs one console script, `evalrx`
-(`evalrx.cli:main`), with eight subcommands. `evalrx <command> --help` is
+(`evalrx.cli:main`), with nine subcommands. `evalrx <command> --help` is
 always the source of truth for flags; this page is the map of which command
 does what and how they chain together.
 
@@ -18,34 +18,50 @@ terminal that supports OSC 8 hyperlinks (most modern ones do); it degrades
 to plain text automatically on a redirected/non-tty stream, or set
 `EVALRX_NO_HYPERLINKS=1` to force plain text.
 
-## What this CLI does — and doesn't — run
+## `evalrx run`
 
-`explore`/`run-codebase` only ever drive **M2 (explore) → M3 (propose
-hypotheses) → M4-as-`--holdout-confirm`** — see the live-narration note under
-[`evalrx explore`](#evalrx-explore) below for what that looks like. **There
-is no CLI command for M1 (targeted probing) or M5 (repair/intervention).**
-The full M1→M5 loop (`VLDiagnoseLoop`/`AutoDiagnoseLoop`) is Python-API only
-— see [Quickstart](quickstart.md#vldiagnoseloop-automated-failure-attribution-current)
-— or run as a complete example:
+Evaluate a registered model on a dataset, then run the existing M1 probing,
+M2 analysis, M3 diagnosis, M4 verification and M5 repair workflow. This is the
+packaged benchmark runner; it works from an installed wheel as well as a checkout.
+`--baseline-only` stops after evaluation and requires no judge.
 
-- **Zero setup:** [evalvitals.github.io/evalrx/demo](https://evalvitals.github.io/evalrx/demo/) —
-  two committed, real M1→M5 runs (VLM/ChartQA, ALM/MMAU), viewable in the
-  browser with nothing installed.
-- **Run one yourself:** `examples/m1_m5/deco_hallu` runs the real chain
-  end-to-end against a live VLM — needs a CUDA GPU, cached model weights, and
-  a coding-agent CLI for the judge. Launch it with `docker compose up` from
-  that directory (this repo's examples are Docker-only — see the example's
-  own `README.md`), then `evalrx serve outputs` to view the result. It
-  already runs with live M1-M5 terminal narration — same visual style as
-  `explore`'s, built from `RunLoggerV2(..., narrate=True)` — since its
-  `run.py` opts in; do the same in your own `RunLoggerV2(...)` call to get
-  it (see `evalrx.eval_agent.narration.LoopNarrator`).
+```bash
+evalrx run --modality llm --model gemma-4-e2b --dataset bbh_word_sorting \
+  --backend jax_local --device tpu --limit 128 --download-limit 128 \
+  --judge-provider agy --judge-model gemini-3.8-flash-low \
+  --max-new-tokens 512 --temperature 0 --analyzer-max-cases 8 \
+  --fix-tier L2 --fix-repair-rounds 2 \
+  --allow-codegen --explore --m2-codegen --skip-surgery
+```
+
+The [Colab notebooks](https://github.com/evalvitals/evalrx/tree/ruinan/examples/colab)
+include agent installation, authentication and actual execution cells.
+For agy API-key authentication, set `modelProvider` to `gemini` in
+`~/.gemini/antigravity-cli/settings.json` and supply `GEMINI_API_KEY` through
+the environment. EvalRX launches agy for judgments and coding-agent stages.
+`--skip-surgery` omits separate surgery experiments but **does not** skip M5
+repair search; `--skip-m5` is its legacy alias.
+
+Other supported judge providers are `claude`, `codex`, and the `gemini` API.
+The API-only judge requires a separate coding-agent override such as
+`--coder-provider gemini_cli` when code generation is enabled. Without one,
+use `--no-allow-codegen --no-explore --no-m2-codegen --skip-surgery`.
+
+Use `evalrx run --help` for all controls, `--list` for model support, and
+`--download-only` to prepare data. EXPLORE selects a candidate; CONFIRM tests it
+once. `--run-dir` and `--data-dir` control runtime files. The text-LLM slice
+definitions ship with the package (their rows are fetched from the HF
+datasets-server at download time, which needs the `data` extra); ChartQA is
+bundled with the package.
+
+`explore` and `run-codebase` retain their narrower result-analysis workflows
+(M2/M3 and optional held-out confirmation); they do not run the full M1–M5 loop.
 
 ## The two jobs a subcommand does
 
 | Job | Commands |
 |---|---|
-| **Produce** a run — turn result logs, a codebase, or a diagnosis loop into an output directory | [`explore`](#evalrx-explore), [`run-codebase`](#evalrx-run-codebase) |
+| **Produce** a run — evaluate a model or analyze results/code | [`run`](#evalrx-run), [`explore`](#evalrx-explore), [`run-codebase`](#evalrx-run-codebase) |
 | **View or export** a finished run — everything below reads a run directory, none of them re-run the model | [`serve`](#evalrx-serve), [`report`](#evalrx-report), [`publish-report`](#evalrx-publish-report), [`dashboard`](#evalrx-dashboard-deprecated), [`export-langfuse`](#evalrx-export-langfuse), [`backfill-langfuse`](#evalrx-backfill-langfuse) |
 
 A "run directory" is either an `explore` output (`exploratory_report.json` +
@@ -62,7 +78,6 @@ actually confuses people, because two of them sound like the same thing:
 | `evalrx serve` | Starts a local FastAPI server and opens the **dynamic** React report UI (`http://127.0.0.1:8501` by default) — the same interactive interface used throughout this repo's own examples. Nothing is written to disk beyond a small `.evalrx-cache` unless you also ask it to publish. | Default choice. Point it at a run dir, or launch with none and drop a `.zip` on the page. `--runs-root` adds a runs panel to browse several experiments from one server. |
 | `evalrx report` | Renders the **same** React UI but bakes it into one portable, self-contained `report.html` — no server, no network. | Sharing a result with someone who won't run a Python server, or archiving a run as a single file. |
 | `evalrx publish-report` | Compiles and caches the underlying `ReportData` + layout spec that both `serve` and `report` render, without launching or exporting anything. | Pre-warming the cache for a run before serving it, or CI. |
-| `evalrx dashboard` | **Deprecated.** A dependency-free static-HTML server predating the React UI (`evalrx/analysis/dashboard.py`). Kept only for old `explore` outputs that never got a React-compatible `report.html`. | Don't reach for this new — use `serve`. |
 
 `serve`/`report`/`publish-report` all take `--source {auto,local,langfuse}` +
 `--trace-id`: point them at a Langfuse trace instead of a local directory.
@@ -99,8 +114,7 @@ set.
 | `--model` (`--coder-model`) | backend default | Model name passed to the coding agent. |
 | `--max-rows` / `--max-files` | `2000` / `200` | Sampling caps for large inputs. |
 | `--timeout-sec` / `--max-attempts` | `120` / `2` | Per-attempt timeout and repair-retry budget. |
-| `--serve-report` | off | Launch `serve` on the output when the run finishes. |
-| `--port` | auto | Port for `--serve-report`. |
+| `--serve-report` | off | Open the run's static `report.html` in a browser when it finishes. |
 | `--skill DIR` (repeatable) | — | Agent-Skill directory to style agent-authored figures. Implies `--allow-skills`. |
 | `--no-skills` | off | Skip the package's bundled skills (e.g. `nature-figure`). |
 | `--no-hypotheses` | off | Skip M3 — stop after M2's takeaways. |
@@ -110,7 +124,9 @@ set.
 | `--no-narrate` | off | Don't print live per-stage terminal narration (see above). |
 | `--progress-path PATH` | — | Also append durable JSONL progress events to `PATH`, for a separate workbench UI — independent of narration; both can run together. |
 
-`--dashboard` still exists as a deprecated alias for `--serve-report`.
+An explore output is not an M1–M5 run, so `serve` has nothing to show for it;
+its report is the static `report.html` (`evalrx/reporting/html_report.py`)
+written into `--out`, which opens from disk.
 
 ## `evalrx run-codebase`
 
@@ -135,7 +151,7 @@ evalrx run-codebase ./my_eval_repo \
 | `--records-name` | `records.json` | Output-contract filename the run agent must write. |
 | `--timeout-sec` / `--max-attempts` | `1200` / `2` | Budget for running the codebase itself. |
 | `--no-explore` | off | Only run + harvest; skip the M2/M3 explore step. |
-| `--serve-report` / `--port` | off / auto | Same as `explore`. |
+| `--serve-report` | off | Same as `explore`. |
 | `--no-narrate` | off | Don't print live terminal narration (a `RUN codebase` line plus the `explore` narration above). |
 
 ## `evalrx serve`
@@ -186,20 +202,6 @@ evalrx publish-report outputs/qwen3.5-2b/chartqa
 
 Takes `run_dir` (positional, default `outputs`), `--example-dir`,
 `--source`, `--trace-id` — same meanings as `report`.
-
-## `evalrx dashboard` (deprecated)
-
-```bash
-evalrx dashboard evalrx_explore_output
-```
-
-A dependency-free static-HTML server (`evalrx/analysis/dashboard.py`)
-predating the React report UI. It compiles a legacy `report.html`
-(`evalrx/reporting/html_report.py`) if one isn't already there and serves it
-with the standard-library `http.server` — no `fastapi` needed. Kept for old
-`explore` outputs; reach for `serve` for anything new.
-
-Takes `run_dir` (positional) and `--port`.
 
 ## `evalrx export-langfuse`
 

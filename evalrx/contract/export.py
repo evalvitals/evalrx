@@ -17,6 +17,7 @@ import json
 from pathlib import Path
 
 from evalrx.contract import SCHEMA_VERSION, STAGE_IO
+from evalrx.contract.stage_detail import StageDetail
 
 
 def export(out_dir: Path, *, typescript: bool = True, frontend: bool = True) -> list[Path]:
@@ -35,6 +36,16 @@ def export(out_dir: Path, *, typescript: bool = True, frontend: bool = True) -> 
             path = out_dir / f"{stage}.{model.__name__}.schema.json"
             path.write_text(json.dumps(schema, indent=2, ensure_ascii=False) + "\n")
             written.append(path)
+
+    # The report's per-stage view is not a stage boundary, so it is not in
+    # STAGE_IO; the report UI decodes it all the same, and gets its types here.
+    schema = StageDetail.model_json_schema(mode="serialization")
+    schema["$id"] = "https://evalrx.dev/contract/report.StageDetail.json"
+    schema["x-schema-version"] = SCHEMA_VERSION
+    schemas["report.StageDetail"] = schema
+    path = out_dir / "report.StageDetail.schema.json"
+    path.write_text(json.dumps(schema, indent=2, ensure_ascii=False) + "\n")
+    written.append(path)
 
     index = {
         "schema_version": SCHEMA_VERSION,

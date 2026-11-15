@@ -23,7 +23,7 @@ def test_registry_compatible_with_includes_attention():
 
 
 def test_registry_compatible_with_excludes_gradient_analyzer():
-    # Qwen-like local model: no GRADIENTS → gradcam excluded; no LOGPROBS+image → vl_shap excluded.
+    # A model without GRADIENTS (API / jax_local) → gradcam excluded; no LOGPROBS+image → vl_shap excluded.
     model = FakeModel(
         capabilities={Capability.GENERATE, Capability.ATTENTION, Capability.HIDDEN_STATES}
     )

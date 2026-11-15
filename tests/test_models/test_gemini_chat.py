@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from evalrx.core.capability import Capability
-from evalrx.models.blackbox.gemini import GeminiModel, _to_genai_contents, _to_genai_tools
+from evalrx.models.backends.api.gemini_model import GeminiModel, _to_genai_contents, _to_genai_tools
 from evalrx.models.toolcodec import OpenAIToolCodec, codec_for
 
 

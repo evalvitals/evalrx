@@ -35,6 +35,8 @@ PLAIN_STATEMENT: <the SAME claim as HYPOTHESIS, restated in ONE everyday
   line is sent back for a rewrite.>
 FAILURE_MODE: <short snake_case tag naming the MECHANISM, not the symptom.
   Vision/agent: attention_sink / hallucination / loop / ignored_obs / language_prior_bias
+  White-box media flow: visual_neglect / audio_neglect / insufficient_visual_attention /
+    visual_information_loss / mislocalized_attention / late_suppression
   Text reasoning: computation_slip / chain_break / knowledge_gap / selection_failure /
     overthinking / brittleness / memorization / self_correction_failure
   Harness (suspect these before any mechanism): answer_extraction / truncation /

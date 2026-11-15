@@ -112,21 +112,6 @@ def test_zebra_grader_binds_cells_to_houses(band):
     assert not band._grade_zebra("House 1: Name=Arnold, Color=white", _ZEBRA_GOLD)
 
 
-def test_latex_grader_collapses_notation_but_not_meaning(band):
-    same = [
-        (r"Answer: $\dfrac{\pi}{3}$", r"\frac{\pi}{3}"),
-        (r"so \boxed{\frac{\pi}{3}}", r"\frac{\pi}{3}"),
-        (r"Answer: 2\sqrt {2}", r"2 \sqrt{2}"),
-        ("Answer: 18", "18"),
-        (r"Answer: \leftarrow x", r"\leftarrow x"),  # \left must not eat \leftarrow
-    ]
-    for pred, gold in same:
-        assert band._grade_latex(pred, gold), (pred, gold)
-    assert not band._grade_latex(r"Answer: \frac{\pi}{6}", r"\frac{\pi}{3}")
-    # documented miss: this is a surface-form matcher, not a CAS
-    assert not band._grade_latex("Answer: 0.5", r"\frac{1}{2}")
-
-
 def test_alias_grader_accepts_any_listed_surface_form(band):
     gold = ["Alfredo Stroessner's Paraguay", "Alfredo Stroessner"]
     assert band._grade_aliases("Answer: Alfredo Stroessner", gold)
@@ -184,34 +169,6 @@ def test_hotpot_open_and_closed_differ_only_in_context(band):
     assert band._adapter_hotpot_closed({**row, "context": {}}) is not None
 
 
-def test_scientific_notation_survives_the_notation_gap(band):
-    """Minerva writes golds as `4.5e33`; a model writing maths writes LaTeX.
-
-    23.5% of minervamath's golds are program-form scientific notation, so
-    surface comparison marked correct physics answers wrong.
-    """
-    for pred in (
-        r"Answer: 4.5 \times 10^{33}",
-        r"Answer: 4.5 \cdot 10^{33}",
-        "Answer: 4.5 x 10^33",
-        "Answer: 4.5e33",
-        "reasoning\nAnswer: $4.5 \\times 10^{33}$",
-    ):
-        assert band._grade_latex(pred, "4.5e33"), pred
-    assert not band._grade_latex(r"Answer: 9.1 \times 10^{33}", "4.5e33")
-    # a negative exponent is the same notation, not a different case
-    assert band._grade_latex(r"Answer: 6.6 \times 10^{-27}", "6.6e-27")
-
-
-def test_rounding_tolerance_is_confined_to_scientific_notation(band):
-    """2-3 sig figs earn slack in the last digit; a plain integer does not."""
-    # 4.47e33 vs 4.5e33 is the same derivation rounded differently
-    assert band._grade_latex(r"Answer: 4.47 \times 10^{33}", "4.5e33")
-    # but 99.5 is simply not 100, and competition golds are exact
-    assert not band._grade_latex("Answer: 99.5", "100")
-    assert not band._grade_latex("Answer: 1.59", "1.6")
-
-
 def test_budget_bracket_only_ever_reaches_upward(band):
     """Resolving an unfinished item can add a correct answer, never remove one."""
     assert band.budget_bracket(0.32, 0.12) == (0.32, 0.44)
@@ -253,15 +210,6 @@ def test_polymath_adapter_strips_the_latex_delimiters(band):
     row = {"id": "medium-en-0", "question": "q", "answer": r"$\frac{\pi}{3}$"}
     assert band._adapter_polymath(row) == ("q", r"\frac{\pi}{3}")
     assert band._adapter_polymath({"question": "", "answer": "1"}) is None
-
-
-def test_mc_adapter_drops_rows_with_more_options_than_letters(band):
-    adapter = band._adapter_mc(("question",), "options", "answer_letter")
-    row = {"question": "q", "options": [f"o{i}" for i in range(10)], "answer_letter": "J"}
-    prompt, gold = adapter(row)
-    assert gold == "J" and "J. o9" in prompt
-    too_many = dict(row, options=[f"o{i}" for i in range(11)])
-    assert adapter(too_many) is None
 
 
 # ── decoding + endpoint contract ──────────────────────────────────────────────
@@ -417,134 +365,6 @@ def test_row_filter_keeps_only_the_named_rung(band):
     keep = band._row_in("size", ["3*3", "4*2"])
     assert keep({"size": "3*3"}) and keep({"size": "4*2"})
     assert not keep({"size": "6*6"}) and not keep({})
-
-
-def _fake_server(monkeypatch, band, rows, total=None):
-    """Serve `rows` through a paged, offset-addressed stub of /rows."""
-    total = len(rows) if total is None else total
-    calls = []
-
-    def _get(params, timeout, retries=5, url=None):
-        calls.append({**params, "_url": url})
-        off, length = params["offset"], params["length"]
-        page = rows[off:off + length]
-        return {
-            "num_rows_total": total,
-            "rows": [{"row_idx": off + i, "row": r} for i, r in enumerate(page)],
-        }
-
-    monkeypatch.setattr(band, "_get_rows", _get)
-    return calls
-
-
-def test_where_clause_routes_to_the_filter_endpoint(band, monkeypatch):
-    """A server-side slice must be addressed through /filter, not sieved from /rows.
-
-    SuperGPQA Medicine/hard is 217 of 26,529 rows; pulling the split and
-    discarding 99% would be ~6,000 wasted rows per sweep and a 429 magnet.
-    """
-    rows = [{"discipline": "Law", "id": i} for i in range(400)]
-    calls = _fake_server(monkeypatch, band, rows)
-    spec = band.Spec("law", "ch4", "m-a-p/SuperGPQA", split="train",
-                     where="\"discipline\"='Law'")
-    got = band.fetch_rows(spec, 40)
-
-    assert len(got) >= 40
-    assert all(c["_url"] == band.FILTER_API for c in calls)
-    assert all(c["where"] == "\"discipline\"='Law'" for c in calls)
-
-
-def test_no_where_clause_still_uses_the_rows_endpoint(band, monkeypatch):
-    rows = [{"id": i} for i in range(400)]
-    calls = _fake_server(monkeypatch, band, rows)
-    spec = band.Spec("plain", "ch4", "some/dataset", split="train")
-    band.fetch_rows(spec, 40)
-
-    assert all(c["_url"] == band.ROWS_API for c in calls)
-    assert all("where" not in c for c in calls)
-
-
-def test_fetch_rows_applies_the_filter_and_counts_only_survivors(band, monkeypatch):
-    """The early-stop must count KEPT rows.
-
-    Counting raw rows would stop a 1-in-25 slice after a handful of usable
-    items and still report a band on them.
-    """
-    rows = [{"size": f"{i % 25}", "id": i} for i in range(1000)]
-    _fake_server(monkeypatch, band, rows)
-    spec = band.Spec(
-        "t", "ch3", "ds", row_filter=band._row_in("size", ["7"]),
-        n_windows=10, fetch_multiplier=2,
-    )
-    got = band.fetch_rows(spec, 20)
-    assert got, "filter returned nothing"
-    assert {r["size"] for r in got} == {"7"}
-    assert len(got) >= 20
-
-
-def test_fetch_rows_deduplicates_overlapping_windows(band, monkeypatch):
-    rows = [{"size": "a", "id": i} for i in range(300)]
-    _fake_server(monkeypatch, band, rows)
-    spec = band.Spec("t", "ch3", "ds", row_filter=band._row_in("size", ["a"]),
-                     n_windows=12, fetch_multiplier=20)
-    got = band.fetch_rows(spec, 40)
-    assert len(got) == len({r["id"] for r in got})
-
-
-def test_fetch_rows_survives_a_dead_window_and_counts_it(band, monkeypatch):
-    rows = [{"size": "a", "id": i} for i in range(500)]
-    _fake_server(monkeypatch, band, rows)
-    real = band._get_rows
-    state = {"n": 0}
-
-    def _flaky(params, timeout, retries=5, url=None):
-        state["n"] += 1
-        if state["n"] % 3 == 0 and params["length"] > 1:
-            return None  # exhausted its retries
-        return real(params, timeout, retries)
-
-    monkeypatch.setattr(band, "_get_rows", _flaky)
-    spec = band.Spec("t", "ch3", "ds", row_filter=band._row_in("size", ["a"]),
-                     n_windows=10, fetch_multiplier=20)
-    got = band.fetch_rows(spec, 40)
-    assert got
-    assert band.fetch_rows.last_failed_windows > 0
-
-
-def test_fetch_rows_raises_rather_than_reporting_an_empty_split(band, monkeypatch):
-    """A dead metadata call must not look like a dataset with no rows."""
-    monkeypatch.setattr(band, "_get_rows", lambda *a, **k: None)
-    with pytest.raises(RuntimeError):
-        band.fetch_rows(band.Spec("t", "ch3", "ds"), 10)
-
-
-def test_get_rows_retries_rate_limits_then_gives_up(band, monkeypatch):
-    attempts = []
-
-    class _Resp:
-        status_code = 429
-        def json(self): return {}
-
-    monkeypatch.setattr(band.time, "sleep", lambda s: None)
-    monkeypatch.setattr(
-        band.requests, "get", lambda *a, **k: (attempts.append(1), _Resp())[1]
-    )
-    assert band._get_rows({"offset": 0, "length": 1}, 5, retries=4) is None
-    assert len(attempts) == 4
-
-
-def test_get_rows_does_not_retry_a_client_error(band, monkeypatch):
-    attempts = []
-
-    class _Resp:
-        status_code = 404
-        def json(self): return {}
-
-    monkeypatch.setattr(
-        band.requests, "get", lambda *a, **k: (attempts.append(1), _Resp())[1]
-    )
-    assert band._get_rows({"offset": 0, "length": 1}, 5, retries=4) is None
-    assert len(attempts) == 1
 
 
 def test_every_sliced_spec_declares_enough_windows_to_reach_its_rows(band):
@@ -748,59 +568,3 @@ def test_musr_adapter_parses_string_repr_choices(band):
     }
     prompt, gold = band._adapter_musr(row)
     assert gold == "B" and "A. Mackenzie" in prompt
-
-
-# ----------------------------------------------------------------------
-# Hub-file fallback for a datasets-server that will not serve the slice
-# ----------------------------------------------------------------------
-def test_parse_where_accepts_the_spec_shapes_and_rejects_anything_wider(band):
-    assert band.parse_where("\"discipline\"='Law'") == [("discipline", "Law")]
-    assert band.parse_where("\"discipline\"='Medicine' AND \"difficulty\"='hard'") == [
-        ("discipline", "Medicine"), ("difficulty", "hard")]
-    assert band.parse_where("\"a\"='x'  and  \"b\"='y'") == [("a", "x"), ("b", "y")]
-    for wider in ("\"discipline\"='Law' OR \"discipline\"='Economics'",
-                  "\"difficulty\"!='easy'", "discipline='Law'", "\"discipline\" LIKE 'L%'"):
-        with pytest.raises(ValueError, match="unsupported where clause"):
-            band.parse_where(wider)
-
-
-def test_hub_fallback_draws_the_sample_the_server_would_have(band, monkeypatch):
-    """/filter at HTTP 500 must not turn the freeze into a different (or wider) sample.
-
-    The server pages through the slice in file order; the fallback filters the
-    split locally and hands the same seeded window draw the same slice.
-    """
-    split = [{"discipline": ("Law", "Economics", "Medicine")[i % 3],
-              "difficulty": "hard" if i % 4 == 0 else "easy", "id": i} for i in range(2000)]
-    spec = band.Spec("medhard", "ch4", "m-a-p/SuperGPQA", split="train",
-                     where="\"discipline\"='Medicine' AND \"difficulty\"='hard'")
-    sliced = [r for r in split if r["discipline"] == "Medicine" and r["difficulty"] == "hard"]
-    _fake_server(monkeypatch, band, sliced)
-    via_server = band.fetch_rows(spec, 40, seed=3)
-
-    monkeypatch.setattr(band, "_load_hub_rows", lambda s: list(split))   # whole split, unfiltered
-    via_hub = band.fetch_rows_hub(spec, 40, seed=3)
-
-    assert len(via_hub) >= 40
-    assert via_hub == via_server
-    assert all(r["discipline"] == "Medicine" and r["difficulty"] == "hard" for r in via_hub)
-    assert band.fetch_rows.last_failed_windows == 0
-
-
-def test_hub_fallback_without_a_where_clause_is_the_plain_draw(band, monkeypatch):
-    split = [{"id": i} for i in range(300)]
-    spec = band.Spec("plain", "ch4", "some/dataset", split="train")
-    monkeypatch.setattr(band, "_load_hub_rows", lambda s: list(split))
-    via_hub = band.fetch_rows_hub(spec, 40, seed=0)
-    _fake_server(monkeypatch, band, split)
-    assert via_hub == band.fetch_rows(spec, 40, seed=0)
-
-
-def test_hub_fallback_keeps_the_row_filter_and_counts_survivors(band, monkeypatch):
-    split = [{"size": f"{i % 25}", "id": i} for i in range(1000)]
-    spec = band.Spec("rung", "ch4", "some/dataset", split="train",
-                     row_filter=band._row_in("size", ["3"]))
-    monkeypatch.setattr(band, "_load_hub_rows", lambda s: list(split))
-    got = band.fetch_rows_hub(spec, 20, seed=0)
-    assert got and all(r["size"] == "3" for r in got)
-    assert len(got) >= 20

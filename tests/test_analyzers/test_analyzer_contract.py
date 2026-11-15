@@ -41,7 +41,6 @@ from evalrx.analyzers.hallucination.vcd import VCDAnalyzer
 from evalrx.analyzers.lens.layer_contrast import LayerContrastAnalyzer
 from evalrx.analyzers.lens.logit_lens import LogitLensAnalyzer
 from evalrx.analyzers.lens.tuned_lens import TunedLensAnalyzer
-from evalrx.analyzers.patching.causal_trace import CausalTraceAnalyzer
 from evalrx.analyzers.perturbation.context_shap import ContextShapAnalyzer
 from evalrx.analyzers.perturbation.cot_faithfulness import CoTFaithfulnessAnalyzer
 from evalrx.analyzers.perturbation.format_sensitivity import FormatSensitivityAnalyzer
@@ -218,11 +217,23 @@ _SKIPPED_REASON: dict[str, str] = {
     # Requires a live PIL image; no FakeModel path.
     "relative_attention": "VLM-only: needs case.inputs.image (PIL image)",
     "vl_shap":            "VLM-only: needs case.inputs.image (PIL image)",
-    # Requires a backward pass; Capability.GRADIENTS is not available in FakeModel.
-    "gradcam":           "needs Capability.GRADIENTS (backward pass)",
-    "generic_attention": "needs Capability.GRADIENTS (Chefer relevance propagation)",
+    # Requires a backward pass through a live torch module (FakeModel has neither).
+    "gradcam":           "needs a live torch module + GRADIENTS; see test_intervention_analyzers.py",
+    "generic_attention": "needs a live torch module + GRADIENTS; see test_intervention_analyzers.py",
     # score_fn is mandatory at run time with no useful default.
     "rise": "requires a user-supplied score_fn(output)->float; no sensible default",
+    # Write-side white-box analyzers act on a live torch module (hooks / an
+    # attention function), which FakeModel does not have. Their result contract
+    # runs against a tiny real Qwen-VL in test_intervention_analyzers.py.
+    "attention_knockout": "needs a live torch module; see test_intervention_analyzers.py",
+    "causal_trace":       "needs a live torch module; see test_intervention_analyzers.py",
+    "attribution_patching": "needs a live torch module; see test_intervention_analyzers.py",
+    "path_patching":      "needs a live torch module; see test_intervention_analyzers.py",
+    "patchscope":         "needs a live torch module; see test_intervention_analyzers.py",
+    "attention_temperature": "needs a live torch module; see test_intervention_analyzers.py",
+    "embed_lens":         "needs a live torch module; see test_intervention_analyzers.py",
+    "attention_sensitivity": "needs a live torch module; see test_intervention_analyzers.py",
+    "head_attribution":   "needs a live torch module; see test_intervention_analyzers.py",
 }
 
 
@@ -296,6 +307,7 @@ _RUNNABLE: list[tuple[Any, Any, Any]] = [
     (AttentionSinkAnalyzer(),        _FULL, _STANDARD),
     # lens
     (LogitLensAnalyzer(),            _FULL, _STANDARD),
+    (TunedLensAnalyzer(steps=20),    _FULL, _STANDARD),
     # uncertainty
     (TokenEntropyAnalyzer(),         _FULL, _STANDARD),
     (LogprobEntropyAnalyzer(),       _FULL, _STANDARD),
@@ -401,11 +413,17 @@ _RUNNABLE_IDS = [a.name for a, _, _ in _RUNNABLE]
 _EXPECTED_FINDING_KEYS: dict[str, set[str]] = {
     "attention": {
         "num_layers", "num_heads", "seq_len", "summary_layer", "summary_head",
-        "top_attended_tokens", "mean_attention_entropy",
+        "top_attended_tokens", "mean_attention_entropy", "n_cases_analyzed", "per_case",
     },
     "attention_rollout": {"seq_len", "n_layers", "top_rollout_tokens"},
-    "attention_sink": {"n_layers", "sink_token", "mean_sink_mass", "per_layer_sink"},
+    "attention_sink": {
+        "n_layers", "sink_token", "mean_sink_mass", "per_layer_sink", "n_cases_analyzed", "per_case",
+    },
     "logit_lens": {"n_layers", "pos", "per_layer_top", "per_case", "final_norm_applied"},
+    "tuned_lens": {
+        "n_cases_analyzed", "n_layers", "n_train_tokens", "fit_kl_per_layer", "fit_kl_mean",
+        "final_norm_applied", "per_case",
+    },
     "linear_probe": {
         "n_layers", "n_fail", "n_pass", "per_layer_accuracy",
         "best_layer", "best_accuracy", "per_case",
@@ -462,6 +480,10 @@ def _check_attention(f: dict[str, Any]) -> None:
     assert f["seq_len"] == 5
     assert len(f["top_attended_tokens"]) == 5
     assert f["mean_attention_entropy"] >= 0
+    assert f["n_cases_analyzed"] == len(f["per_case"]) == 1
+    row = f["per_case"][0]
+    assert _between(row["last_query_entropy"], 0, 1)
+    assert "media_mass_mid" not in row  # text-only trace: no media column, not a 0.0
 
 
 def _check_attention_rollout(f: dict[str, Any]) -> None:
@@ -474,6 +496,10 @@ def _check_attention_sink(f: dict[str, Any]) -> None:
     assert f["n_layers"] == 3
     assert len(f["per_layer_sink"]) == 3
     assert _between(f["mean_sink_mass"], 0, 1)
+    assert f["n_cases_analyzed"] == len(f["per_case"]) == 1
+    row = f["per_case"][0]
+    assert _between(row["sink_mass_mean"], 0, 1)
+    assert _between(row["sink_peak_layer_frac"], 0, 1)
 
 
 def _check_logit_lens(f: dict[str, Any]) -> None:
@@ -484,6 +510,16 @@ def _check_logit_lens(f: dict[str, Any]) -> None:
     assert 0 <= pc["decision_frac"] <= 1
     assert _between(pc["final_top1_prob"], 0, 1)
     assert pc["late_drop"] >= 0
+
+
+def _check_tuned_lens(f: dict[str, Any]) -> None:
+    assert f["n_layers"] == 3  # FakeModel: 4 hidden-state entries = 3 premature + final
+    assert len(f["fit_kl_per_layer"]) == 3 and all(k >= 0 for k in f["fit_kl_per_layer"])
+    assert f["n_train_tokens"] == 5  # one short case: every position sampled
+    pc = f["per_case"][0]
+    assert 0 <= pc["tl_decision_frac"] <= 1
+    assert _between(pc["tl_final_top1_prob"], 0, 1) and pc["tl_late_drop"] >= 0
+    assert pc["tl_kl_mid"] >= 0
 
 
 def _check_linear_probe(f: dict[str, Any]) -> None:
@@ -781,6 +817,7 @@ _FINDING_INVARIANTS: dict[str, Callable[[dict[str, Any]], None]] = {
     "attention_rollout": _check_attention_rollout,
     "attention_sink": _check_attention_sink,
     "logit_lens": _check_logit_lens,
+    "tuned_lens": _check_tuned_lens,
     "linear_probe": _check_linear_probe,
     "token_entropy": _check_token_entropy,
     "logprob_entropy": _check_logprob_entropy,
@@ -821,8 +858,6 @@ _FINDING_INVARIANTS: dict[str, Callable[[dict[str, Any]], None]] = {
 # These analyzers are fully registered and their class contracts are sound, but
 # _run raises NotImplementedError. When you implement one, move it to _RUNNABLE.
 _STUBS: list[tuple[Any, Any, Any]] = [
-    (TunedLensAnalyzer(),   _FULL, _STANDARD),
-    (CausalTraceAnalyzer(), _FULL, _STANDARD),
     # OPERA and VCD are image-only stubs; _FULL satisfies their capability check
     # (ATTENTION and LOGITS respectively), so _run is reached and raises.
     (OPERAAnalyzer(), _FULL, _STANDARD),

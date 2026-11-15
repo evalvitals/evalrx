@@ -54,6 +54,7 @@ class AgyModel:
         binary_path: str = "",
         timeout_sec: int = 120,
         model: str = "",
+        effort: str = "",
     ) -> None:
         from evalrx.core.capability import Capability
 
@@ -66,6 +67,7 @@ class AgyModel:
         self._binary = binary
         self._timeout_sec = timeout_sec
         self._model = model
+        self._effort = effort
         self.capabilities = frozenset({Capability.GENERATE})
         self.modalities = frozenset({"text"})
 
@@ -138,6 +140,8 @@ class AgyModel:
                 cmd += ["--add-dir", workspace_dir]
             if self._model:
                 cmd += ["--model", self._model]
+            if self._effort:
+                cmd += ["--effort", self._effort]
 
             try:
                 proc = subprocess.run(
@@ -156,7 +160,10 @@ class AgyModel:
 
             output = proc.stdout.strip()
             if proc.returncode != 0 and not output:
-                reason = scan_agy_log(log_path) or (proc.stderr or "").strip()[:240]
+                # Startup errors (e.g. an unsupported model) are on stderr;
+                # background quota logs can misleadingly say "not logged in"
+                # even when API-key authentication is configured correctly.
+                reason = (proc.stderr or "").strip()[:600] or scan_agy_log(log_path)
                 raise RuntimeError(f"AgyModel: agy exited {proc.returncode}: {reason}")
 
             output = re.sub(r"<think>.*?</think>", "", output, flags=re.DOTALL).strip()

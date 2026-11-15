@@ -271,10 +271,10 @@ def check_network(skip: bool) -> None:
 
 def check_catalog(dataset: str) -> None:
     try:
-        import datasets as CAT
+        from evalrx.benchmark.tasks.llm import catalog as CAT
     except Exception as exc:
         bad(f"cannot import the dataset catalog ({type(exc).__name__}: {exc})",
-            "run from inside examples/dataset_selection/llm_benchmark")
+            "install evalrx (pip install -e .) in this interpreter")
         return
     try:
         entry = CAT.get(dataset)
@@ -283,11 +283,8 @@ def check_catalog(dataset: str) -> None:
            f"catalog anchor: qwen3.5-9b scored {entry.accuracy_9b:.3f})")
         ok(f"  -> {acq['dataset']} config={acq['config']} split={acq['split']}"
            + (f" where={acq['where']}" if acq["where"] else ""))
-    except SystemExit as exc:
-        bad(str(exc), f"pick one of: {', '.join(sorted(CAT.BY_NAME))}")
-    except StopIteration:
-        bad(f"{dataset!r} is in the catalog but has no band_locate spec",
-            "the two have drifted; run `python datasets.py`")
+    except KeyError as exc:
+        bad(str(exc.args[0]), f"pick one of: {', '.join(sorted(CAT.BY_NAME))}")
 
 
 def main() -> int:

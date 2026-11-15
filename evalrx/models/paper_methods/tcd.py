@@ -18,7 +18,7 @@ VCD's per-step-noisy-forward pattern:
 This module holds pure, framework-light math only (all Eq. references are to
 the paper's Section 3 / Appendix A). The orchestration — encoding, KV-cache
 management, the two-branch decode loop — lives in
-``HFLocalModel.generate_tcd`` (``models/backends/hf_local.py``), matching
+``HFLocalModel.generate_tcd`` (``models/backends/hf/model.py``), matching
 this package's split of "paper math here, model plumbing in the backend".
 
 Hyperparameter defaults (:class:`TCDHyperparams`) are Table 6 verbatim, read

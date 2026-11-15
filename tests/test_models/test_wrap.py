@@ -19,8 +19,8 @@ from evalrx.core.capability import Capability
 from evalrx.core.case import Inputs
 from evalrx.core.spec import ModelSpec, VisionSpec
 from evalrx.models.backends.base import RuntimeConfig
-from evalrx.models.backends.hf_local import HFLocalModel
-from evalrx.models.inference import infer_spec
+from evalrx.models.backends.hf.inference import infer_spec
+from evalrx.models.backends.hf.model import HFLocalModel
 
 
 # ----------------------------------------------------------------------
@@ -138,7 +138,7 @@ def test_wrap_want_negotiation_rejects_missing_cap():
     from evalrx.core.capability import CapabilityError
 
     with pytest.raises(CapabilityError):
-        evalrx.wrap(FakeCausalLM(), FakeTokenizer(), want={Capability.GRADIENTS})
+        evalrx.wrap(FakeCausalLM(), FakeTokenizer(), want={Capability.EMBEDDINGS})
 
 
 # ----------------------------------------------------------------------

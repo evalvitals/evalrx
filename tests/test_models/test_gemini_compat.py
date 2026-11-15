@@ -15,14 +15,15 @@ import io
 import threading
 import wave
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any, Optional
 
 import pytest
 
 from evalrx.core.capability import Capability
 from evalrx.core.case import Inputs
-from evalrx.models.backends import gemini_compat as gc
-from evalrx.models.backends.gemini_compat import (
+from evalrx.models.backends.api import gemini as gc
+from evalrx.models.backends.api.gemini import (
     ThinkingPolicy,
     answer_text,
     gemini_runtime,
@@ -210,6 +211,7 @@ def test_thinking_floor_per_model_family():
     assert thinking_config("gemini-3.6-flash") == {"thinking_level": "minimal"}
     assert thinking_config("gemini-3.5-flash-lite") == {"thinking_level": "minimal"}
     assert thinking_config("gemini-3.1-flash-lite") == {"thinking_level": "minimal"}
+    assert thinking_config("gemini-3.1-pro-preview") == {"thinking_level": "low"}
     assert thinking_config("gemini-2.5-flash") == {"thinking_budget": 0}
     assert thinking_config("gemini-2.5-flash-lite") == {"thinking_budget": 0}
     assert thinking_config("gemini-2.5-pro") == {"thinking_budget": 128}
@@ -223,6 +225,7 @@ def test_explicit_level_is_honoured_but_never_below_the_floor():
     assert thinking_config("gemini-3.6-flash", ThinkingPolicy(level="high")) == {"thinking_level": "high"}
     # 3.7-flash has no minimal: the floor is sent instead
     assert thinking_config("gemini-3.7-flash", ThinkingPolicy(level="minimal")) == {"thinking_level": "low"}
+    assert thinking_config("gemini-3.1-pro-preview", ThinkingPolicy(level="minimal")) == {"thinking_level": "low"}
     # a level asked of a budget model maps to a budget, floored
     assert thinking_config("gemini-2.5-flash", ThinkingPolicy(level="medium")) == {"thinking_budget": 8192}
     assert thinking_config("gemini-2.5-pro", ThinkingPolicy(level="minimal")) == {"thinking_budget": 128}
@@ -273,7 +276,7 @@ def test_thinking_that_spends_output_tokens_gets_headroom_on_the_cap():
     16-token cap with level=low truncates; 3.7-flash returns an empty answer).
     A config that lets the model think therefore raises the request cap; one
     that turns thinking off (minimal / budget 0) must NOT touch it."""
-    from evalrx.models.backends.gemini_compat import (
+    from evalrx.models.backends.api.gemini import (
         THINKING_OUTPUT_HEADROOM,
         thinking_spends_output_tokens,
     )
@@ -415,6 +418,68 @@ def test_logprobs_are_not_claimed_unless_wired():
     assert rt.logprobs_fn is not None
 
 
+def test_auto_logprobs_enables_only_after_real_probability_data():
+    result = SimpleNamespace(chosen_candidates=[SimpleNamespace(token="OK", log_probability=-0.2)],
+                             top_candidates=[])
+    client = FakeClient([_reply(Part(text="OK"), logprobs=result),
+                         _reply(Part(text="OK"), logprobs=result)])
+    rt = gemini_runtime(client=client, with_logprobs="auto", logprobs_model="gemini-3.6-flash")
+    assert rt.logprobs_fn is not None
+    assert rt.generate_fn.state['logprobs_probe']['status'] == 'available'
+    assert rt.generate_fn.state['logits']['status'] == 'unavailable'
+    from evalrx.models import compose
+    model = compose('gemini-3.6-flash', 'api', rt)
+    assert Capability.LOGPROBS in model.capabilities
+    assert Capability.LOGITS not in model.capabilities
+    from evalrx.analyzers.uncertainty.logprob_entropy import LogprobEntropyAnalyzer
+    result = LogprobEntropyAnalyzer().run(model, 'Answer OK')
+    assert result.findings['mean_logprob'] == pytest.approx(-0.2)
+    assert result.findings['perplexity'] == pytest.approx(1.2214)
+
+
+@pytest.mark.parametrize('reply', [
+    APIError(400, 'Logprobs is not enabled for this model'),
+    APIError(400, 'Logprobs is not supported for this model'),
+    _reply(Part(text='OK')),
+    _reply(Part(text='OK'), logprobs=SimpleNamespace(
+        chosen_candidates=[SimpleNamespace(token='OK', log_probability=None)])),
+])
+def test_auto_logprobs_does_not_claim_missing_or_unsupported_data(reply):
+    rt = gemini_runtime(client=FakeClient([reply]), with_logprobs='auto',
+                        logprobs_model='gemini-3.6-flash')
+    assert rt.logprobs_fn is None
+    assert rt.generate_fn.state['logprobs_probe']['status'] in {'unsupported', 'not_returned'}
+
+
+@pytest.mark.parametrize('error', [APIError(403, 'Permission denied'),
+                                 APIError(429, 'quota'),
+                                 APIError(400, 'Invalid sampling config'), TimeoutError('timeout')])
+def test_auto_logprobs_does_not_hide_operational_failures(error):
+    with pytest.raises(type(error)):
+        gemini_runtime(client=FakeClient([error]), retries=0, with_logprobs='auto',
+                       logprobs_model='gemini-3.6-flash')
+
+
+def test_required_logprobs_fails_when_response_has_no_probabilities():
+    with pytest.raises(RuntimeError, match='usable logprobs'):
+        gemini_runtime(client=FakeClient([_reply(Part(text='OK'))]), with_logprobs=True,
+                       logprobs_model='gemini-3.6-flash')
+
+
+def test_logprobs_missing_after_opt_in_is_not_an_empty_probability_distribution():
+    rt = gemini_runtime(client=FakeClient([_reply(Part(text='OK'))]), with_logprobs=True)
+    with pytest.raises(RuntimeError, match='no token logprobs'):
+        rt.logprobs_fn('q', model='gemini-3.6-flash')
+
+
+@pytest.mark.parametrize('value', [None, float('nan'), float('inf'), 0.1])
+def test_malformed_logprobs_are_never_replaced_with_probability_one(value):
+    result = SimpleNamespace(chosen_candidates=[SimpleNamespace(token='OK', log_probability=value)],
+                             top_candidates=[])
+    with pytest.raises(ValueError, match='invalid token log probability'):
+        parse_logprobs_result(result)
+
+
 def test_logprobs_fn_asks_for_response_logprobs_and_parses_the_result():
     @dataclass
     class Cand:
@@ -463,7 +528,7 @@ def test_chat_fn_uses_native_function_calling_and_reports_finish_reason():
 
 
 def test_audio_blocks_in_chat_history_become_inline_audio_parts():
-    from evalrx.models.blackbox.gemini import _to_genai_contents
+    from evalrx.models.backends.api.gemini_model import _to_genai_contents
 
     _system, contents = _to_genai_contents(
         [{"role": "user", "content": [{"type": "audio", "audio": b"RIFFfake"}, {"type": "text", "text": "?"}]}],
@@ -480,7 +545,7 @@ def test_gemini_specs_are_api_only_omni_and_named_by_model_id():
     from evalrx.specs import get_spec
 
     for key in ("gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite",
-                "gemini-3.1-flash-lite", "gemini-2.5-flash-lite"):
+                "gemini-3.1-flash-lite", "gemini-3.1-pro-preview", "gemini-2.5-flash-lite"):
         spec = get_spec(key)
         assert spec.api_only and spec.hf_repo == "" and spec.family == "gemini"
         assert spec.modalities == frozenset({"text", "image", "audio", "video"})
@@ -488,7 +553,7 @@ def test_gemini_specs_are_api_only_omni_and_named_by_model_id():
 
 
 def test_wav_encoding_helper_round_trips_a_waveform():
-    from evalrx.models.blackbox.gemini import _audio_bytes
+    from evalrx.models.backends.api.gemini_model import _audio_bytes
 
     data, mime = _audio_bytes(([0.0] * 32, 16000))
     assert mime == "audio/wav"
@@ -503,7 +568,7 @@ def test_wav_encoding_helper_round_trips_a_waveform():
 def test_afc_chatter_is_filtered_off_the_sdk_logger_but_real_warnings_pass():
     import logging
 
-    from evalrx.models.backends import gemini_compat as gc
+    from evalrx.models.backends.api import gemini as gc
 
     sdk_logger = logging.getLogger("google_genai.models")
     records = []

@@ -17,7 +17,7 @@ from evalrx.analyzers.attention.relative_attn import attention_heatmap
 from evalrx.core.case import FailureCase, Inputs
 
 if TYPE_CHECKING:
-    from evalrx.models.backends.hf_local import HFLocalModel
+    from evalrx.models.backends.hf.model import HFLocalModel
 
 
 GENERAL_PROMPT = "Describe the image generally. Do not focus on any particular question or detail."

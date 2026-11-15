@@ -26,7 +26,7 @@ from torch import nn  # noqa: E402
 
 from evalrx.core.spec import ModelSpec  # noqa: E402
 from evalrx.models.backends.base import RuntimeConfig  # noqa: E402
-from evalrx.models.backends.hf_local import HFLocalModel  # noqa: E402
+from evalrx.models.backends.hf.model import HFLocalModel  # noqa: E402
 
 
 class _Tok:

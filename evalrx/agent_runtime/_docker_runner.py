@@ -35,7 +35,7 @@ def _build_model(model_env: str):
             f"Environment variable '{model_env}' is not set inside the container."
         )
     if "GEMINI" in model_env.upper():
-        from evalrx.models.blackbox.gemini import GeminiModel
+        from evalrx.models.backends.api.gemini_model import GeminiModel
 
         return GeminiModel(api_key=key)
     raise ValueError(

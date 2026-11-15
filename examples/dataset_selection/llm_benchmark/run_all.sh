@@ -238,7 +238,7 @@ fi
 
 stamp "done (rc=$rc). Results in $LOG_DIR"
 echo
-echo "  dashboard:"
+echo "  report:"
 echo "    cd $PKG_ROOT"
-echo "    $EVAL_PY -m evalrx.cli dashboard examples/dataset_selection/llm_benchmark/outputs/$MODEL/$DATASET"
+echo "    $EVAL_PY -m evalrx.cli serve examples/dataset_selection/llm_benchmark/outputs/$MODEL/$DATASET"
 exit $rc

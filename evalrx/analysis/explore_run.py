@@ -3,7 +3,7 @@
 One call = one pipeline = one artifact directory. This is the non-interactive
 replacement for the retired chat REPL: the explorer writes EDA code, the host
 adjudicates any host-checkable candidate statistics, charts are rendered
-deterministically, and everything is persisted (optionally a dashboard opens).
+deterministically, and everything is persisted, ending in a static ``report.html``.
 
 Flow::
 
@@ -12,7 +12,7 @@ Flow::
       -> HypothesisAgent.propose        # M3: falsifiable hypotheses from M2's takeaways
       -> render_chart_specs             # spec + CSV -> PNG, host-side
       -> write_report_artifacts         # report.json + figures/ + tables/ + code
-      -> launch_dashboard (optional)
+      -> build_html_report              # report.html (opened when asked)
 """
 
 from __future__ import annotations
@@ -60,8 +60,7 @@ def run_explore(
     include_tool_calls: bool = False,
     timeout_sec: int = 120,
     max_attempts: int = 2,
-    dashboard: bool = False,
-    dashboard_port: int | None = None,
+    open_report: bool = False,
     skills: "list[str] | tuple[str, ...]" = (),
     allow_skills: bool = False,
     use_bundled_skills: bool = True,
@@ -76,7 +75,7 @@ def run_explore(
     """Run one exploratory analysis and persist its artifacts.
 
     Returns a process exit code: ``0`` if the exploration succeeded, else ``1``.
-    When *dashboard* is set, the return value is the dashboard process's code.
+    *open_report* opens the written ``report.html`` in a browser.
 
     Skills style the agent-authored figures (e.g. the bundled eval-chart-style
     and nature-figure skills). By default (*use_bundled_skills*) the package's
@@ -96,8 +95,8 @@ def run_explore(
     (deterministic, outcome-stratified; the explorer only sees the explore
     share). With *holdout_confirm* the held-out rows then re-test the frozen
     recipes + hypotheses (``analysis.holdout``) and ``confirm_report.json``
-    lands next to the exploratory report — the dashboard's Held-out Verdicts
-    tab fills in. Without it the rows are simply reserved on disk.
+    lands next to the exploratory report. Without it the rows are simply
+    reserved on disk.
     """
     out_dir = Path(out).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -228,14 +227,11 @@ def run_explore(
     # The HTML report is the canonical visualization artifact.  Generate it
     # even when the caller does not immediately open a browser so every
     # completed exploratory run is portable and reviewable.
-    from evalrx.reporting.html_report import build_html_report
+    from evalrx.reporting.html_report import build_html_report, open_in_browser
 
-    build_html_report(out_dir, out_path=out_dir / "report.html")
-
-    if dashboard:
-        from evalrx.analysis.dashboard import launch_dashboard
-
-        return launch_dashboard(out_dir, port=dashboard_port)
+    written = build_html_report(out_dir, out_path=out_dir / "report.html")
+    if open_report:
+        open_in_browser(written)
     return 0 if report.ok else 1
 
 
@@ -324,10 +320,9 @@ def _copy_artifact_dirs(report: Any, out_dir: Path) -> None:
             if dest.exists():
                 shutil.rmtree(dest)
             shutil.copytree(src, dest)
-    # Persist the raw loaded records alongside the report so the dashboard can
-    # offer a "browse raw data" view — otherwise they only live in the sandbox
-    # workdir, which isn't guaranteed to still exist by the time someone opens
-    # the dashboard.
+    # Persist the raw loaded records alongside the report — otherwise they only
+    # live in the sandbox workdir, which isn't guaranteed to still exist by the
+    # time someone reads the report.
     records_src = workdir / RECORDS_FILENAME
     if records_src.exists():
         shutil.copy2(records_src, out_dir / RECORDS_FILENAME)

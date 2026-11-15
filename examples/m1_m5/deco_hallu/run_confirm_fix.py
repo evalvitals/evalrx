@@ -2,21 +2,22 @@
 
 The deferred half of run_analysis.py. It REUSES that phase's artifacts —
 outputs/analysis/analysis_state.pkl (the proposed hypotheses + the exact M2 stats
-report the dashboard showed) — so the hypotheses confirmed here are the SAME ones
-the analysis dashboard displayed, not a fresh re-proposal.
+report the analysis report showed) — so the hypotheses confirmed here are the SAME
+ones that report displayed, not a fresh re-proposal.
 
   reload {hypotheses, stats_report}  →  M4 confirm (HypothesisTester)  →  M5 + tiered Fix
 
 What it produces:
   outputs/logs_confirm_fix/run.json + M*/log.json   M4 verdicts + M5 surgery + the fix attempts
 
-After this, point the dashboard at outputs/ again: it now merges logs_analysis/
-(stats + charts + proposed hypotheses) with logs_confirm_fix/ (the M4/M5/Fix
-verdicts), so each proposed hypothesis gains its downstream verdict.
+After this, open the report on outputs/logs_confirm_fix for the M4/M5/Fix
+verdicts. The two phases are separate runs; the report's runs panel lists both
+(they sit side by side under outputs/), so you can switch between the analysis
+and its verdicts.
 
     python run_analysis.py     --backend claude ...     # PHASE 1 (no GPU) — writes the artifacts
     python run_confirm_fix.py  --model qwen3-vl-2b-instruct --device cuda   # this step
-    python -m evalrx.cli dashboard outputs
+    python -m evalrx.cli serve outputs/logs_confirm_fix
 
 The VLM IS loaded here: the fix module (and M5 surgery) call it to validate
 candidate repairs against the unmodified baseline (paired McNemar / e-BH guard).
@@ -48,8 +49,8 @@ def main() -> None:
                     help="cap fix-validation cases (overrides config; 0 = full batch)")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--dtype", default="bfloat16")
-    ap.add_argument("--dashboard", action="store_true",
-                    help="launch the Streamlit dashboard on outputs/ when done")
+    ap.add_argument("--serve", action="store_true",
+                    help="open the confirm + fix report (evalrx serve) when done")
     args = ap.parse_args()
     OUT.mkdir(exist_ok=True)
 
@@ -131,13 +132,13 @@ def main() -> None:
     run_logger.close()
 
     print(f"\nconfirm + fix logs -> {run_logger.run_dir}")
-    print("\nView the full dashboard (analysis + verdicts now merged):")
-    print("  python -m evalrx.cli dashboard outputs")
+    print("\nView the verdicts (the runs panel switches to the analysis run):")
+    print(f"  python -m evalrx.cli serve {run_logger.run_dir}")
 
-    if args.dashboard:
-        from evalrx.analysis.dashboard import launch_dashboard
+    if args.serve:
+        from evalrx.reporting.server import serve_dynamic_report
 
-        raise SystemExit(launch_dashboard(OUT))
+        raise SystemExit(serve_dynamic_report(run_logger.run_dir))
 
 
 if __name__ == "__main__":

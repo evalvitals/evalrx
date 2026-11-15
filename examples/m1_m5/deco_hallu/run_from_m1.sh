@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 #
-# deco_hallu — from a FROZEN M1 → the dashboard.
+# deco_hallu — from a FROZEN M1 → the report.
 #
 # Assumes M1 already ran and outputs/m1_state.pkl exists (produced by run_m1.py
 # or run_all.sh). Skips the GPU-heavy M1 forward passes and runs only:
 #   2) run_fused.py      Step 1: explore + held-out confirm (claude)
 #   3) run_m2-5.py       Step 2: M2→M3→M4→Fix             (GPU + claude)
-#   4) dashboard         the connected Analysis report
+#   4) report         the connected Analysis report
 #
 # Use this to iterate on the analysis/repair stages against a fixed M1 result.
 #
 # Overridable via env vars:
 #   MODEL=qwen3-vl-2b-instruct  DEVICE=cuda  BACKEND=claude
-#   PORT=8501  DASHBOARD=1  (DASHBOARD=0 just prints the dashboard command)
+#   PORT=8501  REPORT=1  (REPORT=0 just prints the report command)
 #   PY=/path/to/python  (defaults to the repo's .venv, then `python`)
 #   MODEL should match the model M1 was frozen with (run_m2-5 warns on mismatch).
 #
@@ -27,7 +27,7 @@ MODEL="${MODEL:-qwen3-vl-2b-instruct}"
 DEVICE="${DEVICE:-cuda}"
 BACKEND="${BACKEND:-claude}"
 PORT="${PORT:-8501}"
-DASHBOARD="${DASHBOARD:-1}"
+REPORT="${REPORT:-1}"
 
 if [[ -z "${PY:-}" ]]; then
   if [[ -x "$REPO_ROOT/.venv/bin/python" ]]; then PY="$REPO_ROOT/.venv/bin/python"; else PY="python"; fi
@@ -60,11 +60,11 @@ step "2/3  run_m2-5.py  — M2→M3→M4→Fix [GPU + claude]"
   --recipes        outputs/fused/confirmed_recipes.json \
   --explore-report outputs/fused/fused_report.json
 
-step "3/3  dashboard"
-if [[ "$DASHBOARD" == "1" ]]; then
+step "3/3  report"
+if [[ "$REPORT" == "1" ]]; then
   echo "serving on http://localhost:$PORT  (Ctrl-C to stop)"
-  exec "$PY" -m evalrx.cli dashboard outputs --port "$PORT"
+  exec "$PY" -m evalrx.cli serve outputs/logs_m2_5 --port "$PORT"
 else
-  echo "skipped (DASHBOARD=0). Launch it with:"
-  echo "  $PY -m evalrx.cli dashboard outputs --port $PORT"
+  echo "skipped (REPORT=0). Launch it with:"
+  echo "  $PY -m evalrx.cli serve outputs/logs_m2_5 --port $PORT"
 fi

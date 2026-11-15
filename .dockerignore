@@ -1,4 +1,5 @@
 .venv
+.venv-jax
 .git
 .pytest_cache
 .ruff_cache

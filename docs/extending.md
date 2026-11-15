@@ -165,6 +165,29 @@ Guidelines:
 - Fail early when the backend cannot support a requested spec.
 - Let capabilities describe runtime behavior, not model identity.
 
+### Bring a JAX model
+
+`jax_local` is the JAX twin of `hf_local`. It drives a small adapter contract
+(`evalrx.models.backends.jax.protocol.JaxModelAdapter`: encode, forward with capture
+flags, generate, unembed, final-norm parameters) and converts the captured
+arrays to CPU torch tensors at the `Trace` boundary, so the analyzers that run
+on `hf_local` models run unchanged. `Inputs.image` / `audio` / `video` go
+through the adapter's `encode`; the masks it returns become the same
+`image_token_mask`, `audio_token_mask`, `image_spatial_shape` and
+`TokenTypeMap` fields `hf_local` fills (the Gemma adapter serves text, image
+and audio; `engine_kwargs={"text_only": True}` skips the towers). Two on-ramps:
+
+```python
+# registry route: a spec with a JaxSpec (Gemma 4 E2B / E4B ship one)
+model = compose("gemma-4-e2b-it", "jax_local", RuntimeConfig(apply_chat_template=True))
+
+# bring-your-own: any object implementing JaxModelAdapter (Flax, MaxText, Penzai, ...)
+wrapped = evalrx.wrap_jax(MyAdapter(model, params, tokenizer), key="my-jax-model")
+```
+
+`evalrx/models/backends/jax/adapters/gemma.py` is the reference adapter and
+`docs/design_jax_backend.md` the design (phases, capture mechanics, the traps).
+
 ## Add a Dataset Loader
 
 Dataset loaders should produce `FailureCase` or `CaseBatch`. This keeps raw
@@ -191,12 +214,14 @@ def load_cases(path) -> CaseBatch:
 The simplest swap is an API model:
 
 ```python
-from evalrx.eval_agent import DiagnosisAgent, AutoDiagnoseLoop
+from evalrx.eval_agent import DiagnosisAgent, VLDiagnoseLoop
 from evalrx.models import compose
 from evalrx.models.backends.base import RuntimeConfig
 
 judge = compose("qwen3-8b", "api", RuntimeConfig(generate_fn=my_generate))
-loop  = AutoDiagnoseLoop(model=my_model, diagnosis_agent=DiagnosisAgent(judge=judge))
+# protocol: an ExperimentProtocol saying what the run investigates (see the Quickstart)
+loop  = VLDiagnoseLoop(model=my_model, protocol=protocol,
+                       diagnosis_agent=DiagnosisAgent(judge=judge))
 ```
 
 The judge receives a JSON dump of all analyzer findings and must reply with lines
@@ -244,12 +269,15 @@ def domain_verify(hypothesis, model, results, data):
         evidence={"ablation_result": improved},
     )
 
-from evalrx.eval_agent import AutoDiagnoseLoop, DiagnosisAgent
-loop = AutoDiagnoseLoop(
+from evalrx.eval_agent import DiagnosisAgent, VLDiagnoseLoop
+loop = VLDiagnoseLoop(
     model=my_model,
+    protocol=protocol,
     diagnosis_agent=DiagnosisAgent(judge=judge),
     surgery_agent=SurgeryAgent(verify_fn=domain_verify),
 )
+report = loop.run(cases)
+fix = loop.run_m5(report, cases)   # the SurgeryAgent runs here, after the loop
 ```
 
 ## Extend StrategyProbe for a new model kind
@@ -258,14 +286,14 @@ If you add a new capability type (e.g. `Capability.AUDIO`), you can teach
 `StrategyProbe` about it by passing a `priority_override`:
 
 ```python
-from evalrx.eval_agent import StrategyProbe, ModelKind
+from evalrx.eval_agent import ModelKind, ProbeAgent, StrategyProbe, VLDiagnoseLoop
 
 probe = StrategyProbe(priority_override={
     ModelKind.LLM:   ["attention", "logit_lens", "token_entropy"],
     ModelKind.VLM:   ["pope", "chair", "attention"],
     ModelKind.AGENT: ["loop_detect", "ignored_obs"],
 })
-loop = AutoDiagnoseLoop(model=my_model, probe=probe, ...)
+loop = VLDiagnoseLoop(model=my_model, protocol=protocol, probe_agent=ProbeAgent(probe=probe))
 ```
 
 An override is looked up by `ModelKind` and replaces composition entirely — it
@@ -294,11 +322,12 @@ per stage. See [Architecture](architecture.md)'s "RunContext" section for the
 full layout.
 
 ```python
-from evalrx.eval_agent import AutoDiagnoseLoop, DiagnosisAgent, RunContext
+from evalrx.eval_agent import DiagnosisAgent, RunContext, VLDiagnoseLoop
 
 with RunContext("runs/exp_01") as ctx:
-    loop = AutoDiagnoseLoop(
+    loop = VLDiagnoseLoop(
         model=model,
+        protocol=protocol,
         diagnosis_agent=DiagnosisAgent(),
         run_logger=ctx.logger,
     )
@@ -311,10 +340,11 @@ If you only want the event log and artifact sink — without `RunContext`'s
 figures/contract/per-trial layout — construct `RunLoggerV2` standalone:
 
 ```python
-from evalrx.eval_agent import AutoDiagnoseLoop, DiagnosisAgent, RunLoggerV2
+from evalrx.eval_agent import DiagnosisAgent, RunLoggerV2, VLDiagnoseLoop
 
-loop = AutoDiagnoseLoop(
+loop = VLDiagnoseLoop(
     model=model,
+    protocol=protocol,
     diagnosis_agent=DiagnosisAgent(),
     run_logger=RunLoggerV2("runs/exp_01"),   # explicit path
     # run_logger=RunLoggerV2()              # auto: runs/<YYYYMMDD_HHMMSS>/
@@ -365,7 +395,7 @@ closed even if the loop raises:
 
 ```python
 with RunLoggerV2("runs/exp_01") as logger:
-    loop = AutoDiagnoseLoop(model=model, run_logger=logger)
+    loop = VLDiagnoseLoop(model=model, protocol=protocol, run_logger=logger)
     loop.run(cases)
 ```
 

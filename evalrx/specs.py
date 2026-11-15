@@ -2,7 +2,7 @@
 
 A plain dict (no import-side-effect decorator).  Module paths are HINTS only;
 the hf_local backend discovers the real decoder-layer ModuleList at load time
-(see :mod:`evalrx.models._discover`).  Token ids / merge sizes are read from
+(see :mod:`evalrx.models.backends.hf.discover`).  Token ids / merge sizes are read from
 the live config via the attribute NAMES in ``VisionSpec`` — never baked as values
 (GLM-4.5V 151363 vs GLM-4.1V 151343 is exactly why).
 
@@ -15,7 +15,7 @@ This module is torch-free.
 
 from __future__ import annotations
 
-from evalrx.core.spec import AttnSemantics, AudioSpec, ModelSpec, ModulePaths, VisionSpec
+from evalrx.core.spec import AttnSemantics, AudioSpec, JaxSpec, ModelSpec, ModulePaths, VisionSpec
 
 REGISTRY: dict[str, ModelSpec] = {}
 
@@ -141,11 +141,12 @@ for _key, _repo in (
 # Qwen3.5 WITH its vision tower -- the same checkpoints as the text specs above,
 # loaded as ``Qwen3_5ForConditionalGeneration`` (``AutoModelForImageTextToText``)
 # for the image benchmarks (examples/m1_m5/*_qwen3_5_2b). Layout verified on
-# transformers 5.15.0: ``model.language_model.layers`` (24 layers on the 2B,
+# transformers 5.15.0: ``model.language_model.layers`` (24 layers on the 0.8B and 2B,
 # ``layer_types`` = [linear x3, full] x 6), ``model.visual.blocks``,
 # ``config.image_token_id`` top-level, ``vision_config.spatial_merge_size`` = 2,
 # processor emits ``image_grid_thw`` -- i.e. the Qwen3-VL shape.
 for _key, _repo, _n_layers in (
+    ("qwen3.5-0.8b-vl", "Qwen/Qwen3.5-0.8B", 24),
     ("qwen3.5-2b-vl", "Qwen/Qwen3.5-2B", 24),
     ("qwen3.5-4b-vl", "Qwen/Qwen3.5-4B", 32),
     ("qwen3.5-9b-vl", "Qwen/Qwen3.5-9B", 32),
@@ -519,16 +520,30 @@ _GEMMA4_CAVEATS = (
     "the chat-template path with no image/audio block; the M1 modality gate "
     "matches on the MODEL, so pin a text-safe analyzer set for text tasks",
 )
+# JAX twins (jax_local backend, docs/design_jax_backend.md): Google DeepMind's
+# ``gemma`` library (Flax Linen) ships Gemma4_E2B / Gemma4_E4B classes and public
+# Orbax checkpoints under gs://gemma-data (verified 2026-09-26, gemma 4.0.1).
+# The 12B "Unified" variant has no class there, so it stays torch-only.
+_GEMMA4_JAX = {
+    "gemma-4-e2b-it": ("Gemma4_E2B", "gs://gemma-data/checkpoints/gemma4-e2b-it"),
+    "gemma-4-e4b-it": ("Gemma4_E4B", "gs://gemma-data/checkpoints/gemma4-e4b-it"),
+}
+_GEMMA4_JAX_TOKENIZER = "gs://gemma-data/tokenizers/tokenizer_gemma4.model"
 for _key, _repo, _model_type, _unified in (
     ("gemma-4-e2b-it", "google/gemma-4-E2B-it", "gemma4", False),
     ("gemma-4-e4b-it", "google/gemma-4-E4B-it", "gemma4", False),
     ("gemma-4-12b-it", "google/gemma-4-12B-it", "gemma4_unified", True),
 ):
+    _jax = None
+    if _key in _GEMMA4_JAX:
+        _cls, _ckpt = _GEMMA4_JAX[_key]
+        _jax = JaxSpec(framework="gemma", checkpoint=_ckpt, tokenizer=_GEMMA4_JAX_TOKENIZER,
+                       adapter="evalrx.models.backends.jax.adapters.gemma:make_adapter", model_class=_cls)
     _add(ModelSpec(
         key=_key, family="gemma4", model_type=_model_type, hf_repo=_repo,
         auto_class="AutoModelForImageTextToText", processor_class="AutoProcessor",
         min_transformers="5.15.0", is_reasoning=True,
-        chat_template_kwargs={"enable_thinking": False},
+        chat_template_kwargs={"enable_thinking": False}, jax=_jax,
         module_paths=ModulePaths(
             decoder_layers="model.language_model.layers",
             vision_tower=None if _unified else "model.vision_tower",
@@ -698,8 +713,8 @@ __all__ = ["REGISTRY", "get_spec", "list_specs"]
 # empty, ``APIModel`` sends ``spec.hf_repo or spec.key``). Every model below
 # lists text, image, video, audio and PDF as inputs on its model card, so one
 # spec serves the llm / vlm / alm cells. Thinking: the 3.x models expose
-# ``thinking_level`` (3.7-flash bottoms out at ``low``, the rest at
-# ``minimal``); the 2.5 models expose ``thinking_budget`` (0 = off on flash /
+# ``thinking_level`` (3.7-flash and 3.1-pro-preview bottom out at ``low``,
+# the rest at ``minimal``); the 2.5 models expose ``thinking_budget`` (0 = off on flash /
 # flash-lite; 2.5-pro cannot switch it off, floor 128) — the runtime sends the
 # floor unless told otherwise. Logprobs: none for 3.x ("working as intended",
 # Google forum 2026-08-05) and withdrawn on 2.5, so the backend is GENERATE-only
@@ -710,6 +725,7 @@ for _key, _thinking in (
     ("gemini-3.5-flash", "thinking_level floor 'minimal'"),
     ("gemini-3.5-flash-lite", "thinking_level floor 'minimal' (its default)"),
     ("gemini-3.1-flash-lite", "thinking_level floor 'minimal' (levels per the card; floor unverified)"),
+    ("gemini-3.1-pro-preview", "thinking_level floor 'low' (thinking cannot be disabled)"),
     ("gemini-2.5-flash", "thinking_budget 0 turns thinking off (default on)"),
     ("gemini-2.5-flash-lite", "thinking_budget 0 (its default)"),
     ("gemini-2.5-pro", "thinking cannot be disabled (budget floor 128)"),

@@ -1,0 +1,11 @@
+# Regenerate gpu.txt (needs uv):
+#   uv pip compile pyproject.toml tools/colab/lock/gpu.in --extra local --extra data --extra contract \
+#     --extra viz --extra stats --python-version 3.12 --python-platform x86_64-manylinux_2_28 \
+#     --extra-index-url https://download.pytorch.org/whl/cu129 --index-strategy unsafe-best-match \
+#     --no-header -o tools/colab/lock/gpu.txt
+# Colab GPU env (hf_local). Torch matches the validated GPU run (2.13.0+cu129).
+torch==2.13.0+cu129
+# Gemma4Processor's image processor imports torchvision, also for text-only prompts.
+torchvision==0.28.0+cu129
+transformers==5.15.0
+pandas

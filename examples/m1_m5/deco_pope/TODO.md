@@ -20,7 +20,7 @@
       （`{"question_id","image","text","label"}`，从 "Is there a X" 抽物体名），
       按 DESIGN §4.2 组装同图三元组
 - [ ] 核实 greedy 参数透传方式（`do_sample=False, max_new_tokens=8`——查
-      `models/backends/hf_local.py` 的 generate kwargs / RuntimeConfig）
+      `models/backends/hf/model.py` 的 generate kwargs / RuntimeConfig）
 - [ ] 核实 tokenizer 取法（`model.tokenizer` 还是 processor.tokenizer）
 - [ ] 跑 `python mine_cases.py --model qwen3-vl-2b-instruct --n-images 100`
 - [ ] manifest 里补记 transformers/torch 版本（漂移校验用）

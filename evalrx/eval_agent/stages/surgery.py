@@ -94,7 +94,7 @@ def _serialize_cases(data: CaseBatch, image_dir: "Any | None" = None) -> str:
     that regrading the full batch refutes outright (0 of 114 PASS labels wrong).
 
     This is NOT the sandbox that runs a candidate fix.  That one is
-    :func:`~evalrx.eval_agent.stages.fix_pipeline.cases_payload`, which is
+    :func:`~evalrx.eval_agent.stages.fix.pipeline.cases_payload`, which is
     id+prompt only on purpose, so a fix cannot be written against the answers.
     The split matters: a DIAGNOSTIC needs the gold to diagnose grading, a REPAIR
     must not see it. Widening this function does not widen that one.
@@ -506,12 +506,12 @@ class SurgeryAgent:
         data: CaseBatch,
     ) -> InterventionResult:
         """Re-run specified analyzers with modified parameters."""
-        from evalrx.eval_agent._tools import run_analysis
+        from evalrx.core.registry import registry
 
         sweep: dict[str, Any] = {}
         for analyzer_name, params in self.analyzer_params.items():
             try:
-                result = run_analysis(model, analyzer_name, data, **params)
+                result = registry.analyzers.get(analyzer_name)(**params).run(model, data)
                 sweep[analyzer_name] = result.findings
             except Exception as exc:
                 sweep[analyzer_name] = {"error": str(exc)}

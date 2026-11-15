@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import json
-
-from evalrx.analysis.dashboard import load_run
 from evalrx.reporting.compiler import compile_diagnostic_report
 
 
@@ -88,21 +85,3 @@ def test_question_uses_generic_text_when_neither_source_is_available():
     report = compile_diagnostic_report(story=None, explore_report=None)
     assert report.question == "What distinguishes failures from passes?"
 
-
-def test_load_run_attaches_diagnostic_report(tmp_path):
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
-
-    fused = tmp_path / "fused"
-    logs = tmp_path / "logs"
-    fused.mkdir()
-    (fused / "fused_report.json").write_text(json.dumps(_explore_report()), encoding="utf-8")
-    logger = RunLoggerV2(logs, observability_mode="offline")
-    logger._append_stage("M2", "analysis", {"cycle": 1, "conclusion": "ok"})
-    logger.close()
-
-    loaded = load_run(tmp_path)
-
-    assert loaded["kind"] == "loop"
-    diag = loaded["story"]["diagnostic_report"]
-    assert diag["answer"].startswith("High attention focus is associated with FAIL cases")
-    assert diag["claims"]

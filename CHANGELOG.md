@@ -6,6 +6,418 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed — delta-rule relevance on transformers 5.23
+
+transformers 5.23 moved the grouped query/key head expansion of Qwen3-Next /
+Qwen3.5's `torch_chunk_gated_delta_rule` inside the kernel, so its `key` can
+now carry fewer heads than its values. The delta-rule mixing matrix was sized
+from `key` and failed with a shape mismatch (generic attention relevance and
+the delta-rule tap on hybrid models); it is now sized from the value heads.
+Verified on transformers 4.57.3, 5.20.2 and 5.23.0.
+
+### Removed — the legacy loop's run-directory infrastructure (breaking)
+
+Only `AutoDiagnoseLoop` used these, and nothing else reaches them:
+`evalrx.eval_agent.checkpoint` (checkpoint/heartbeat files),
+`evalrx.eval_agent.evolution` (`EvolutionStore`, `LessonEntry`,
+`extract_lessons`) and `evalrx.eval_agent.git_manager`
+(`ExperimentGitManager`). A run's output directory is `RunContext`'s.
+
+### Removed — the legacy `AutoDiagnoseLoop` / `SelfEvolveLoop` and the A/B orchestrator (breaking)
+
+`VLDiagnoseLoop` (and `AgenticDiagnoseLoop`) are the diagnosis loops. Removed,
+with everything only they used:
+
+- `evalrx.eval_agent.legacy`: `AutoDiagnoseLoop` (the pre-2026-06 M1→M2→M3→M5
+  sweep) and `SelfEvolveLoop`. Lost with `AutoDiagnoseLoop`: `run_dir`
+  checkpoints, heartbeat and `AutoDiagnoseLoop.resume()`, automatic lesson
+  recording, and the per-run git branch. Use `VLDiagnoseLoop(model, protocol,
+  ...)`; inject a `SurgeryAgent` with `surgery_agent=` and run it after the
+  loop with `loop.run_m5(report, cases)`.
+- `evalrx.eval_agent.orchestrator` (`EvalOrchestrator`) and what only it used:
+  `ab_runner` (`ABRunner`, `ABResult`), `preregister` (`DataSplit`, `Split`,
+  `PreregisteredHypothesis`, `PreregistrationLog`) and `report`
+  (`DiagnosticReport` — `evalrx.reporting.DiagnosticReport` is a different,
+  kept class). For a paired comparison use `evalrx.stats.compare`.
+- `evalrx.eval_agent._tools`, whose one live function `SurgeryAgent`'s
+  parameter sweep now calls directly.
+
+`AutoDiagnoseReport` stays: both loops return it. Its `final_results` field is
+now always empty (only `AutoDiagnoseLoop` filled it). The docs' examples use
+`VLDiagnoseLoop`, and the quickstart's pre-registered A/B section is gone.
+
+### Removed — `evalrx.eval_agent.cli_agent` and `.cli_skills` (breaking)
+
+The two modules only re-exported `evalrx.agent_runtime`. Import from there:
+`CliAgentConfig`, `CliAgentResult`, `create_cli_agent`, `AgyModel`,
+`ClaudeModel`, `CodexModel` from `evalrx.agent_runtime`; the provider classes
+from `evalrx.agent_runtime.providers.<name>`; `SkillInstaller` /
+`CodexSkillInstaller` from `evalrx.agent_runtime.skills.installer`.
+`evalrx.eval_agent` still exports `CliAgentConfig`, `CliAgentResult` and
+`create_cli_agent`.
+
+### Removed — the `dashboard` report server (breaking)
+
+Run reports have one UI: the React report (`evalrx serve` / `evalrx report` /
+`evalrx publish-report`).
+
+- `evalrx dashboard` and `evalrx.analysis.dashboard` are removed: the
+  standard-library server that served the legacy static `report.html`, and the
+  `load_run` / `load_case_studies` / `load_loop_story` loaders, which nothing
+  outside their tests used. Use `evalrx serve <run dir>` for a run.
+- `evalrx explore`, `evalrx run-codebase` and `evalrx-explore`: an explore
+  output is not an M1–M5 run, and the React report cannot render one (all five
+  stages read "not run"), so these keep writing the legacy static
+  `report.html` (`evalrx.reporting.html_report`, now used only for this).
+  `--serve-report` opens that file in a browser instead of starting a server;
+  the deprecated `--dashboard` alias and `--port` are removed (`evalrx-explore`
+  had `--dashboard`, now `--serve-report`). The `run_explore` /
+  `run_codebase_cli` keywords `dashboard` / `dashboard_port` become
+  `open_report`.
+- Removed with them, as nothing else used them: `evalrx.analysis.case_studio`,
+  and the old workbench view models `evalrx.analysis.run_view` and
+  `evalrx.analysis.stage_views`.
+- The `deco_hallu` example's scripts open each phase's run with `evalrx serve`
+  (`--dashboard` → `--serve`; `run_fused.py --serve-report` writes and opens the
+  static report of its explore-shaped output). The example READMEs no longer
+  claim the report merges several log directories — it never did.
+
+### Changed — the report server's API is scoped by run (breaking)
+
+`evalrx serve` kept one global "current run": opening another run from the
+runs panel or an upload replaced it for every tab. The server now keeps no
+current run; every report request names one:
+`/api/runs/{run_id}/report`, `/stages/{stage_id}`, `/cases`,
+`/cases/{case_id}`, `/debug`, `/media/{media_id}` and `/artifact?path=…`.
+`/api/report`, `/api/stages/…`, `/api/cases…`, `/api/debug`, `/api/media/…`
+and `/api/artifact` are removed. `/api/session` now returns
+`{"run": {"id", "label", "root"} | null, "accepts_upload"}` (the run the
+server was started on), and `POST /api/runs/{run_id}/open` and
+`POST /api/upload` return the run's `id`, `label` and `root` beside its
+report, as does `GET /api/runs/{run_id}/report`. Run ids are issued only by
+the server itself (its start-up run, a runs listing, an upload), as before.
+`ReportSession` is replaced by `RunRegistry`. The UI keeps the id of the run
+on screen in the URL hash (`?run=<id>`), so a reload or a shared link reopens
+that run; an id the server does not know (after a restart) falls back to its
+start-up run.
+
+### Changed — the report UI keeps its place in the URL
+
+The view on screen is now the URL hash (`#/evidence/m3`, `#/evidence/m3/full`,
+`#/cases/<id>?split=…`, `#/debug`), so a refresh keeps the reader on the same
+stage or case, a copied link opens it, and Back returns to the previous view.
+This works the same in a portable export opened from disk. Moving between
+stages, cases or partitions within a view replaces the history entry rather
+than adding one.
+
+### Added — `ReportData.stage_detail` has a contract type
+
+The per-stage record the report UI's full-record views read is now declared
+in `evalrx.contract.stage_detail` (`StageDetail` and one model per stage),
+exported as `docs/contract/report.StageDetail.schema.json` and generated into
+`contract.d.ts`, so the UI reads it through typed views instead of `any`.
+The report compiler builds it as before, now one function per stage, and its
+output is unchanged; a test validates real and synthetic reports against the
+models, so a key the compiler adds without declaring it fails there.
+
+### Fixed — the text-LLM benchmark tasks work from an installed package
+
+`evalrx.benchmark.tasks.llm` used to load its slice definitions at run time
+from `examples/dataset_selection` (by file path, or
+`EVALRX_DATASET_SELECTION_DIR`), so the nine LLM tasks failed with
+`FileNotFoundError` outside a repo checkout. The definitions now ship in the
+package, as `evalrx.benchmark.tasks.llm`:
+
+- `specs` — `Spec`, the nine slice specs (`SPECS`, keyed by task name), and
+  the adapters/graders they use (`plain_adapter`, `mc_adapter`,
+  `bbh_adapter`, `cruxeval_adapter`, `grade_latex`, ...).
+- `catalog` — `Entry`, `CATALOG`, `BY_NAME`, `get`, `acquisition`. `get`
+  raises `KeyError` for an unknown name (it used to raise `SystemExit`).
+- `fetch` — `fetch_rows`, `fetch_rows_hub`, `parse_where`. `requests` and HF
+  `datasets` are imported on use, so importing the task registry needs
+  neither.
+
+`llm.catalog()`, `llm.dataset_selection_dir()` and
+`EVALRX_DATASET_SELECTION_DIR` are removed. Manifests, grades and protocols
+are unchanged. In `examples/dataset_selection`, `band_locate.py` keeps the
+survey's other candidates and reuses the library specs; `datasets.py` is now
+only the catalog CLI plus the 2B probe records; the benchmark image no longer
+copies `examples/dataset_selection`.
+
+### Changed — `run_fix` orchestration moved to `evalrx.eval_agent.loop_fix`
+
+The fix-stage helpers behind `VLDiagnoseLoop.run_fix` / `run_m5` (target
+selection, tier ladder, EXPLORE→CONFIRM) moved from `loop.py` to
+`loop_fix.py`, unchanged. `VLDiagnoseLoop`'s methods are unchanged. Their
+log lines now come from the `evalrx.eval_agent.loop_fix` logger.
+
+### Changed — the run reader moved to `evalrx.reporting.run_data`
+
+`extract_run_data` (and the run-layout helpers and analyzer glossary it uses)
+moved from `evalrx.reporting.html_report` to `evalrx.reporting.run_data`. It
+is the reader behind the dynamic report, the Langfuse bundle export and the
+legacy static page, and no longer lives inside the legacy renderer.
+`html_report` keeps the static page (`build_html_report`,
+`generate_html_report`, `embed_figures`, `embed_media`). Import
+`extract_run_data` from `evalrx.reporting.run_data`.
+
+### Changed — FixAgent split into the `stages/fix/` package
+
+`stages/fix_agent.py` (3,952 lines, one 3,200-line class) is now an
+orchestrator over modules that each own one job and its state, and all fix
+modules live in one subpackage, `evalrx.eval_agent.stages.fix`:
+`agent` (`FixAgent`), `types` (data model), `proposal` (`FixProposer`;
+conditional and floor/pre-registered built-ins as the
+`CONDITIONAL_DEFAULTS` / `BUILTIN_SPECS` tables), `codegen`
+(`PipelineCoder`), `validation` (`CandidateValidator`, `Baseline`;
+execution dispatched by candidate kind), `verdict` (verdicts, e-BH,
+recommendations), `recorder` (run-log writes), `descriptions`, plus the
+existing `tiers`, `tools`, `pipeline`, `internals` and `repair_catalog`.
+
+Module paths changed: `evalrx.eval_agent.stages.fix_<name>` is now
+`evalrx.eval_agent.stages.fix.<name>`, and `stages.repair_catalog` is
+`stages.fix.repair_catalog`. No aliases are kept at the old paths;
+`from evalrx.eval_agent import FixAgent, FixTier, ...` is unchanged.
+
+The `FixAgent` constructor, `propose_and_validate`, `validate_candidate` and
+its public attributes are unchanged; `FixAgent.alpha`,
+`FixAgent.recommend()` and `FixAgent.no_fix_recommendation()` are now public,
+and the loop no longer reaches into `FixAgent` private methods. A custom fix
+agent passed to the loop now needs an `alpha` attribute, and its
+`recommend`/`no_fix_recommendation` (no leading underscore) are what the loop
+calls; `_ebh_survivors`/`_refine_signal` overrides are no longer used. Code
+that imported private helpers from `fix_agent` must import them from their
+new modules.
+
+### Changed — the fix loop no longer writes to the fix agent
+
+`VLDiagnoseLoop.run_fix` used to reconfigure its `FixAgent` between tier
+rungs by assigning `max_tier`, `min_tier`, `run_logger` and
+`max_validation_cases`, restoring them inconsistently afterwards. It now
+passes everything per call: `propose_and_validate(..., max_tier=, min_tier=,
+record=False)`, and `recommend()` / `no_fix_recommendation()` take the run's
+ceiling as `max_tier=`. `validate_candidate` always scores the whole batch
+(`max_validation_cases` is a search budget; every in-repo caller already
+confirmed uncapped). Proposals, validations, run-log events and outcomes are
+unchanged. Visible differences:
+
+- After `run_fix(max_tier=...)` or an `auto_escalate` run, the agent keeps
+  its configured `max_tier`; it used to keep the requested or last-tried
+  tier, which leaked into the next `run_fix` call.
+- A custom fix agent whose `propose_and_validate` cannot take
+  `max_tier`/`min_tier` now raises `TypeError` under `auto_escalate` or an
+  explicit `max_tier`, instead of running every rung at its own tier.
+- A custom fix agent whose `propose_and_validate` does not take `record`
+  is no longer silenced during the search (the loop used to set its
+  `run_logger` to `None`); it logs whatever it logs per round.
+- Under `auto_escalate` without a held-out split, a custom agent's opaque
+  (non-`FixOutcome`) result is returned as-is, as the held-out ladder
+  already did, instead of raising `AttributeError`.
+
+### Fixed — RunLoggerV2 outbox on multi-user hosts
+
+The Langfuse outbox lived in a single shared `/tmp/evalrx-v2-outbox`, owned by
+whichever user created it first; every other user's run then failed with
+`sqlite3.OperationalError: unable to open database file`. The directory is
+now per user.
+
+### Fixed — hybrid analyzer compatibility with Transformers 5
+
+Recognize Qwen3.5 / Qwen3-Next linear-attention mixers when Transformers calls
+`torch_chunk_gated_delta_rule` at module scope instead of storing a kernel on
+each instance. Gradient relevance now taps that call during the target mixer's
+forward, restores it on exit or error, and retains the older instance-kernel
+path. Regression tests check native logits and gradients, per-layer relevance,
+model isolation, and cleanup after a failed forward.
+
+### Added — write-side white-box analyzers (knockout, causal trace, gradients, head attribution)
+
+Four registered stubs are now native implementations, plus three new
+analyzers. All explain the next-token logit margin at the end of the prompt
+(`target="prediction"`: clean top-1 vs top-2, label-free; or `"gold"`) and emit
+`per_case` columns for M2:
+
+- `attention_knockout` (new, `patching/`) — cut text→media attention in all
+  layers and per third of the stack (Geva et al. 2023).
+- `attention_sensitivity` (new, `patching/`) — rescale text→media attention
+  (×0.5 / ×2, renormalised) and report the margin's slope; negative = more
+  looking weakens the answer (PAI-style repair signal).
+- `causal_trace` (was a stub) — Meng-style corruption of the media tokens
+  (noise, incl. Qwen3-VL DeepStack injections; or a same-size gray image) and
+  per-layer restoration at the media tokens and at the answer position.
+- `gradcam` (was a stub) — Grad-CAM over the decoder's image tokens at a
+  fractional depth, mapped onto the patch grid with photo overlays.
+- `generic_attention` (was a stub) — Chefer et al. 2021 relevance, propagated
+  as one row from the top layer down.
+- `head_attribution` (new, `lens/`) — direct logit attribution per attention
+  head with the final norm frozen at the clean run.
+- `tuned_lens` (was a stub) — per-layer affine translators fit label-free to the
+  model's own final distribution; cached per model, optional save/load.
+
+`attention` and `attention_sink` now run over the batch (`max_cases`) and emit
+`per_case` columns (`media_mass_mid`, `sink_mass_mean`, …) instead of reading
+only the first case.
+
+Plumbing lives in `evalrx/analyzers/_internals/`: an attention function
+registered with transformers' `AttentionInterface` (plus the matching mask
+function — without it transformers builds no causal mask) that reproduces eager
+attention and can block / reweight / record it, verified once per model to
+engage on every layer and reproduce the native logits; decoder-layer pre-hooks
+for reading/replacing the residual stream; per-head output capture.
+Attention-editing analyzers refuse latent attention (hybrid stacks: see below).
+
+### Added — the write-side analyzers run on hybrid stacks (Qwen3.5 / Qwen3-Next)
+
+Qwen3.5 interleaves softmax attention with gated-delta-rule (GatedDeltaNet)
+layers that have no attention matrix; the analyzers used to refuse it. New
+`_internals/linear_mix.py` covers those layers with the module's own code:
+
+- media edits (`attention_knockout`, `attention_sensitivity`) re-run a linear
+  layer on the sequence WITHOUT the media tokens and blend its output at the
+  text positions (`w = 0` = knockout); `_internals/edits.py` applies the tap
+  and this re-run together, and checks both once per model (the re-run must
+  reproduce the outputs before the first media token);
+- `generic_attention` materialises each linear layer's token-mixing matrix
+  (the delta rule is linear in its values: `o = A·v`) and uses
+  `∇A = (∂y/∂o) vᵀ` in Chefer's rule;
+- `head_attribution` attributes the linear layers' value heads too
+  (`dla_linear_share`, `layer_kinds`, `heads_per_layer`).
+
+`causal_trace`, `gradcam` and `tuned_lens` were already architecture-agnostic.
+Verified on Qwen3.5-2B (transformers 5.14): tap 6/6 softmax layers exact,
+re-run 18/18 linear layers within 0.24% (bf16). Tests: a tiny Qwen3-Next
+(transformers ≥ 4.57) and a tiny Qwen3.5 VLM (transformers 5).
+
+### Added — `attribution_patching`: causal tracing of single tokens, from gradients
+
+New `patching/attribution_patching` estimates the effect of restoring each
+single token at each layer — `causal_trace`'s residual-stream site, corruptions
+and noise draws — as `(h_clean − h_corrupt) · ∂margin/∂h`, with the gradient
+averaged along the corrupt → clean media path (EAP-IG, `ig_steps=5`;
+`ig_steps=1` = plain attribution patching, `direction="denoise" | "noise"`).
+It reports the answer position's share of the media's effect per layer
+(`ap_last_rise_frac`, `ap_last_share_mid`) and the strongest single relay token
+(`ap_relay_token`, `ap_relay_share`, `ap_relay_depth_frac`), with a
+cross-case tally of relay tokens.
+
+- Each case is checked against exact patches of the sites it reports (the last
+  position at `n_verify` layers, the relay token at its peak). Cases whose mean
+  gap exceeds `verify_tol` (0.25) are flagged `ap_verified=False` and kept out
+  of the aggregates.
+- Measured on Qwen3-VL-2B and Qwen3.5-2B (8 deco_pope cases): the media tokens'
+  joint patch is not additive, and the sum of their gradient estimates does not
+  track it (r < 0.4 under every setting), so it is not reported. Single-token
+  estimates do track the exact patch where corrupting the media lowers the
+  margin (last position r 0.92–0.96), and fail where it makes the model more
+  confident (a saturated margin). With the shipped defaults, 2/6 (Qwen3-VL) and
+  4/6 (Qwen3.5) traced cases pass their own check; 19 s / 55 s per 8 cases.
+- `causal_trace`: the corrupted-variant construction is now
+  `corrupted_variants`, shared with the new analyzer (behaviour unchanged; the
+  exact checks reproduce `causal_trace`'s numbers digit for digit).
+- `_internals/residual.py`: `keep_grad` also works with frozen weights (the
+  captured state becomes a leaf).
+
+### Added — `attention_temperature` and `embed_lens`
+
+- `patching/attention_temperature`: divides the pre-softmax scores of the text
+  after the media by a temperature (`sharp` 0.5 / `flat` 2.0, by band) and
+  reports the margin's slope in log T. Default `scope="within"` tempers only the
+  media keys and keeps each row's total media weight — the model looks at the
+  image as much as before, only more focused or more spread out (FOCUS; the
+  AMOUNT is `attention_sensitivity`'s). `scope="all"` is plain temperature.
+  New tap edit kinds `temp` / `temp_within` (`attn_tap.temperature`), exact to
+  float precision (tested: `T=1` no-op, media mass kept, `p^(1/T)` inside,
+  `softmax(s/T)`). Softmax layers only: on Qwen3.5 6 of 24 layers are edited.
+- `lens/embed_lens` (Fan et al., CVPR 2026): each media token at the decoder
+  input, read through its nearest input-embedding words (cosine). Tokens are
+  split into recurring (nearest word shared across ≥ `recurring_frac` of the
+  batch's images), high-norm (≥ `norm_ratio` × the image's median) and specific
+  — the paper's sink / dead / alive, inferred from the batch's DISTINCT images
+  instead of checkpoint-specific ids — and each prompt content word gets the
+  best cosine any media token reaches to it (grounding). `layer` reads any
+  depth (default 0, the decoder input, as in the paper).
+- Measured on Qwen3.5-0.8B (POPE adversarial):
+  - `attention_temperature` (16 cases; tap exact; within-media mean slope
+    +0.33, no flips; plain temperature flips 19% when flattened).
+  - `embed_lens` (100 cases): at the input Qwen3.5's image tokens are not in
+    vocabulary space — best cosine 0.15, 90% recurring (space, digits,
+    `<|endoftext|>`), the queried object's word no closer when present
+    (AUROC 0.47). At `layer=0.9` 87% are image-specific (rocky, snow, wooden,
+    buses, ...) and object grounding reaches AUROC 0.76 (0.82 at the last layer).
+- Routing: `attention_temperature` after `attention_sensitivity` and under
+  `attention_sink` / `insufficient_visual_attention` / `mislocalized_attention`;
+  `embed_lens` after the gradient maps and under `attention_sink` /
+  `visual_information_loss` / `grounding_error`.
+
+### Added — `path_patching` and `patchscope`
+
+- `patching/path_patching` (Wang et al., IOI): which heads carry the media's
+  effect directly to the answer. One head's output from the media-corrupted run
+  (`causal_trace`'s corruptions), every other token-mixing head frozen at its
+  clean output (the value heads of linear-attention layers included), MLPs and
+  norms recomputed. Heads are screened by direct logit attribution of their
+  media-dependent output and the `top_k` (8) patched exactly; per case the top
+  direct-path head, the joint direct / total share of the top-k, the screen's
+  rank agreement and (hybrids) the linear-attention share; across cases the
+  recurring heads. Patching every head at once reproduces the full effect at the
+  answer position — tested as an identity, on hybrids too.
+- `lens/patchscope` (Ghandeharioun et al.): each layer's residual at the answer
+  position is patched into a token-identity prompt at the same layer and decoded
+  by the model: the depth where the answer first ranks first, its peak, and
+  `ps_late_drop` (peak minus the output probability; with `target="gold"`, a
+  right answer formed then suppressed). `media_layers > 0` also decodes every
+  image / audio token into a word ("what it sees").
+- Shared plumbing: `_internals/heads.mixer_hooks` (read / overwrite every
+  head's output at every position), `heads.readout_direction` (the frozen-norm
+  margin direction, now also used by `head_attribution`),
+  `residual.batched_patch` (a different residual patch per batch row).
+- Measured on Qwen3.5-0.8B (16 POPE-adversarial cases): the screen ranks heads
+  like the exact patch (Spearman 0.86); the direct carriers recur in the last
+  two layers (`L23.H6` +0.33 of the effect in 8 cases; `L23.H0` −0.24 in 10 —
+  it consistently works against the image's effect). Patchscope's top-1 matches
+  the model's answer from layer 18 in 14/16 cases; the logit lens only at the
+  last layer, 6/16. Image tokens decode to scene words ("snow", "board",
+  "skiing", "slope" for a snowboarding photo).
+- New spec `qwen3.5-0.8b-vl` (same 24-layer hybrid layout as the 2B; the fast
+  real-model check).
+- Routing: `path_patching` after `attribution_patching` in the image / audio /
+  video lists and under `answer_head_conflict` / `visual_information_loss`;
+  `patchscope` after `tuned_lens` in the text list and under `late_suppression`,
+  `premature_layer_divergence`, `logit_lens`.
+
+### Changed — routing reaches the white-box analyzers
+
+`StrategyProbe` ranks the new analyzers for white-box image / audio / video
+runs (`attention_knockout` right after `modality_ablation`), and M3 failure
+modes promote them: `language_prior_bias` and `hallucination` now include the
+media interventions, and new tags `visual_neglect`, `audio_neglect`,
+`insufficient_visual_attention`, `visual_information_loss`,
+`mislocalized_attention`, `late_suppression` (also offered to the M3 prompt)
+route to the analyzer that tests them. The video list named the unregistered
+`relative_attn` (silently dropped); it is now `relative_attention`, and a test
+fails on any unregistered name in the routing tables. `attribution_patching`
+follows `causal_trace` in the image / audio / video lists (the video list now
+has both) and under `visual_information_loss` / `late_visual_integration`.
+
+### Changed — `hf_local` provides `GRADIENTS`
+
+`HFLocalModel.forward(spec=CaptureSpec(with_grad=True))` now keeps the autograd
+graph (it was always `no_grad`, and `with_grad` was ignored), and `hf_local`
+declares `Capability.GRADIENTS`, so `gradcam` / `generic_attention` are offered
+for local models. The default forward is still `no_grad`. Gradient analyzers use
+`torch.autograd.grad` on hooked activations and never write parameter `.grad`.
+
+### Docs — analyzer zoo regenerated from the registries
+
+`docs/analyzers.md` listed 29 of the 46 registered analyzers and 16 of the 57
+model specs, and several listed rows had drifted from the code (`rollout` is
+registered as `attention_rollout`; `linear_probe` is implemented, not a stub;
+`mm_shap` and `relative_attention` cover more than images; two citations pointed
+at the wrong paper). The page is now organised by `evalrx/analyzers/` subpackage
+and by model group, and its tables are generated by `tools/gen_analyzer_docs.py`
+(`--check` exits 1 when the page is stale;
+`tests/test_analyzers/test_analyzer_docs.py` runs the same check).
+
 ## [0.1.2] — 2026-09-11
 
 First release under the `evalrx` name (formerly published as `evalvitals`

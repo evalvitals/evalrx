@@ -22,35 +22,45 @@ audio, so the same service names exist in the llm / vlm / alm leaves.
 | `gemini-3.5-flash` | `gemini-3.5-flash` | minimal |
 | `gemini-3.5-flash-lite` | `gemini-3.5-flash-lite` | minimal |
 | `gemini-3.1-flash-lite` | `gemini-3.1-flash-lite` | minimal |
+| `gemini-3.1-pro-preview` | `gemini-3.1-pro-preview` | low (cannot be disabled) |
 | `gemini-2.5-flash` | `gemini-2.5-flash` | budget 0 |
 | `gemini-2.5-flash-lite` | `gemini-2.5-flash-lite` | budget 0 |
 | `gemini-2.5-pro` | `gemini-2.5-pro` | budget 128 (cannot be disabled) |
 
 `--thinking-level {minimal,low,medium,high}` / `--thinking-budget N` override
-the floor; `--enable-thinking` leaves the API default. What the family cannot
-do: expose internals or logprobs (Gemini returns none for 3.x), so the model
-claims `GENERATE` only — `calibration` runs on its verbalized channel,
-`logprob_entropy` is skipped — and the fix ladder is **clamped to L2**
-(`--fix-tier L3a/L3b` prints the clamp; `summary.json` records the effective
-`fix_tier`). The served `model_version` is written to `baseline.json`.
+the floor; `--enable-thinking` leaves the API default.
+
+The benchmark automatically probes probability support with a short real request.
+Only valid token log probabilities enable `LOGPROBS` analyzers; five top
+alternatives are requested when supported. Response evidence and effective
+capabilities are saved in `api_capabilities.json`. Authentication, quota and
+transport failures remain errors rather than being treated as missing capabilities.
+
+Raw logits and model internals are unavailable. Top-k logprobs cannot be
+substituted for logits. Without logprobs, probability-only analyzers are
+skipped and calibration can use verbalized confidence. M1–M5 and the L0–L2
+repair search still operate on API generation. The repair ceiling is clamped
+to L2; CONFIRM evaluates the frozen candidate separately from EXPLORE.
+Running all stages does not imply a statistically confirmed improvement.
+The served `model_version` is written to `baseline.json`.
 
 ## Datasets (`DATASET=`)
 
 | name | slice | scoring | default rows | source |
 |---|---|---|---|---|
-| `cruxeval_output` | cruxeval_output | llm_graded | 256 | examples/dataset_selection/llm_benchmark/datasets.py |
-| `bbh_causal_judgement` | bbh_causal_judgement | llm_graded | 256 | examples/dataset_selection/llm_benchmark/datasets.py |
-| `supergpqa_economics` | supergpqa_economics | llm_graded | 256 | examples/dataset_selection/llm_benchmark/datasets.py |
-| `bbh_word_sorting` | bbh_word_sorting | llm_graded | 256 | examples/dataset_selection/llm_benchmark/datasets.py |
-| `bbh_tracking7` | bbh_tracking7 | llm_graded | 256 | examples/dataset_selection/llm_benchmark/datasets.py |
-| `bamboogle` | bamboogle | llm_graded | 256 | examples/dataset_selection/llm_benchmark/datasets.py |
-| `minervamath` | minervamath | llm_graded | 256 | examples/dataset_selection/llm_benchmark/datasets.py |
-| `supergpqa_law` | supergpqa_law | llm_graded | 256 | examples/dataset_selection/llm_benchmark/datasets.py |
-| `supergpqa_medicine_hard` | supergpqa_medicine_hard | llm_graded | 256 | examples/dataset_selection/llm_benchmark/datasets.py |
+| `cruxeval_output` | cruxeval_output | llm_graded | 256 | evalrx/benchmark/tasks/llm/catalog.py |
+| `bbh_causal_judgement` | bbh_causal_judgement | llm_graded | 256 | evalrx/benchmark/tasks/llm/catalog.py |
+| `supergpqa_economics` | supergpqa_economics | llm_graded | 256 | evalrx/benchmark/tasks/llm/catalog.py |
+| `bbh_word_sorting` | bbh_word_sorting | llm_graded | 256 | evalrx/benchmark/tasks/llm/catalog.py |
+| `bbh_tracking7` | bbh_tracking7 | llm_graded | 256 | evalrx/benchmark/tasks/llm/catalog.py |
+| `bamboogle` | bamboogle | llm_graded | 256 | evalrx/benchmark/tasks/llm/catalog.py |
+| `minervamath` | minervamath | llm_graded | 256 | evalrx/benchmark/tasks/llm/catalog.py |
+| `supergpqa_law` | supergpqa_law | llm_graded | 256 | evalrx/benchmark/tasks/llm/catalog.py |
+| `supergpqa_medicine_hard` | supergpqa_medicine_hard | llm_graded | 256 | evalrx/benchmark/tasks/llm/catalog.py |
 | `hotpotqa_gepa` | GEPA test split (fullwiki/train, seed 1) + the 10-paragraph distractor context | short_answer_em (SQuAD EM) | 300 | hotpotqa/hotpot_qa, arXiv:2507.19457 |
 | `gsm8k` | seeded 500-of-1,319 sample of the test split | exact_or_numeric (0 tolerance) | 500 | openai/gsm8k |
 
-Data is frozen once per modality under [`../_data/`](../_data) (`<dataset>/manifest.json`
+Data is frozen once per modality under the local directory `../_data/` (`<dataset>/manifest.json`
 + media), shared by all families of this modality; outputs go to
 `outputs/<model>/<dataset>[.<tag>]/`.
 
@@ -66,8 +76,22 @@ DATASET=bbh_causal_judgement CONCURRENCY=8 docker compose run -d --name llm-gemi
 docker logs -f llm-gemini-3.6-flash-bbh_causal_judgement
 ```
 
-Every service's command pins the judge and coder to Codex Terra (`--judge-provider
-codex --judge-model gpt-5.6-terra --judge-effort medium`). Requests retry with
-backoff on 429/5xx (`--request-retries`, default 5; `--request-timeout`, default
-300 s); `CONCURRENCY` (default 4) is the number of discovery requests in flight —
-size it to the account's rate-limit tier.
+The default judge/coder is Claude. To run the full chain with the mounted
+Antigravity CLI, explicitly set both the model and its required effort:
+
+```bash
+EXTRA_ARGS="--limit 32 --run-tag gemini-m1m5 --judge-provider agy --judge-model gemini-3.6-flash --judge-effort low --fix-tier L2" \
+  docker compose run --rm gemini-3.6-flash
+```
+
+This runs M1–M5 plus the repair search; omit `--baseline-only`, `--skip-fix`
+and `--skip-m5` when validating the whole chain. Use a freshly built image
+after updating source. Inspect `summary.json` and stage logs for actual
+completion and the repair verdict. A 32-case run checks integration; it is
+not a powered benchmark for small gains.
+
+Requests retry with backoff on 429/5xx (`--request-retries`, default 5;
+`--request-timeout`, default 300 s). `CONCURRENCY` (default 4) controls the
+number of discovery requests in flight.
+
+Adaptive probe selection and bounded controller decisions are the default; no mode flag is needed. See [adaptive benchmark diagnosis](../../../../docs/agentic_benchmark.md) for the confirmation boundary, failure handling, and protocol differences.

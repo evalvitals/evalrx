@@ -20,7 +20,7 @@ from evalrx.core.case import Inputs
 from evalrx.core.model import Trace
 from evalrx.core.spec import AudioSpec, ModelSpec, VisionSpec
 from evalrx.models.backends.base import RuntimeConfig
-from evalrx.models.backends.hf_local import HFLocalModel
+from evalrx.models.backends.hf.model import HFLocalModel
 from evalrx.models.whitebox.qwen import QwenLLM
 
 
@@ -39,7 +39,8 @@ def test_qwenllm_returns_hf_local_model_with_caps():
     assert Capability.ATTENTION in model.capabilities
     assert Capability.HIDDEN_STATES in model.capabilities
     assert Capability.GENERATE in model.capabilities
-    assert Capability.GRADIENTS not in model.capabilities
+    assert Capability.GRADIENTS in model.capabilities  # forward(with_grad=True)
+    assert Capability.EMBEDDINGS not in model.capabilities
 
 
 def test_qwenllm_checkpoint_override():

@@ -13,7 +13,6 @@ keywords = ["llm", "vlm", "interpretability", "failure-analysis", "explainabilit
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: CC0 1.0 Universal (CC0 1.0) Public Domain Dedication",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -47,6 +46,19 @@ local = [
 finetune = [
     "peft>=0.10",
 ]
+# JAX white-box backend (jax_local, docs/design_jax_backend.md). Google DeepMind's
+# gemma library drives the Gemma 4 reference adapter (Flax Linen; Python >= 3.12
+# upstream). Accelerator wheels are a separate choice: `pip install "jax[cuda12]"`
+# (GPU) or `pip install "jax[tpu]"` (Cloud TPU; Colab TPU runtimes ship it, see
+# tools/colab/).
+# Captured arrays cross into the analyzers as torch tensors, so a CPU torch is
+# enough here (`--extra-index-url https://download.pytorch.org/whl/cpu`).
+jax = [
+    "jax>=0.7",
+    "flax>=0.10",
+    "gemma>=4.0.1; python_version >= '3.12'",
+    "torch>=2.0.0",
+]
 # API / black-box models. The OpenAI-compatible client is optional; you can also
 # inject an existing call_vision_api via RuntimeConfig(generate_fn=...).
 api = [
@@ -62,6 +74,9 @@ interp = [
 data = [
     "datasets>=2.0",
     "pillow>=9.0",
+    # The text-LLM benchmark tasks (evalrx.benchmark.tasks.llm.fetch) page
+    # through the HF datasets-server with requests.
+    "requests>=2.28",
 ]
 # Machine-readable M1-M5 stage contract (evalrx.contract): runtime validation
 # of what crosses each stage boundary + JSON Schema / TypeScript generation.

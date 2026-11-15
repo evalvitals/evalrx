@@ -33,6 +33,7 @@ theme:
 nav:
   - Overview: overview.md
   - Quickstart: quickstart.md
+  - Colab TPU Tutorial: colab_tpu.md
   - Command-Line Interface: cli.md
   - Exploratory Analysis (M2/M3): m2_analysis.md
   - Verification & Intervention (M4/M5): intervention.md
@@ -41,6 +42,10 @@ nav:
   - Architecture: architecture.md
   - Extending: extending.md
   - Roadmap: roadmap.md
+  - Validation:
+      - Gemini agentic run (2026-10-13): validation/gemini_agentic_20261013.md
+      - Historical Gemma repairs (2026-08-30): validation/gemma_repair_20260830.md
+  - Local Artifacts: local_artifacts.md
 
 markdown_extensions:
   - pymdownx.highlight:

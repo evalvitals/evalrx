@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 #
-# deco_hallu — ONE-SHOT: from nothing → the dashboard.
+# deco_hallu — ONE-SHOT: from nothing → the report.
 #
 # Runs the whole pipeline end to end:
 #   0) build_cases.py    balanced FAIL/PASS batch        (offline, no GPU)
 #   1) run_m1.py         M1 analyzers, frozen to a pickle (GPU)
 #   2) run_fused.py      Step 1: explore + held-out confirm (claude)
 #   3) run_m2-5.py       Step 2: M2→M3→M4→Fix             (GPU + claude)
-#   4) dashboard         the connected Analysis report
+#   4) report         the connected Analysis report
 #
 # The expensive M1 forward passes run here. If you already have
 # outputs/m1_state.pkl, use run_from_m1.sh instead (skips steps 0-1).
 #
 # Overridable via env vars:
 #   MODEL=qwen3-vl-2b-instruct  DEVICE=cuda  BACKEND=claude
-#   PORT=8501  DASHBOARD=1  (DASHBOARD=0 just prints the dashboard command)
+#   PORT=8501  REPORT=1  (REPORT=0 just prints the report command)
 #   PY=/path/to/python  (defaults to the repo's .venv, then `python`)
 #
 # Usage:  ./run_all.sh            # or:  MODEL=qwen3-vl-4b-instruct ./run_all.sh
@@ -28,7 +28,7 @@ MODEL="${MODEL:-qwen3-vl-2b-instruct}"
 DEVICE="${DEVICE:-cuda}"
 BACKEND="${BACKEND:-claude}"
 PORT="${PORT:-8501}"
-DASHBOARD="${DASHBOARD:-1}"
+REPORT="${REPORT:-1}"
 
 # Python: explicit $PY, else the repo venv, else whatever `python` resolves to.
 if [[ -z "${PY:-}" ]]; then
@@ -61,11 +61,11 @@ step "3/4  run_m2-5.py  — M2→M3→M4→Fix [GPU + claude]"
   --recipes        outputs/fused/confirmed_recipes.json \
   --explore-report outputs/fused/fused_report.json
 
-step "4/4  dashboard"
-if [[ "$DASHBOARD" == "1" ]]; then
+step "4/4  report"
+if [[ "$REPORT" == "1" ]]; then
   echo "serving on http://localhost:$PORT  (Ctrl-C to stop)"
-  exec "$PY" -m evalrx.cli dashboard outputs --port "$PORT"
+  exec "$PY" -m evalrx.cli serve outputs/logs_m2_5 --port "$PORT"
 else
-  echo "skipped (DASHBOARD=0). Launch it with:"
-  echo "  $PY -m evalrx.cli dashboard outputs --port $PORT"
+  echo "skipped (REPORT=0). Launch it with:"
+  echo "  $PY -m evalrx.cli serve outputs/logs_m2_5 --port $PORT"
 fi

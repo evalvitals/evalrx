@@ -11,7 +11,7 @@ import logging
 
 import evalrx
 from evalrx.eval_agent.loop import VLDiagnoseLoop
-from evalrx.eval_agent.stages.fix_agent import FixAgent
+from evalrx.eval_agent.stages.fix.agent import FixAgent
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 from evalrx.logging_utils import _MARKER_ATTR, TOP_LEVEL_LOGGER_NAME
 from tests.conftest import FakeModel

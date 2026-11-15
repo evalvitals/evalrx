@@ -97,8 +97,9 @@ def test_dynamic_api_filters_and_serves_spa(tmp_path):
     publish_report(tmp_path)
 
     with TestClient(create_app(tmp_path)) as client:
-        assert client.get("/api/report").status_code == 200
-        response = client.get("/api/cases", params={"status": "fail", "limit": 1})
+        run = client.get("/api/session").json()["run"]
+        assert client.get(f"/api/runs/{run['id']}/report").status_code == 200
+        response = client.get(f"/api/runs/{run['id']}/cases", params={"status": "fail", "limit": 1})
         assert response.json()["total"] == 1
         assert response.json()["items"][0]["id"] == "a"
         assert client.get("/").headers["content-type"].startswith("text/html")
@@ -137,11 +138,69 @@ def test_runs_panel_lists_and_opens_sibling_experiments(tmp_path):
 
         opened = client.post(f"/api/runs/{unpublished['id']}/open")
         assert opened.status_code == 200
+        assert opened.json()["id"] == unpublished["id"]
         assert opened.json()["data"]["setting"]["model"] == "model-b"
-        # The session actually swapped: /api/report now serves run_b too.
-        assert client.get("/api/report").json()["data"]["setting"]["model"] == "model-b"
+        # Opening run_b changed nothing for run_a: each run is read by its own id.
+        initial = client.get("/api/session").json()["run"]
+        assert initial["id"] == published["id"] and initial["root"] == published["root"]
+        assert client.get(f"/api/runs/{initial['id']}/report").json()["data"]["setting"]["model"] == "model-a"
+        assert client.get(f"/api/runs/{unpublished['id']}/report").json()["data"]["setting"]["model"] == "model-b"
 
         assert client.post("/api/runs/not-a-real-id/open").status_code == 404
+        assert client.get("/api/runs/not-a-real-id/report").status_code == 404
+
+        # Every report route answers for the run it names.
+        report_b = client.get(f"/api/runs/{unpublished['id']}/report").json()
+        assert (report_b["id"], report_b["root"]) == (unpublished["id"], unpublished["root"])
+        stage = client.get(f"/api/runs/{unpublished['id']}/stages/m1")
+        assert stage.status_code == 200 and stage.json()["stage"]["id"] == "m1"
+        assert client.get(f"/api/runs/{unpublished['id']}/stages/m9").status_code == 404
+        debug = client.get(f"/api/runs/{unpublished['id']}/debug", params={"limit": 1}).json()
+        assert debug["total"] >= 1 and len(debug["items"]) == 1
+
+
+def test_an_uploaded_run_gets_its_own_id_and_an_empty_server_names_no_run(tmp_path):
+    import io
+    import zipfile
+
+    from fastapi.testclient import TestClient
+
+    from evalrx.core import CaseBatch, FailureCase, Label
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.reporting.server import create_app
+
+    run = tmp_path / "shared" / "logs"
+    logger = RunLoggerV2(run)
+    logger.log_run_start({"model": "uploaded-model", "n_cases": 1})
+    logger.log_cases(CaseBatch([FailureCase.from_prompt("q", id="c1", label=Label.FAIL)]))
+    logger.log_stage_skipped("M1", "no_signal")
+    logger.close()
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as bundle:
+        for path in run.rglob("*"):
+            if path.is_file():
+                bundle.write(path, path.relative_to(tmp_path).as_posix())
+
+    with TestClient(create_app(runs_root=tmp_path)) as client:
+        assert client.get("/api/session").json()["run"] is None
+        uploaded = client.post("/api/upload", files={"file": ("shared.zip", archive.getvalue())})
+        assert uploaded.status_code == 200
+        key = uploaded.json()["id"]
+        assert uploaded.json()["data"]["setting"]["model"] == "uploaded-model"
+        assert client.get(f"/api/runs/{key}/cases/c1").json()["id"] == "c1"
+        assert client.get("/api/session").json()["run"] is None
+        bad = client.post("/api/upload", files={"file": ("empty.zip", _empty_zip())})
+        assert bad.status_code == 400
+
+
+def _empty_zip() -> bytes:
+    import io
+    import zipfile
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as bundle:
+        bundle.writestr("readme.txt", "no run here")
+    return buffer.getvalue()
 
 
 def test_runs_listing_keeps_the_most_recent_past_the_display_limit(tmp_path, monkeypatch):
@@ -315,7 +374,8 @@ def test_read_only_run_can_be_served_without_publishing(tmp_path, monkeypatch):
         lambda _root: (_ for _ in ()).throw(PermissionError("read only")),
     )
     with TestClient(create_app(tmp_path)) as client:
-        payload = client.get("/api/report").json()
+        run = client.get("/api/session").json()["run"]
+        payload = client.get(f"/api/runs/{run['id']}/report").json()
     assert payload["layout"]["generated_by"]["mode"] == "deterministic-read-only"
     assert payload["data"]["setting"]["model"] == "read-only-demo"
 
@@ -501,3 +561,60 @@ def test_v2_explore_event_without_a_snapshot_report_still_renders_its_sentences(
     assert [item["title"] for item in m2["takeaways"]] == ["Every long reply failed"]
     assert m2["takeaways"][0]["chart_names"] == []
     assert m2["figures"] == []
+
+
+def test_cases_repaired_metric_reads_the_m5_confirmation():
+    from evalrx.reporting.dynamic import _metrics
+
+    run = {"n_cases": 128, "label_distribution": {"fail": 38}}
+    raw = {"m4": {"results": [{}, {}, {}]}}
+    cases = [{"id": f"c{i}", "status": "fail"} for i in range(3)]
+    # M5 prints its confirmation as "21 repaired, 6 broken"; the header tile
+    # must say the same 21 even when the candidate missed the certification bar.
+    m5 = {"ran": True, "fixed": False,
+          "confirmation": {"name": "read_off_marks", "n_fixed": 21, "n_broken": 6}}
+    by_id = {m["id"]: m["value"] for m in _metrics(run, raw, cases, m5)}
+    assert by_id == {"evaluated": 128, "failed": 38, "verified": 3, "fixed": 21}
+    # No confirmation recorded: the per-case repair outcomes count instead.
+    cases[0]["repair"] = {"status": "fixed"}
+    cases[1]["repair"] = {"status": "broken"}
+    assert {m["id"]: m["value"] for m in _metrics(run, raw, cases, None)}["fixed"] == 1
+    # The candidate missed the bar, so the fix event names no winner and the
+    # confirmation is empty; the confirm-phase candidate M5 scored still counts.
+    unwon = {"ran": True, "fixed": False, "confirmation": {},
+             "candidates": [{"name": "read_off_marks", "n_fixed": 21, "n_broken": 6, "effect": 0.117}]}
+    assert {m["id"]: m["value"] for m in _metrics(run, raw, [{"status": "fail"}], unwon)}["fixed"] == 21
+    # A run whose M5 never ran repaired nothing.
+    idle = {"ran": False, "confirmation": {}}
+    assert {m["id"]: m["value"] for m in _metrics(run, raw, [{"status": "fail"}], idle)}["fixed"] == 0
+
+
+def test_m5_confirmation_joins_the_winning_candidate_the_logger_recorded(tmp_path):
+    from types import SimpleNamespace
+
+    from evalrx.core import CaseBatch, FailureCase, Label
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.reporting.dynamic import build_report_data
+
+    logger = RunLoggerV2(tmp_path, observability_mode="offline")
+    logger.log_run_start({
+        "model": "demo-model", "benchmark_name": "demo-set", "n_cases": 2,
+        "label_distribution": {"fail": 2},
+        "protocol": {"description": "Answer the question correctly."},
+    })
+    logger.log_cases(CaseBatch([
+        FailureCase.from_prompt("Q1", id="c1", expected="a", observed="b", label=Label.FAIL),
+        FailureCase.from_prompt("Q2", id="c2", expected="a", observed="c", label=Label.FAIL),
+    ]))
+    winner = {"name": "malformed_choice_consensus", "tier": "L2", "n_pairs": 128,
+              "n_fixed": 25, "n_broken": 0, "effect": 0.5, "fixed": True, "verdict": "fixed"}
+    # RunLoggerV2 writes `best` as the whole candidate, not its name.
+    logger.log_fix(SimpleNamespace(to_dict=lambda: {"attempted": [winner], "best": dict(winner), "fixed": True}))
+    logger.close()
+
+    data = build_report_data(tmp_path)
+    m5 = data["stage_detail"]["m5"]
+    assert m5["confirmation"]["name"] == "malformed_choice_consensus"
+    assert (m5["confirmation"]["n_fixed"], m5["confirmation"]["n_broken"]) == (25, 0)
+    assert m5["best"]["name"] == "malformed_choice_consensus"
+    assert {m["id"]: m["value"] for m in data["metrics"]}["fixed"] == 25

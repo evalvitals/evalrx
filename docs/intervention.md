@@ -93,8 +93,8 @@ def my_verify(hypothesis, model, results, data):
         evidence={"custom": True},
     )
 
-loop = AutoDiagnoseLoop(model=model, diagnosis_agent=DiagnosisAgent(judge=judge),
-                         surgery_agent=SurgeryAgent(verify_fn=my_verify))
+loop = VLDiagnoseLoop(..., surgery_agent=SurgeryAgent(verify_fn=my_verify))
+fix = loop.run_m5(report, cases)   # M5 runs once, after the loop
 ```
 
 ## Output layout

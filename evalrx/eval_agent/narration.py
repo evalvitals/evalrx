@@ -85,11 +85,15 @@ class LoopNarrator:
         return f"{badge} {label.ljust(self.LABEL_WIDTH)}{dots} {detail}"
 
     def _print(self, key: str, detail: str) -> None:
-        print(self._row(key, detail), file=self.stream)
+        print(self._row(key, detail), file=self.stream, flush=True)
 
     # -- stage events (M1-M5), from RunLoggerV2._append_stage -------------
 
     def on_event(self, stage: str, key: str, record: dict[str, Any]) -> None:
+        if key == "model_calls" and record.get("error"):
+            self._print(stage, f"error: {record['error']} · "
+                        f"retrying={record.get('metadata', {}).get('retrying', False)}")
+            return
         if key not in _NARRATED_KEYS or stage not in _STAGE_LABELS:
             return
         if key == "fix":

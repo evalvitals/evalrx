@@ -38,8 +38,8 @@ this writing:
 - Tier-(b)/(c) codegen'd probes (``probe_generator.py`` /
   ``whitebox_probe_generator.py``) — a separate execution path from
   ``_run_direct``, called from ``ProbeAgent._maybe_generate``.
-- M5 repair-candidate generation (``fix_agent.py``, ``fix_internals.py``,
-  ``fix_tools.py``, ``fix_pipeline.py``) — but these already have a durable,
+- M5 repair-candidate generation (the ``stages/fix/`` package: ``agent.py``, ``internals.py``,
+  ``tools.py``, ``pipeline.py``) — but these already have a durable,
   pre-existing home: per-candidate per-case outputs land inline under each
   candidate's own ``"outputs"`` key in ``M5/log.json`` via
   ``RunLoggerV2.log_fix``.

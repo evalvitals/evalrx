@@ -284,7 +284,7 @@ def test_forced_final_not_triggered_when_answer_exists():
 
 
 def test_collect_message_images_orders_across_messages():
-    from evalrx.models.backends.hf_local import _collect_message_images
+    from evalrx.models.backends.hf.model import _collect_message_images
 
     class FakeImg:
         size, mode = (2, 2), "RGB"  # PIL-like so it passes through unopened

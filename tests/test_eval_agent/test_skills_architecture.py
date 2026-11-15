@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from evalrx.agent_runtime.cli_types import CliAgentConfig
+from evalrx.agent_runtime.skills.installer import CodexSkillInstaller, SkillInstaller
 from evalrx.agent_runtime.skills.prompt_policy import fences_hint, skills_hint
 from evalrx.agent_runtime.skills.resolver import resolve_skill_paths
-from evalrx.eval_agent.cli_skills import CodexSkillInstaller, SkillInstaller
 
 
 def _make_skill(tmp_path: Path, name: str) -> str:

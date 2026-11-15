@@ -77,6 +77,14 @@ export interface ArtifactRef {
 }
 
 /**
+ * A signal the explorer proposed for confirmation, as it recorded it.
+ */
+export interface CandidateSignalView {
+  /** Producer-defined keys. The envelope is closed; payload areas are not. */
+  [key: string]: unknown;
+}
+
+/**
  * A batch referenced by file rather than inlined (the normal case).
  */
 export interface CaseBatchRef {
@@ -153,6 +161,24 @@ export interface ExternalRef {
    * Serialized size of the externalized value.
    */
   bytes: number;
+}
+
+/**
+ * A chart the run saved, with the reading written for it.
+ */
+export interface FigureView {
+  id: string;
+  title: string;
+  question: string;
+  path: string;
+  reading: string;
+  do_not_infer: string;
+  disposition: string;
+  not_promoted_reason: string;
+  /**
+   * The image inlined, on a portable export only (`evalrx report`).
+   */
+  data_uri?: string | null;
 }
 
 /**
@@ -282,6 +308,23 @@ export interface HypothesisTestResultWire {
 }
 
 /**
+ * A hypothesis M3 proposed, as the run recorded it.
+ */
+export interface HypothesisView {
+  id?: string | null;
+  statement?: string | null;
+  plain_statement?: string | null;
+  hypothesis?: string | null;
+  failure_mode?: string | null;
+  basis?: string | null;
+  test_design?: string | null;
+  expected_association?: string | null;
+  status?: string | null;
+  /** Producer-defined keys. The envelope is closed; payload areas are not. */
+  [key: string]: unknown;
+}
+
+/**
  * One falsifiable claim about *why* the model fails.
  *
  * ``statement`` is the mechanism; ``test_design`` is the machine-readable
@@ -347,6 +390,68 @@ export interface JoinReport {
   unmatched_sample?: (string)[];
 }
 
+export interface M1StageDetail {
+  duration: number | null;
+  probes: (ProbeView)[];
+  n_probes: number;
+  n_measured: number;
+  examples: (ProbeExample)[];
+  operations: (OperationExample)[];
+  /**
+   * Each analyzer's model calls, oldest first, capped per analyzer.
+   */
+  calls: { [key: string]: (ModelCallView)[] };
+  n_calls: number;
+}
+
+export interface M2StageDetail {
+  mode: string;
+  conclusion: string;
+  narrative: string;
+  stats: (StatView)[];
+  takeaways: (TakeawayView)[];
+  figures: (FigureView)[];
+  observations: (unknown)[];
+  caveats: (unknown)[];
+  candidate_signals: (CandidateSignalView)[];
+  recommended_tests: (unknown)[];
+}
+
+export interface M3StageDetail {
+  mode: string;
+  hypotheses: (HypothesisView)[];
+  unparsed_proposals: (UnparsedProposal)[];
+  agent_response: string;
+  candidate_signals: (CandidateSignalView)[];
+  recommended_tests: (unknown)[];
+  evidence_figures: (FigureView)[];
+  evidence_stats: (StatView)[];
+}
+
+export interface M4StageDetail {
+  ran: boolean;
+  mode: string;
+  results: (ValidationResultView)[];
+  event: ValidationEventView;
+  examples: (ValidationExample)[];
+}
+
+export interface M5StageDetail {
+  ran: boolean;
+  fixed: boolean;
+  skipped: boolean;
+  skip_reason: string;
+  skip_detail: string;
+  candidates: (RepairCandidateView)[];
+  confirmation: RepairCandidateView;
+  best: RepairCandidateView;
+  recommendation: RepairRecommendation | null;
+  examples: (RepairExample)[];
+  operation_previews: (RepairOperationPreview)[];
+  surgeries: ({ [key: string]: unknown })[];
+  prompt_template: string;
+}
+
 /**
  * A repair or intervention, as an embeddable diagram plus plain language.
  */
@@ -371,6 +476,21 @@ export interface MethodologyWire {
 }
 
 /**
+ * One model call an M1 analyzer made: what it sent and what came back.
+ */
+export interface ModelCallView {
+  seq: number | null;
+  cycle: number | null;
+  method: string;
+  case_id: string | null;
+  batch_case_ids: (string)[];
+  duration_sec: number | null;
+  prompt: string;
+  output: string;
+  error: string | null;
+}
+
+/**
  * Identity + declared capabilities of the model under diagnosis.
  *
  * ``modalities`` is a SET, matched by subset against each analyzer's
@@ -392,6 +512,32 @@ export interface ModelRef {
 }
 
 /**
+ * The tool calls one case's agent trajectory actually made.
+ */
+export interface OperationExample {
+  id: string;
+  case_id: string;
+  input: string;
+  expected: unknown;
+  observed: unknown;
+  outcome: string;
+  media_ids: (string)[];
+  steps: (OperationStep)[];
+  plain_reading: string;
+}
+
+/**
+ * One tool call from an agent's recorded trajectory.
+ */
+export interface OperationStep {
+  order: number;
+  action: string;
+  raw_action: string;
+  parameters: { [key: string]: unknown };
+  thought: string;
+}
+
+/**
  * One measurement row. THE contract of the whole pipeline.
  *
  * Only ``sample_id`` is fixed. Every other key is analyzer-defined; any key
@@ -409,6 +555,57 @@ export interface PerCaseRow {
 }
 
 /**
+ * One case walked through an M1 check -- logged by the probe, or rebuilt
+ * from a per-case measurement on older runs.
+ */
+export interface ProbeExample {
+  id?: string | null;
+  kind?: string | null;
+  case_id?: string | null;
+  probe_title?: string | null;
+  probe_question?: string | null;
+  input?: string | null;
+  baseline_output?: unknown;
+  expected?: unknown;
+  outcome?: string | null;
+  media_ids?: (string)[] | null;
+  check_result?: { [key: string]: unknown } | null;
+  plain_reading?: string | null;
+  evidence_scope?: string | null;
+  /** Producer-defined keys. The envelope is closed; payload areas are not. */
+  [key: string]: unknown;
+}
+
+/**
+ * One headline number an analyzer reported, already formatted.
+ */
+export interface ProbeMetric {
+  label: string;
+  value: string | null;
+}
+
+/**
+ * One M1 check (analyzer) and what it measured.
+ */
+export interface ProbeView {
+  id: string;
+  title: string;
+  display_name: string;
+  raw_name: string;
+  question: string;
+  description: string;
+  /**
+   * None when the analyzer reported no case count at all: unknown, not zero.
+   */
+  n_cases: number | null;
+  metrics: (ProbeMetric)[];
+  finding_summary: { [key: string]: unknown };
+  raw_finding_summary: { [key: string]: unknown };
+  sample_rows: ({ [key: string]: unknown })[];
+  n_sample_rows: number;
+}
+
+/**
  * The user's natural-language statement of what to investigate.
  *
  * Carried through to M2 (tool selection), M3 (prompt) and M4 (the
@@ -419,6 +616,93 @@ export interface ProtocolWire {
   description: string;
   task_domain?: string | null;
   probe_hints?: (string)[];
+  /** Producer-defined keys. The envelope is closed; payload areas are not. */
+  [key: string]: unknown;
+}
+
+/**
+ * One repair candidate and its paired comparison against the baseline.
+ * Every field is null when the run recorded no such candidate.
+ */
+export interface RepairCandidateView {
+  tier: string | null;
+  /**
+   * A join key, not language; `ref` and `headline` are what a reader sees.
+   */
+  name: string | null;
+  kind: string | null;
+  ref: string;
+  headline: string;
+  source: string | null;
+  verdict: string | null;
+  n_pairs: number | null;
+  n_baseline_correct: number | null;
+  n_candidate_correct: number | null;
+  n_fixed: number | null;
+  n_broken: number | null;
+  effect: number | null;
+  e_value: number | null;
+  e_threshold: number | null;
+  coverage: number | null;
+  reject: boolean | null;
+  fixed: boolean | null;
+  n_model_independent: number | null;
+  n_unstable: number | null;
+  summary: string | null;
+  payload: { [key: string]: unknown };
+  fixed_cases: (string)[];
+  broken_cases: (string)[];
+}
+
+/**
+ * One case before and after the strongest repair -- confirmed or not.
+ */
+export interface RepairExample {
+  id: string;
+  case_id: string;
+  /**
+   * "fixed", or "broken" when the attempt flipped no case to correct.
+   */
+  kind: string;
+  confirmed: boolean;
+  repair_name: string;
+  input: string;
+  expected: unknown;
+  baseline_output: unknown;
+  repaired_output: unknown;
+  media_ids: (string)[];
+  plain_reading: string;
+  baseline_available: boolean;
+}
+
+export interface RepairOperation {
+  action: string;
+  raw_action: string;
+  parameters: { [key: string]: unknown };
+}
+
+/**
+ * The image operations a repair declares, shown on a real case. A preview
+ * of the transform, not a recorded before/after.
+ */
+export interface RepairOperationPreview {
+  id: string;
+  candidate: string | null;
+  case_id: string;
+  input: string;
+  expected: unknown;
+  observed: unknown;
+  media_ids: (string)[];
+  executed: boolean;
+  operations: (RepairOperation)[];
+}
+
+/**
+ * The fix agent's own verdict on the run, and the sentence behind it.
+ */
+export interface RepairRecommendation {
+  action?: string | null;
+  reason?: string | null;
   /** Producer-defined keys. The envelope is closed; payload areas are not. */
   [key: string]: unknown;
 }
@@ -477,6 +761,25 @@ export interface StageStatus {
   reason?: string | null;
   duration_sec?: number | null;
   joins?: (JoinReport)[];
+}
+
+/**
+ * One statistical screen from M2, labelled for a reader.
+ */
+export interface StatView {
+  label: string;
+  raw_signal: string;
+  groups: (string)[];
+  effect: number | null;
+  ci: (number | null)[] | null;
+  reject: boolean;
+  underpowered: boolean;
+  summary: string;
+  p_value: number | null;
+  tool: string | null;
+  e_value: number | null;
+  fail_rate_signal: number | null;
+  fail_rate_control: number | null;
 }
 
 /**
@@ -560,6 +863,18 @@ export interface StatsToolResultWire {
 }
 
 /**
+ * One ranked finding the explorer wrote, and the charts it cites.
+ */
+export interface TakeawayView {
+  plain_title: string | null;
+  title: string | null;
+  analysis: string | null;
+  caveat: string | null;
+  chart_names: (string)[] | null;
+  table_names: (string)[] | null;
+}
+
+/**
  * The statistics behind one verdict, with its provenance.
  */
 export interface TestEvidence {
@@ -582,6 +897,89 @@ export interface TestEvidence {
   fail_rate_signal?: number | null;
   fail_rate_control?: number | null;
   details?: { [key: string]: unknown };
+}
+
+/**
+ * A proposal recovered from the judge's raw reply after the parser
+ * rejected it. Shown for audit only; it never reached M4.
+ */
+export interface UnparsedProposal {
+  statement: string;
+  plain_statement: string;
+  failure_mode: string;
+  test_design: string;
+  expected_association: string;
+  accepted_by_pipeline: boolean;
+}
+
+/**
+ * M4's raw log record. Verdict cards fall back to it when a result
+ * lacks a field.
+ */
+export interface ValidationEventView {
+  hypothesis?: string | null;
+  status?: string | null;
+  confidence_score?: number | null;
+  evidence?: ValidationEvidence | null;
+  /** Producer-defined keys. The envelope is closed; payload areas are not. */
+  [key: string]: unknown;
+}
+
+/**
+ * The statistics behind one held-out verdict, as the run recorded them.
+ */
+export interface ValidationEvidence {
+  ci?: (number | null)[] | null;
+  effect_size?: number | null;
+  evidence_grade?: string | null;
+  m4_verdict?: string | null;
+  fdr?: { [key: string]: unknown } | null;
+  /** Producer-defined keys. The envelope is closed; payload areas are not. */
+  [key: string]: unknown;
+}
+
+/**
+ * One held-out check made concrete: a logged validation case, or the
+ * aggregate test itself when the run kept no case-level example.
+ */
+export interface ValidationExample {
+  id?: string | null;
+  kind?: string | null;
+  hypothesis?: string | null;
+  test?: string | null;
+  status?: string | null;
+  effect?: number | null;
+  interval?: (number | null)[] | null;
+  verdict?: string | null;
+  case_id?: string | null;
+  input?: string | null;
+  baseline_output?: unknown;
+  expected?: unknown;
+  media_ids?: (string)[] | null;
+  plain_reading?: string | null;
+  evidence_scope?: string | null;
+  /** Producer-defined keys. The envelope is closed; payload areas are not. */
+  [key: string]: unknown;
+}
+
+/**
+ * One held-out verdict, as the run recorded it.
+ */
+export interface ValidationResultView {
+  hypothesis_id?: string | null;
+  hypothesis?: string | null;
+  statement?: string | null;
+  plain_statement?: string | null;
+  status?: string | null;
+  verdict?: string | null;
+  effect_size?: number | null;
+  confidence?: number | null;
+  ci?: (number | null)[] | null;
+  evidence_grade?: string | null;
+  protocol_consistent?: boolean | null;
+  evidence?: ValidationEvidence | null;
+  /** Producer-defined keys. The envelope is closed; payload areas are not. */
+  [key: string]: unknown;
 }
 
 /**
@@ -966,6 +1364,17 @@ export interface ProbeSearchOutput {
    * The FAIL subset. Feed this to cluster_failures.
    */
   failure_cases: CaseBatchRef;
+}
+
+/**
+ * ``ReportData.stage_detail``: the full record behind each stage.
+ */
+export interface StageDetail {
+  m1: M1StageDetail;
+  m2: M2StageDetail;
+  m3: M3StageDetail;
+  m4: M4StageDetail;
+  m5: M5StageDetail;
 }
 
 /**

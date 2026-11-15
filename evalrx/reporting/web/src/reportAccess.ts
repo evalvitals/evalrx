@@ -8,7 +8,7 @@
  * contract emission has no `contract` at all — and every one of those must
  * render as an honest blank rather than throwing.
  */
-import type { ReportData } from "./types";
+import type { ReportData, StageDetail } from "./types";
 
 /**
  * The newest contract payload for a stage, across cycles.
@@ -16,7 +16,7 @@ import type { ReportData } from "./types";
  * Spans are "c<cycle>.<stage>", so the last key in sort order is the last cycle
  * that ran. Returns undefined for a run that predates contract emission — the
  * caller must render without it rather than showing an error, since those runs
- * are still perfectly readable through the legacy stage_detail.
+ * are still perfectly readable through stage_detail.
  */
 export function findContract<T>(report: ReportData, stage: string): T | undefined {
   const payloads = report.contract;
@@ -28,10 +28,15 @@ export function findContract<T>(report: ReportData, stage: string): T | undefine
   return payload as T;
 }
 
-/** A `stage_detail` entry, or `{}` for a stage this run never reached. */
-export function stageDetail(report: ReportData, stage: string): Record<string, any> {
-  const detail = (report.stage_detail || {}) as Record<string, any>;
-  const value = detail[stage];
+/**
+ * A stage's `stage_detail` block, or `{}` for a stage this run never reached.
+ * Partial because an older payload can lack any of its keys.
+ */
+export function stageDetail<K extends keyof StageDetail>(
+  report: ReportData,
+  stage: K,
+): Partial<StageDetail[K]> {
+  const value = report.stage_detail?.[stage];
   return value && typeof value === "object" ? value : {};
 }
 
@@ -50,7 +55,7 @@ export function metric(report: ReportData, id: string): number | undefined {
  * a simplified one-line summary with no equivalent phrasing helper, so this
  * formatter is this report's own source of truth for that phrasing.
  */
-export function oddsPhrase(value: any): string {
+export function oddsPhrase(value: unknown): string {
   const e = Number(value);
   if (!Number.isFinite(e) || e <= 0) return "";
   if (e >= 1000) return "over 1000 to 1";
@@ -64,7 +69,7 @@ export function oddsPhrase(value: any): string {
  * wrapped as "about 1.5 to / 1", which reads as two numbers. The tile gets the
  * ratio alone, held on one line, and the words go in the note under it.
  */
-export function oddsValue(value: any): string {
+export function oddsValue(value: unknown): string {
   const e = Number(value);
   if (!Number.isFinite(e) || e <= 0) return "";
   const nbsp = "\u00a0";
@@ -118,14 +123,20 @@ export function headlineSplit(text: string): [string, string] {
   const head = firstSentence(clean);
   const tail = clean.length > head.length ? clean.slice(head.length).trim() : "";
   if (head.length <= HEADLINE_LIMIT) return [head, tail];
-  const breaks = [...head.matchAll(/\s*[—–;:]\s*|\s-\s/g)]
-    .filter((m) => (m.index ?? 0) > 40 && (m.index ?? 0) < HEADLINE_LIMIT + 60);
+  const breaks = [...head.matchAll(/\s*[—–;:]\s*|\s-\s/g)].filter(
+    (m) => (m.index ?? 0) > 40 && (m.index ?? 0) < HEADLINE_LIMIT + 60,
+  );
   if (!breaks.length) return [head, tail];
   const at = breaks[0].index ?? 0;
-  const cut = head.slice(0, at).trim().replace(/[,;:—–-]$/, "");
-  const moved = head.slice(at).replace(/^\s*[—–;:-]\s*/, "").trim();
-  const rejoined = [moved.charAt(0).toUpperCase() + moved.slice(1), tail]
-    .filter(Boolean).join(" ");
+  const cut = head
+    .slice(0, at)
+    .trim()
+    .replace(/[,;:—–-]$/, "");
+  const moved = head
+    .slice(at)
+    .replace(/^\s*[—–;:-]\s*/, "")
+    .trim();
+  const rejoined = [moved.charAt(0).toUpperCase() + moved.slice(1), tail].filter(Boolean).join(" ");
   return [`${cut}.`, rejoined];
 }
 
@@ -136,7 +147,7 @@ export function headlineSplit(text: string): [string, string] {
  * is not a quantity anyone can picture, and the denominator is the part that
  * says whether to believe it.
  */
-export function countOf(n: any, total: any): string {
+export function countOf(n: unknown, total: unknown): string {
   const count = Number(n);
   const whole = Number(total);
   if (!Number.isFinite(count)) return "—";
@@ -199,11 +210,13 @@ export function leadFrom(text: string, maxChars = 340): string {
   const ends = [...clean.slice(0, maxChars + 80).matchAll(/[.!?](?=\s|$)/g)]
     .map((m) => (m.index ?? 0) + 1)
     .filter((at) => at <= maxChars + 60);
-  return ends.length ? clean.slice(0, ends[ends.length - 1]).trim() : clean.slice(0, maxChars).trim();
+  return ends.length
+    ? clean.slice(0, ends[ends.length - 1]).trim()
+    : clean.slice(0, maxChars).trim();
 }
 
 /** A signed effect as "29 percentage points", or "" when there is no number. */
-export function pointsGap(effect: any): string {
+export function pointsGap(effect: unknown): string {
   const value = Number(effect);
   if (!Number.isFinite(value)) return "";
   const pp = Math.abs(value) * 100;

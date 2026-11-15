@@ -3,7 +3,7 @@
 This example diagnoses a **VLM over-detection hallucination**: for yes/no questions
 like *"Is there a {object} in the image?"*, the model sometimes answers **"Yes"** for
 an object that is **not** present. It runs the full LAMBDA×M2 pipeline and produces a
-dashboard that tells the whole story — *what was analysed → what was found → which
+report that tells the whole story — *what was analysed → what was found → which
 root-cause hypotheses were formed (and how they tested)*.
 
 The run is split into stages so the expensive M1 forward passes are frozen once and
@@ -39,29 +39,29 @@ python and the bundled `nature-figure` skill automatically):
 ```bash
 cd <repo-root>/examples/m1_m5/deco_hallu
 
-./run_all.sh        # from nothing → dashboard  (build_cases → M1 → fused → M2-5 → dashboard)
-./run_from_m1.sh    # assumes outputs/m1_state.pkl exists → skips M1 (fused → M2-5 → dashboard)
+./run_all.sh        # from nothing → report  (build_cases → M1 → fused → M2-5 → report)
+./run_from_m1.sh    # assumes outputs/m1_state.pkl exists → skips M1 (fused → M2-5 → report)
 ```
 
 Both accept env overrides, e.g. `MODEL=qwen3-vl-4b-instruct DEVICE=cuda BACKEND=claude
-PORT=8501 ./run_all.sh`. Set `DASHBOARD=0` to finish the pipeline without launching
-Streamlit (it just prints the dashboard command). The manual steps below are what the
+PORT=8501 ./run_all.sh`. Set `REPORT=0` to finish the pipeline without launching
+the report server (it just prints the `serve` command). The manual steps below are what the
 scripts wrap.
 
-### Decoupled flow — analyse → dashboard → *then* confirm + fix
+### Decoupled flow — analyse → report → *then* confirm + fix
 
 `run_all.sh` / `run_from_m1.sh` run the loop end to end (M2→M3→**M4**→Fix in one
-go). If you'd rather **see the analysis and proposed hypotheses on the dashboard
+go). If you'd rather **see the analysis and proposed hypotheses on the report
 before** spending GPU/claude on confirmation + repair, split it in two:
 
 ```bash
 cd <repo-root>/examples/m1_m5/deco_hallu
 
-./run_analysis.sh     # fused → run_analysis (M2 stats+charts → M3 PROPOSE) → dashboard
+./run_analysis.sh     # fused → run_analysis (M2 stats+charts → M3 PROPOSE) → report
                       #   no GPU; hypotheses are proposed, NOT yet confirmed (no M4/M5/Fix)
-./run_confirm_fix.sh  # later: M4 confirm (same hypotheses) → M5 + tiered Fix → dashboard
+./run_confirm_fix.sh  # later: M4 confirm (same hypotheses) → M5 + tiered Fix → report
                       #   GPU + claude; reuses outputs/analysis/ so the SAME hypotheses
-                      #   the dashboard showed are the ones confirmed
+                      #   the report showed are the ones confirmed
 ```
 
 - **`run_analysis.py`** runs `VLDiagnoseLoop.run_analysis()` — M1 (replayed) → M2
@@ -70,8 +70,8 @@ cd <repo-root>/examples/m1_m5/deco_hallu
   analysis_state.pkl}` (the proposed hypotheses + the exact M2 stats report).
 - **`run_confirm_fix.py`** reloads those artifacts and runs `VLDiagnoseLoop.run_confirm()`
   (M4) on the **same** hypotheses, then `run_m5` + `run_fix`, into
-  `outputs/logs_confirm_fix/run.json + M<n>/log.json`. The dashboard merges both log dirs, so
-  after this each proposed hypothesis gains its M4/M5/Fix verdict.
+  `outputs/logs_confirm_fix/run.json + M<n>/log.json` — a separate run beside the analysis
+  one; open it in the report to see each proposed hypothesis's M4/M5/Fix verdict.
 
 The one-shot `run_m2-5.py` (M2→M3→M4→Fix together) is still here for the
 all-in-one path.
@@ -121,20 +121,22 @@ ssh -L 8501:localhost:8501 <user>@<server>     # then browse http://localhost:85
   UNCONFIRMED) are shown to **M3 only**, to inform *which* hypotheses it proposes. They
   never enter M2 confirmation, M4 testing, or the fix gate.
 
-## What you get (the dashboard)
+## What you get (the report)
 
-Point the dashboard at `outputs` (the parent — **not** a sub-dir): it merges
-`logs_m1/` + `logs_m2_5/` and finds `fused/fused_report.json`, then renders a connected
-report in the **📊 Analysis** tab:
+Open a run in the report UI — `python -m evalrx.cli serve outputs/logs_m2_5` for the
+one-shot path, or `outputs/logs_analysis` / `outputs/logs_confirm_fix` for the
+decoupled one. Each run is shown on its own (log directories are not merged); the
+runs panel lists the example's other runs under `outputs/`, so you can switch
+between them. A run's report holds:
 
-1. **What we analysed** — the exploratory observations and the signals examined.
-2. **What we found** — the e-BH adjudication (which signals are *real* on the held-out
-   split), the signal effect-size chart, the signals table, the analyst's evidence chain,
-   and the exploratory charts + data tables.
-3. **Hypotheses formed** — each M3 root-cause hypothesis, tagged with the charts it drew
-   on and its downstream **M4/M5 verdict** (supported / inconclusive / refuted / fixed).
+1. **Overview** — the M1→M5 loop with each stage's outcome.
+2. **Stage evidence** — per stage, a one-screen summary and the full record: M2's
+   e-BH screens and exploratory charts, each M3 hypothesis with its test design,
+   and the M4/M5 verdicts (supported / inconclusive / refuted / fixed).
+3. **Case Studio** and **Debug** — every case's model I/O, and the raw event log.
 
-The **🔬 Diagnosis flow** and **🗂 Tables** tabs hold the raw event timeline and CSVs.
+`run_fused.py --serve-report` writes and opens a static HTML report of the Step 1
+fused output (`outputs/fused/report.html`), which is explore-shaped rather than a run.
 
 ## Outputs layout
 

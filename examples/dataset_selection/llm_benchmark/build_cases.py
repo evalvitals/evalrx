@@ -44,8 +44,11 @@ PKG_ROOT = next(p for p in HERE.resolve().parents if (p / "pyproject.toml").exis
 sys.path.insert(0, str(PKG_ROOT))
 
 import band_locate as B  # noqa: E402
-import datasets as CATALOG  # noqa: E402
 from regrade import grader_fingerprint as _grader_fingerprint  # noqa: E402
+
+from evalrx.benchmark.tasks.llm import catalog  # noqa: E402
+from evalrx.benchmark.tasks.llm.fetch import fetch_rows  # noqa: E402
+from evalrx.benchmark.tasks.llm.specs import plain_adapter  # noqa: E402
 
 CFG = yaml.safe_load((HERE / "config.yaml").read_text())
 # Thinking is OFF unless the config says otherwise; every baseline generation
@@ -69,7 +72,7 @@ def band_position(acc: float) -> str:
 
 def build(model_id: str, base_url: str, dataset: str, n: int,
           concurrency: int, max_tokens: int, sampling: dict) -> dict:
-    entry = CATALOG.get(dataset)
+    entry = catalog.get(dataset)
     spec = entry.spec
     B.MODEL_ID = model_id
     B.BASE_URL = base_url
@@ -80,8 +83,8 @@ def build(model_id: str, base_url: str, dataset: str, n: int,
     if n <= 0:
         n = entry.items
 
-    rows = B.fetch_rows(spec, n)
-    adapter = spec.adapter or B._adapter_plain(spec.question_field, spec.answer_field)
+    rows = fetch_rows(spec, n)
+    adapter = spec.adapter or plain_adapter(spec.question_field, spec.answer_field)
     items = []
     for row in rows:
         pair = adapter(row)
@@ -177,7 +180,7 @@ def main() -> None:
     # A dataset whose reference accuracy was measured at a larger budget must be
     # run at that budget or its FAIL labels are token-cap artefacts, not
     # capability. minervamath reads 0.500 at 65k and 0.320/budget_limited at 40k.
-    entry = CATALOG.get(args.dataset)
+    entry = catalog.get(args.dataset)
     max_tokens = args.max_tokens or entry.max_tokens or int(CFG["max_tokens"])
     if not args.max_tokens and entry.max_tokens:
         print(f"  NOTE {args.dataset} declares max_tokens={entry.max_tokens} "

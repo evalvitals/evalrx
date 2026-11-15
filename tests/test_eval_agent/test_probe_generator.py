@@ -7,6 +7,8 @@ exercised deterministically (no network, no real coding agent).
 
 from __future__ import annotations
 
+import pytest
+
 from evalrx.core.capability import Capability
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.eval_agent import ProbeAgent, ProbeGenerator
@@ -153,7 +155,8 @@ def test_runtime_failure_recorded_and_triggers_codegen():
     assert any(k.startswith("generated:") for k in results)
 
 
-def test_whitebox_analyzers_run_serially_not_in_thread_pool():
+@pytest.mark.parametrize("max_workers", [1, 8])
+def test_whitebox_analyzers_run_serially_not_in_thread_pool(max_workers):
     """White-box analyzers (GPU forward on the shared model) must run on the
     calling thread, not the ThreadPoolExecutor — concurrent forwards race on
     accelerate hooks (meta-tensor errors) and stack activations to OOM
@@ -184,7 +187,7 @@ def test_whitebox_analyzers_run_serially_not_in_thread_pool():
             ran_on["bb_b"] = threading.current_thread().ident
             return Result(analyzer=self.name, model=repr(model), findings={"ok": 1})
 
-    agent = ProbeAgent(max_analyzers=2,
+    agent = ProbeAgent(max_analyzers=2, max_workers=max_workers,
                        analyzer_overrides={"wb_a": WhiteBoxA(), "bb_b": BlackBoxB()})
     # Force selection of both via the static selector returning our names.
     agent.selector.select = lambda *a, **k: ["wb_a", "bb_b"]  # type: ignore
@@ -192,7 +195,7 @@ def test_whitebox_analyzers_run_serially_not_in_thread_pool():
     results = agent.probe(model, _cases())
     assert set(results) == {"wb_a", "bb_b"}
     assert ran_on["wb_a"] == main_thread        # white-box ran serially
-    # (black-box may run on a pool thread; we only require the white-box one is serial)
+    assert (ran_on["bb_b"] == main_thread) == (max_workers == 1)
 
 
 def test_failed_analyzers_surface_in_next_selection_prompt():

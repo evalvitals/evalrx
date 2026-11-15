@@ -647,7 +647,7 @@ def _default_judge() -> "Model":
         return AgyModel()
 
     if os.getenv("GEMINI_API_KEY"):
-        from evalrx.models.blackbox.gemini import GeminiModel
+        from evalrx.models.backends.api.gemini_model import GeminiModel
         return GeminiModel()
 
     raise ValueError(
@@ -678,7 +678,7 @@ class DiagnosisAgent:
         model_id: str = "gemini-2.0-flash",
     ) -> None:
         if judge is None and api_key is not None:
-            from evalrx.models.blackbox.gemini import GeminiModel
+            from evalrx.models.backends.api.gemini_model import GeminiModel
 
             judge = GeminiModel(model_id=model_id, api_key=api_key)
         self._judge = judge  # None → resolved lazily on first call
@@ -805,8 +805,7 @@ class DiagnosisAgent:
                           ``{analyzer_name: Result}`` dict.
             model_name:   Ignored when *analysis* is an ``AnalysisReport``
                           (the name is taken from the report).
-            prior_cycles: Summary of previous M1→M5 cycles produced by
-                          :class:`~evalrx.eval_agent.legacy.AutoDiagnoseLoop`.
+            prior_cycles: Summary of previous M1→M5 cycles, from the caller.
                           Each entry is ``{"cycle": int, "severity": str,
                           "hypotheses": [{"statement", "failure_mode", "status"}]}``.
                           Injected into the prompt so the judge avoids re-proposing
