@@ -44,43 +44,21 @@ References:
 
 from __future__ import annotations
 
-from collections import Counter
 from typing import TYPE_CHECKING, Any
 
 from evalrx.core.analyzer import Analyzer
 from evalrx.core.capability import Capability
 from evalrx.core.registry import register_analyzer
 from evalrx.core.result import Result
+from evalrx.wsp.continuation import GROUPINGS, repetition_mask
 
 if TYPE_CHECKING:
     from evalrx.core.case import CaseBatch
     from evalrx.core.model import Model
 
-GROUPINGS = ("repetition", "none")
-
-
-def repetition_mask(ids: "list[int]", n: int) -> "list[bool]":
-    """``mask[i]`` is True when the *n* tokens before index *i* occurred earlier.
-
-    The window ``ids[i-n:i]`` is compared with every earlier window of the same
-    length, so ``mask[i]`` describes the context in which token *i* is
-    predicted: inside a stretch the sequence has already produced once.
-    """
-    seen: set[tuple[int, ...]] = set()
-    mask = [False] * len(ids)
-    for i in range(n, len(ids)):
-        window = tuple(ids[i - n:i])
-        mask[i] = window in seen
-        seen.add(window)
-    return mask
-
-
-def _continuation_text(case: Any) -> "str | None":
-    observed = getattr(case, "observed", None)
-    if observed is None:
-        return None
-    text = observed if isinstance(observed, str) else str(observed)
-    return text if text.strip() else None
+# Re-exported: the grouping rule lives with the sequence builder so that the
+# audit and the continuation contrast label positions identically.
+__all__ = ["GROUPINGS", "WeightEditContinuationAudit", "repetition_mask"]
 
 
 @register_analyzer("weight_edit_continuation_audit")
@@ -147,7 +125,7 @@ class WeightEditContinuationAudit(Analyzer):
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
         import torch
 
-        from evalrx.analyzers._internals.access import media_positions, tokenizer_of
+        from evalrx.wsp.continuation import encode_continuations
         from evalrx.wsp.controls import CONTROL_KINDS, build_control
         from evalrx.wsp.direction import output_shift
         from evalrx.wsp.edit import applied, module_of, resolve_parameters
@@ -163,10 +141,6 @@ class WeightEditContinuationAudit(Analyzer):
         if int(self.max_tokens) < 3:
             raise ValueError(f"{self.name}: max_tokens must be at least 3")
         module = module_of(model)
-        tokenizer = tokenizer_of(model)
-        if tokenizer is None:
-            raise ValueError(f"{self.name}: the model handle exposes no tokenizer to encode "
-                             "the continuation with")
         resolved = resolve_parameters(module, self.edit)
         device = next(module.parameters()).device
         group_names = ("loop", "productive") if self.groups == "repetition" else ("all",)
@@ -177,42 +151,11 @@ class WeightEditContinuationAudit(Analyzer):
             return getattr(out, "logits", out)[0]
 
         # ---- Pass 1: build each case's token sequence and group labels -------------
-        items: list[dict[str, Any]] = []
-        skipped: Counter = Counter()
-        for case in cases.stratified_head(self.max_cases):
-            text = _continuation_text(case)
-            if text is None:
-                skipped["no_continuation"] += 1
-                continue
-            try:
-                trace = model.forward(case.inputs, capture={Capability.LOGITS})
-            except Exception:  # noqa: BLE001 - an unreadable case is counted, not fatal
-                skipped["forward_failed"] += 1
-                continue
-            if media_positions(trace)[1]:
-                skipped["has_media"] += 1
-                continue
-            prompt_ids = [int(t) for t in trace.token_ids]
-            try:
-                cont = tokenizer(text, add_special_tokens=False)["input_ids"]
-            except Exception:  # noqa: BLE001
-                skipped["continuation_untokenizable"] += 1
-                continue
-            if cont and isinstance(cont[0], (list, tuple)):
-                cont = cont[0]
-            ids = (prompt_ids + [int(t) for t in cont])[: int(self.max_tokens)]
-            start = len(prompt_ids)          # index of the first continuation token
-            if len(ids) <= start:
-                skipped["no_continuation_tokens_after_truncation"] += 1
-                continue
-            # Target index i (predicted from position i - 1) for every continuation token.
-            targets = list(range(max(start, 1), len(ids)))
-            if self.groups == "repetition":
-                mask = repetition_mask(ids, int(self.repeat_ngram))
-                labels = ["loop" if mask[i] else "productive" for i in targets]
-            else:
-                labels = ["all"] * len(targets)
-            items.append({"case": case, "ids": ids, "targets": targets, "labels": labels})
+        sequences, skipped = encode_continuations(
+            model, cases.stratified_head(self.max_cases), groups=self.groups,
+            repeat_ngram=int(self.repeat_ngram), max_tokens=int(self.max_tokens))
+        items = [{"case": q.case, "ids": q.ids, "targets": q.targets, "labels": q.labels}
+                 for q in sequences]
         if not items:
             raise ValueError(f"{self.name}: no case could be analysed (skipped: {dict(skipped)})")
 

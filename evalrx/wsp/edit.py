@@ -268,7 +268,11 @@ class WeightEdit:
         return cls(tensors, name=name, metadata={"source": "state_dict_difference"})
 
     def as_delta(self, module: Any) -> "WeightEdit":
-        """This edit as dense deltas against the CURRENT weights of *module*."""
+        """This edit as dense deltas against the CURRENT weights of *module*.
+
+        *module* may be a ``torch.nn.Module`` or a white-box model handle.
+        """
+        module = module_of(module)
         tensors = []
         for tensor_edit, (key, param) in zip(self.tensors, resolve_parameters(module, self)):
             delta = (tensor_edit.apply_to(param).double() - param.detach().double()).float()
