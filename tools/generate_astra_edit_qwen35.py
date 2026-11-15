@@ -32,8 +32,9 @@ presence penalty 1.5. Differences from the original, which matter:
 Speed. Answers are generated in batches, cached per weight state, and handed to
 the fix path one by one. Batching pads prompts on the left; before any long
 generation the script checks that a padded batch reproduces unpadded results on
-this architecture, and falls back to batching only prompts of equal length if it
-does not. Run with ``--timing-only`` first: it performs that check, measures
+this architecture. The check runs in float32, because in the checkpoint's 16-bit
+dtype batching alone already moves the output by rounding. If padding is not
+exact, problems are chosen so that every batch holds prompts of equal length. Run with ``--timing-only`` first: it performs that check, measures
 tokens per second, prints a time estimate and exits.
 
     python tools/generate_astra_edit_qwen35.py --edit-lens ~/Github/edit-lens --timing-only
@@ -279,8 +280,7 @@ def build_handle(module, tokenizer, watched, args):
             return self.records[arm][prompt]["text"]
 
         # -- is left padding exact here? -----------------------------------
-        def check_padding(self, prompts: "list[str]") -> dict:
-            """Compare next-token predictions of prompts alone and in a padded batch."""
+        def _padded(self, prompts: "list[str]"):
             encoded = [tokenizer(p)["input_ids"] for p in prompts]
             width = max(len(e) for e in encoded)
             ids = torch.full((len(encoded), width), pad_id, dtype=torch.long)
@@ -288,9 +288,13 @@ def build_handle(module, tokenizer, watched, args):
             for row, e in enumerate(encoded):
                 ids[row, width - len(e):] = torch.tensor(e)
                 mask[row, width - len(e):] = 1
+            return encoded, width, ids.to(device), mask.to(device)
+
+        def _gap(self, prompts: "list[str]") -> "tuple[float, bool, int]":
+            """Largest top-5 log-prob gap between each prompt alone and in one batch."""
+            encoded, width, ids, mask = self._padded(prompts)
             with torch.no_grad():
-                batched = module(input_ids=ids.to(device),
-                                 attention_mask=mask.to(device)).logits[:, -1].float()
+                batched = module(input_ids=ids, attention_mask=mask).logits[:, -1].float()
                 worst, same_top = 0.0, True
                 for row, e in enumerate(encoded):
                     alone = module(input_ids=torch.tensor([e], device=device)).logits[0, -1].float()
@@ -299,10 +303,39 @@ def build_handle(module, tokenizer, watched, args):
                     top = torch.topk(a, 5).indices
                     worst = max(worst, float((a[top] - b[top]).abs().max()))
                     same_top = same_top and int(a.argmax()) == int(b.argmax())
-            padded = sum(len(e) < width for e in encoded)
-            ok = same_top and worst < args.padding_tolerance
-            return {"ok": bool(ok), "same_top1": bool(same_top), "max_logprob_diff_top5": worst,
-                    "n_prompts": len(encoded), "n_padded": padded}
+            return worst, same_top, sum(len(e) < width for e in encoded)
+
+        def check_padding(self, prompts: "list[str]") -> dict:
+            """Is a left-padded batch the same computation as each prompt alone?
+
+            Measured in float32. In the checkpoint's own 16-bit dtype, running a
+            prompt alone and in a batch already differs by rounding, which can
+            both hide a masking error and look like one. Three gaps are reported:
+
+            ``float32_padded``    prompts of different lengths, padded — the test;
+            ``float32_unpadded``  one prompt repeated — the floor for float32;
+            ``native_unpadded``   the same in the checkpoint's dtype — how much
+                                  batching alone moves the output there.
+            """
+            dtype = next(module.parameters()).dtype
+            before = [float(p.detach().double().sum()) for p in watched]
+            native_floor, _, _ = self._gap([prompts[0]] * len(prompts))
+            native_padded, native_top, n_padded = self._gap(prompts)
+            module.float()
+            try:
+                f32_floor, _, _ = self._gap([prompts[0]] * len(prompts))
+                f32_padded, f32_top, _ = self._gap(prompts)
+            finally:
+                module.to(dtype)
+            after = [float(p.detach().double().sum()) for p in watched]
+            if before != after:  # a 16-bit value survives the trip through float32 exactly
+                raise RuntimeError("the weights changed during the padding check")
+            ok = f32_top and f32_padded < max(args.padding_tolerance, 10 * f32_floor)
+            return {"ok": bool(ok), "n_prompts": len(prompts), "n_padded": n_padded,
+                    "float32_padded": f32_padded, "float32_unpadded": f32_floor,
+                    "float32_same_top1": bool(f32_top), "native_padded": native_padded,
+                    "native_unpadded": native_floor, "native_same_top1": bool(native_top),
+                    "native_dtype": str(dtype).replace("torch.", "")}
 
     return Handle()
 
@@ -311,21 +344,50 @@ def build_handle(module, tokenizer, watched, args):
 # Data
 # ----------------------------------------------------------------------
 
-def gsm8k_cases(edit_lens: str, tokenizer, n_cases: int, stride: int):
+def gsm8k_cases(edit_lens: str, tokenizer, n_cases: int, stride: int, *,
+                equal_length_batches: int = 0):
+    """GSM8K test problems as cases.
+
+    Default: every *stride*-th problem. With ``equal_length_batches=B``:
+    problems are instead taken from the prompt lengths (in tokens) shared by at
+    least B problems, B per length, so every batch can be formed without
+    padding. That narrows the sample to common prompt lengths; the lengths used
+    are printed.
+    """
     from evalrx.core.case import CaseBatch, FailureCase, Inputs
 
     rows = []
     with open(os.path.join(edit_lens, "data", "gsm8k_test.jsonl"), encoding="utf-8") as fh:
         for line in fh:
             rows.append(json.loads(line))
-    chosen = rows[::max(1, stride)][:n_cases]
-    cases = []
-    for row in chosen:
-        prompt = tokenizer.apply_chat_template(
+
+    def prompt_of(row: dict) -> str:
+        return tokenizer.apply_chat_template(
             [{"role": "user", "content": row["question"] + "\n" + INSTRUCTION}],
             tokenize=False, add_generation_prompt=True, enable_thinking=True)
+
+    if equal_length_batches:
+        by_len: dict[int, list[dict]] = {}
+        for row in rows:
+            by_len.setdefault(len(tokenizer(prompt_of(row))["input_ids"]), []).append(row)
+        full = sorted((n for n, group in by_len.items() if len(group) >= equal_length_batches),
+                      key=lambda n: (-len(by_len[n]), n))
+        needed = -(-n_cases // equal_length_batches)
+        if len(full) < needed:
+            raise SystemExit(
+                f"only {len(full)} prompt lengths have {equal_length_batches} problems; "
+                f"{needed} are needed. Lower --batch-size or --n-cases.")
+        used = sorted(full[:needed])
+        chosen = [row for n in used for row in by_len[n][:equal_length_batches]][:n_cases]
+        print(f"problems chosen by prompt length so that batches need no padding: "
+              f"lengths {used} tokens, {equal_length_batches} problems each")
+    else:
+        chosen = rows[::max(1, stride)][:n_cases]
+    cases = []
+    for row in chosen:
         gold = row["answer"].split("####")[-1].strip().replace(",", "")
-        cases.append(FailureCase(inputs=Inputs(prompt=prompt), expected=gold, id=str(row["id"])))
+        cases.append(FailureCase(inputs=Inputs(prompt=prompt_of(row)), expected=gold,
+                                 id=str(row["id"])))
     return CaseBatch(cases)
 
 
@@ -382,8 +444,10 @@ def main() -> int:
     parser.add_argument("--no-control", action="store_true",
                         help="skip the random-direction control arm (saves a third of the time)")
     parser.add_argument("--no-verify-base", action="store_true")
-    parser.add_argument("--padding-tolerance", type=float, default=0.25,
-                        help="largest log-prob difference accepted between padded and unpadded runs")
+    parser.add_argument("--padding-tolerance", type=float, default=0.01,
+                        help="largest float32 log-prob gap accepted between padded and unpadded runs")
+    parser.add_argument("--exact-batches", action="store_true",
+                        help="never pad: choose problems whose prompts have equal length")
     parser.add_argument("--repeat-ngram", type=int, default=32)
     parser.add_argument("--timing-only", action="store_true",
                         help="check batching, measure speed, print a time estimate and exit")
@@ -422,14 +486,30 @@ def main() -> int:
     probe = sorted(model.prompts, key=len)
     probe = probe[:2] + probe[-2:] if len(probe) >= 4 else probe
     padding = model.check_padding(probe)
+    print(f"padding check ({padding['n_prompts']} prompts, {padding['n_padded']} padded):")
+    print(f"  float32: padded vs alone {padding['float32_padded']:.5f}, "
+          f"same prompt repeated vs alone {padding['float32_unpadded']:.5f} "
+          f"(largest top-5 log-prob gap; same top-1: {padding['float32_same_top1']})")
+    print(f"  {padding['native_dtype']}: padded vs alone {padding['native_padded']:.5f}, "
+          f"same prompt repeated vs alone {padding['native_unpadded']:.5f}")
+    padding["exact"] = padding["ok"]
+    if args.exact_batches:
+        padding["ok"] = False
+    if padding["ok"]:
+        print("  -> padding is exact in float32; batching any prompts together. The "
+              f"{padding['native_dtype']} gap is rounding, of the size batching alone causes.")
+    else:
+        print("  -> padding is not used ("
+              + ("--exact-batches" if padding["exact"] else
+                 "it changes the computation on this architecture")
+              + "). Selecting problems whose prompts have equal length instead.")
+        cases = gsm8k_cases(args.edit_lens, tokenizer, args.n_cases, args.stride,
+                            equal_length_batches=args.batch_size)
+        model.prompts = [c.inputs.prompt for c in cases]
     model.padding_ok = padding["ok"]
-    print(f"padding check on {padding['n_prompts']} prompts ({padding['n_padded']} padded): "
-          f"same top-1 {padding['same_top1']}, largest log-prob difference "
-          f"{padding['max_logprob_diff_top5']:.4f} -> "
-          + ("batching any prompts together" if padding["ok"] else
-             "NOT exact; batching only prompts of equal length"))
     batches = model.batches()
-    print(f"{len(batches)} batches per arm (sizes {sorted({len(b) for b in batches})})")
+    print(f"{len(cases)} problems in {len(batches)} batches per arm "
+          f"(sizes {sorted({len(b) for b in batches})})")
 
     # ---- Speed -----------------------------------------------------------------------
     first = batches[0]
