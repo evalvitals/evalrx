@@ -176,7 +176,19 @@ class FixAgent:
                           the same cases is leakage, not a fix). ``None``
                           (default) means L4 candidates are recorded but not
                           executed, same as before this executor existed.
-                          See :func:`~.internals.run_lora_repair`.
+                          See :func:`~.internals.run_lora_repair`. The
+                          weight-edit executor reads its edit direction from
+                          the same pool, under the same disjointness rule.
+        weight_edit:      Opt in to a training-free weight edit at L4
+                          (:mod:`.weight_edit`): ``True`` for the default
+                          settings, or a dict of
+                          :class:`~.weight_edit.WeightEditSpec` fields
+                          (``alpha``, ``n_columns``, ``n_layers``, ``layers``,
+                          ``edit_dir``, ...). ``None`` (default) proposes no
+                          weight edit. Needs a local white-box model, and a
+                          ``finetune_pool`` unless ``edit_dir`` names a saved
+                          edit; otherwise the candidate is recorded with the
+                          reason it did not run.
         verbose:          When ``True``, print this agent's own tier-routing /
                           candidate-generation / validation-verdict narration
                           to stdout (``evalrx.enable_console_logging()``).
@@ -236,6 +248,7 @@ class FixAgent:
         paper_methods_only: bool = False,
         candidate_allowlist: "Iterable[str] | None" = None,
         finetune_pool: "CaseBatch | None" = None,
+        weight_edit: "bool | dict[str, Any] | None" = None,
         verbose: bool = False,
         baseline_generation_kwargs: "dict[str, Any] | None" = None,
         concurrency: int = 1,
@@ -309,6 +322,7 @@ class FixAgent:
             scoring_note=scoring_note,
             floor_candidates=floor_candidates,
             deployed_spec=deployed_spec,
+            weight_edit=weight_edit,
         )
         self.validator = CandidateValidator(
             score=score,
@@ -717,7 +731,8 @@ class FixAgent:
             key = str(p.get("code", ""))
         else:
             key = json.dumps(
-                {k: v for k, v in p.items() if k != "exec_error"}, sort_keys=True, default=str
+                {k: v for k, v in p.items() if k not in ("exec_error", "audit")},
+                sort_keys=True, default=str,
             )
         return (candidate.kind, candidate.name, key)
 

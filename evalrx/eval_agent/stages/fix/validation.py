@@ -281,6 +281,7 @@ class CandidateValidator:
             "primitive": self._run_primitive,
             "code": self._run_code,
             "finetune_spec": self._run_finetune,
+            "weight_edit": self._run_weight_edit,
         }.get(candidate.kind)
         if batch is not None:
             return batch(candidate, model, data, max_tokens_floor=max_tokens_floor)
@@ -490,6 +491,23 @@ class CandidateValidator:
         result = run_lora_repair(model, self.finetune_pool, data, candidate.payload, self.score)
         if isinstance(candidate.payload, dict):
             candidate.payload["exec_error"] = "" if result.ok else result.error
+        return result.scores
+
+    def _run_weight_edit(
+        self, candidate: FixCandidate, model: "Model", data: "CaseBatch", **_: Any
+    ) -> "dict[str, Optional[bool]]":
+        """Generate *data* under a training-free weight edit (see :mod:`.weight_edit`)."""
+        from evalrx.eval_agent.stages.fix.weight_edit import run_weight_edit_repair
+
+        model = self.recorder.instrument(model, data, f"fix_weight_edit:{candidate.name}")
+        result = run_weight_edit_repair(model, self.finetune_pool, data, candidate.payload, self.score)
+        for cid, output in result.outputs.items():
+            self._record_output(cid, output)
+        if isinstance(candidate.payload, dict):
+            candidate.payload["exec_error"] = "" if result.ok else result.error
+            # What was applied and how the matched control fared travels with
+            # the candidate's record, next to its validation.
+            candidate.payload["audit"] = result.audit
         return result.scores
 
     def rates(

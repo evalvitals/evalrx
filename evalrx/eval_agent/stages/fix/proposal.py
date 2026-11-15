@@ -389,6 +389,7 @@ class FixProposer:
         scoring_note: str = "",
         floor_candidates: "Iterable[str] | None" = ("self_consistency_5",),
         deployed_spec: "dict[str, Any] | None" = None,
+        weight_edit: "bool | dict[str, Any] | None" = None,
     ) -> None:
         self._judge = judge
         self.recorder = recorder
@@ -407,6 +408,10 @@ class FixProposer:
             tuple(str(n) for n in floor_candidates) if floor_candidates else ()
         )
         self._deployed_spec = dict(deployed_spec) if deployed_spec else None
+        # None / False: no weight-edit candidate. True: default settings.
+        self._weight_edit: "dict[str, Any] | None" = (
+            None if not weight_edit else ({} if weight_edit is True else dict(weight_edit))
+        )
 
     def propose(
         self,
@@ -625,6 +630,7 @@ class FixProposer:
             and (min_tier is None or min_tier <= FixTier.L4_PARAMETERS)
         ):
             candidates += self._l4_candidates(hyp_lines)
+            candidates += self._weight_edit_candidates(model, prior_names)
         if min_tier is not None:
             candidates = [c for c in candidates if c.tier >= min_tier]
         if self._candidate_allowlist is not None:
@@ -1411,6 +1417,37 @@ class FixProposer:
                 kind="finetune_spec",
                 payload=spec.to_dict(),
                 source="judge" if self._judge is not None else "default",
+            )
+        ]
+
+    def _weight_edit_candidates(
+        self, model: "Model", prior_names: "frozenset[str]"
+    ) -> "list[FixCandidate]":
+        """L4 training-free weight edit — opt-in, host-parameterised, never judge-authored."""
+        from evalrx.eval_agent.stages.fix.weight_edit import (
+            CANDIDATE_KIND,
+            CANDIDATE_NAME,
+            WeightEditSpec,
+            weight_edit_available,
+        )
+
+        if self._weight_edit is None or CANDIDATE_NAME in prior_names:
+            return []
+        if not weight_edit_available(model):
+            logger.info("FixAgent: weight edit requested but %r has no editable MLP writes", model)
+            return []
+        try:
+            spec = WeightEditSpec.from_payload(self._weight_edit)
+        except (TypeError, ValueError) as exc:
+            logger.warning("FixAgent: ignoring invalid weight_edit settings: %s", exc)
+            return []
+        return [
+            FixCandidate(
+                tier=FixTier.L4_PARAMETERS,
+                name=CANDIDATE_NAME,
+                kind=CANDIDATE_KIND,
+                payload=spec.to_dict(),
+                source="default",
             )
         ]
 

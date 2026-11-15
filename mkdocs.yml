@@ -37,6 +37,7 @@ nav:
   - Command-Line Interface: cli.md
   - Exploratory Analysis (M2/M3): m2_analysis.md
   - Verification & Intervention (M4/M5): intervention.md
+  - Weight Edits & Probe Tools: wsp_and_probe_tools.md
   - Stage Input/Output Reference: stage_io.md
   - Analyzer Zoo: analyzers.md
   - Architecture: architecture.md

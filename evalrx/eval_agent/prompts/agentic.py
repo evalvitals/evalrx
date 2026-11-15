@@ -22,6 +22,9 @@ Rules:
 - Do not repeat a tool past its stated call limit.
 - Do not call a tool that is marked BLOCKED until its listed precondition(s)
   are met — run the blocking step first.
+- To test a specific suspected mechanism, call "list_probes" to see which
+  probes can run and what arguments they take, then "run_probe" with the
+  probe's name; "run_probe" with no params lets the probe agent choose.
 - Prefer the order that makes evidentiary sense (e.g. you need probe findings
   before stats, stats before hypotheses, hypotheses before testing one) but
   you decide the sequence and when to stop, not a fixed script.
