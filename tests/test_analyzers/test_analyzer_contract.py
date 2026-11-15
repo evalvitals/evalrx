@@ -61,11 +61,13 @@ from evalrx.analyzers.uncertainty.entropy import TokenEntropyAnalyzer
 from evalrx.analyzers.uncertainty.logprob_entropy import LogprobEntropyAnalyzer
 from evalrx.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer
 from evalrx.analyzers.uncertainty.verbalized_conf import VerbalizedConfidenceAnalyzer
+from evalrx.analyzers.weights import WeightEditAudit, WeightEditStructure
 from evalrx.core.capability import Capability, CapabilityError
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label, Step, StepRole, Trajectory
 from evalrx.core.registry import registry
 from evalrx.core.result import Result
 from evalrx.datasets import cases_from_records
+from evalrx.wsp import TensorEdit, WeightEdit
 from tests.conftest import FakeModel
 
 # ── shared fixtures ────────────────────────────────────────────────────────────
@@ -234,6 +236,11 @@ _SKIPPED_REASON: dict[str, str] = {
     "embed_lens":         "needs a live torch module; see test_intervention_analyzers.py",
     "attention_sensitivity": "needs a live torch module; see test_intervention_analyzers.py",
     "head_attribution":   "needs a live torch module; see test_intervention_analyzers.py",
+    # Weight-edit analyzers take the edit as a constructor argument and write it
+    # into a live torch module. Their result contract runs against a model with
+    # a planted defect in test_weight_edit_analyzers.py.
+    "weight_edit_structure": "needs a WeightEdit + live torch module; see test_weight_edit_analyzers.py",
+    "weight_edit_audit":     "needs a WeightEdit + live torch module; see test_weight_edit_analyzers.py",
 }
 
 
@@ -866,6 +873,9 @@ _STUBS: list[tuple[Any, Any, Any]] = [
 _STUBS_IDS = [a.name for a, _, _ in _STUBS]
 
 
+# A minimal edit for constructing the weight-edit analyzers (never applied here).
+_WEIGHT_EDIT = WeightEdit([TensorEdit.rank_one("layers.0.mlp.down_proj.weight", [1.0, 0.0], 1.0)])
+
 _CLASS_FACTORIES: dict[str, Callable[[], Any]] = {
     "counterfactual": lambda: CounterfactualReplay(
         rerun_fn=lambda traj, idx, seed: True,
@@ -877,6 +887,8 @@ _CLASS_FACTORIES: dict[str, Callable[[], Any]] = {
         run_with_tools=lambda case, names: None, tool_names=["a"]
     ),
     "trajectory_rubric": lambda: TrajectoryRubricJudge(judge=_RUBRIC_JUDGE),
+    "weight_edit_structure": lambda: WeightEditStructure(edit=_WEIGHT_EDIT),
+    "weight_edit_audit": lambda: WeightEditAudit(edit=_WEIGHT_EDIT),
 }
 
 

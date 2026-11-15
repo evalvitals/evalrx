@@ -14,7 +14,8 @@ for more causal reach:
                             confidence routing)
     L3b  internals (write)  modify the forward pass: attention reweighting,
                             sink suppression, activation steering
-    L4   parameter space    build a dataset, fine-tune, re-test
+    L4   parameter space    build a dataset, fine-tune, re-test; or write a
+                            training-free weight edit (opt-in)
 
 The allowed tier is an **input** to the fix module (default L2) — there is no
 automatic escalation.  When every candidate within the allowed tier fails

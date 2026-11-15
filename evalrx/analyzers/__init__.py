@@ -20,6 +20,8 @@ self-registers on import.  Categories (full tables: docs/analyzers.md):
     reasoning/      extraction/termination hygiene; arithmetic,
                     self-repair, step-value, knowledge split,
                     contamination                                  — GENERATE
+    weights/        weight-edit structure / weight-edit audit
+                    (controls + steering comparison)               — LOGITS (weights, write)
     agent/          loop / ignored-obs / first-error / rubric /
                     counterfactual / reliability / tool-SHAP       — Trajectory
 
@@ -41,6 +43,7 @@ from evalrx.analyzers import (  # noqa: F401  -- import to self-register
     perturbation,
     reasoning,
     uncertainty,
+    weights,
 )
 from evalrx.analyzers.base import Analyzer, Result
 

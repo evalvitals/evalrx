@@ -1,0 +1,240 @@
+"""Derive a rank-one weight edit from a contrast between two groups of cases.
+
+A weight edit needs a direction and a set of neurons. When no one has written
+the edit by hand, both can be read from the model's own activations on labelled
+cases, without any gradient step:
+
+* the DIRECTION at a layer is the difference between the mean MLP output on
+  failing cases and on passing cases (unit length) — the component of the
+  layer's write that separates the two groups;
+* the NEURONS are the columns of the MLP output projection that push hardest
+  along that direction on failing cases relative to passing ones:
+  ``score_j = (mean_fail_j - mean_pass_j) * (u^T w_j)``.
+
+The resulting edit ``w_j' = w_j - alpha * u (u^T w_j)`` on those columns removes
+(``alpha = 1``) or reverses (``alpha > 1``) exactly that push.
+
+This is a heuristic for PROPOSING an edit. It says nothing about whether the
+edit helps: that is decided by validating it on cases the direction was not
+computed from, against controls (:mod:`evalrx.wsp.controls`).
+
+Activations are read at the last prompt position, where the first answer token
+is predicted. A failure that only develops during generation (for example a
+repetition loop) is not visible there.
+"""
+
+from __future__ import annotations
+
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Iterable, Iterator
+
+from evalrx.wsp.edit import TensorEdit, WeightEdit, module_of
+
+if TYPE_CHECKING:
+    from evalrx.core.model import Model
+
+#: Attribute paths of the MLP output projection inside a decoder layer, most
+#: common first. The projection must be an ``nn.Linear`` whose weight is
+#: ``[d_model, d_mlp]``.
+_WRITE_PATHS = ("mlp.down_proj", "mlp.fc2", "mlp.c_proj", "mlp.fc_out", "feed_forward.w2",
+                "feed_forward.down_proj", "ffn.down_proj")
+
+
+@dataclass(frozen=True)
+class WriteSite:
+    """The MLP output projection of one decoder layer."""
+
+    layer: int
+    module: Any = field(repr=False, compare=False)
+    name: str = ""  # full parameter name of the weight
+
+
+def write_sites(model: Any) -> "list[WriteSite]":
+    """MLP output projections of the language decoder, one per layer that has one.
+
+    Layers whose MLP is not a single linear write (for example a
+    mixture-of-experts block) are skipped rather than guessed at.
+    """
+    import torch.nn as nn
+
+    from evalrx.analyzers._internals.access import decoder_stack
+
+    module = module_of(model)
+    stack = decoder_stack(module)
+    names = {id(p): n for n, p in module.named_parameters()}
+    sites: list[WriteSite] = []
+    for index, layer in enumerate(stack.layers):
+        for path in _WRITE_PATHS:
+            obj = layer
+            for part in path.split("."):
+                obj = getattr(obj, part, None)
+                if obj is None:
+                    break
+            if isinstance(obj, nn.Linear) and id(obj.weight) in names:
+                sites.append(WriteSite(layer=index, module=obj, name=names[id(obj.weight)]))
+                break
+    return sites
+
+
+@contextmanager
+def _capture_last(sites: "list[WriteSite]") -> "Iterator[dict[int, dict[str, Any]]]":
+    """Record each site's input and output at the last sequence position."""
+    captured: dict[int, dict[str, Any]] = {s.layer: {} for s in sites}
+
+    def make(layer: int):
+        def hook(_module: Any, args: Any, output: Any) -> None:
+            captured[layer]["in"] = args[0].detach()[0, -1].double().cpu()
+            captured[layer]["out"] = output.detach()[0, -1].double().cpu()
+        return hook
+
+    handles = [s.module.register_forward_hook(make(s.layer)) for s in sites]
+    try:
+        yield captured
+    finally:
+        for handle in handles:
+            handle.remove()
+
+
+def collect_write_stats(model: "Model", cases: Iterable[Any], *,
+                        layers: "Iterable[int] | None" = None) -> "dict[int, dict[str, Any]]":
+    """Mean MLP input (neuron activations) and output at the last position.
+
+    Returns ``{layer: {"in": mean activations [d_mlp], "out": mean write
+    [d_model], "n": cases}}``. Cases whose forward pass fails are skipped.
+    """
+    from evalrx.core.capability import Capability
+
+    sites = write_sites(model)
+    if layers is not None:
+        wanted = {int(i) for i in layers}
+        sites = [s for s in sites if s.layer in wanted]
+    sums: dict[int, dict[str, Any]] = {s.layer: {"in": None, "out": None, "n": 0} for s in sites}
+    for case in cases:
+        with _capture_last(sites) as captured:
+            try:
+                model.forward(getattr(case, "inputs", case), capture={Capability.LOGITS})
+            except Exception:  # noqa: BLE001 - one unreadable case must not end the pass
+                continue
+        for layer, got in captured.items():
+            if "in" not in got:
+                continue
+            acc = sums[layer]
+            acc["in"] = got["in"] if acc["in"] is None else acc["in"] + got["in"]
+            acc["out"] = got["out"] if acc["out"] is None else acc["out"] + got["out"]
+            acc["n"] += 1
+    return {
+        layer: {"in": acc["in"] / acc["n"], "out": acc["out"] / acc["n"], "n": acc["n"]}
+        for layer, acc in sums.items() if acc["n"]
+    }
+
+
+def contrast_edit(
+    model: "Model",
+    fail_cases: Iterable[Any],
+    pass_cases: Iterable[Any],
+    *,
+    layers: "Iterable[int] | None" = None,
+    n_layers: int = 2,
+    n_columns: int = 64,
+    alpha: float = 1.0,
+    name: str = "contrast_rank_one",
+) -> WeightEdit:
+    """Build a rank-one edit from the FAIL-minus-PASS contrast (see module docstring).
+
+    Args:
+        model:      White-box model handle.
+        fail_cases: Cases the model gets wrong.
+        pass_cases: Cases the model gets right.
+        layers:     Decoder layers to edit. Default: the *n_layers* layers
+                    whose mean writes differ most between the groups, relative
+                    to the size of the write.
+        n_layers:   How many layers to pick when *layers* is not given.
+        n_columns:  Neurons edited per layer (capped at the layer's width).
+        alpha:      Strength of ``w' = w - alpha u (u^T w)``.
+
+    Raises:
+        ValueError: when either group is empty after the forward passes, or the
+                    model has no recognisable MLP output projection.
+    """
+    import torch
+
+    sites = {s.layer: s for s in write_sites(model)}
+    if not sites:
+        raise ValueError("no MLP output projection found in the decoder layers")
+    chosen = None if layers is None else [int(i) for i in layers]
+    if chosen is not None:
+        unknown = sorted(set(chosen) - set(sites))
+        if unknown:
+            raise ValueError(f"layers {unknown} have no MLP output projection "
+                             f"(available: {sorted(sites)})")
+    fail = collect_write_stats(model, fail_cases, layers=chosen)
+    passed = collect_write_stats(model, pass_cases, layers=chosen)
+    shared = sorted(set(fail) & set(passed))
+    if not shared:
+        raise ValueError("need at least one readable FAIL case and one readable PASS case")
+
+    separation: dict[int, float] = {}
+    for layer in shared:
+        gap = fail[layer]["out"] - passed[layer]["out"]
+        scale = 0.5 * (fail[layer]["out"].norm() + passed[layer]["out"].norm())
+        separation[layer] = float(gap.norm() / scale) if float(scale) > 0 else 0.0
+    if chosen is None:
+        chosen = sorted(sorted(shared, key=lambda i: -separation[i])[: max(1, int(n_layers))])
+    else:
+        chosen = [i for i in chosen if i in separation]
+
+    tensors: list[TensorEdit] = []
+    picked: dict[str, Any] = {}
+    for layer in chosen:
+        gap = fail[layer]["out"] - passed[layer]["out"]
+        if float(gap.norm()) == 0.0:
+            continue
+        u = gap / gap.norm()
+        weight = sites[layer].module.weight.detach().double().cpu()
+        push = (fail[layer]["in"] - passed[layer]["in"]) * (u @ weight)
+        k = min(int(n_columns), push.numel())
+        cols = torch.topk(push, k).indices
+        cols = cols[push[cols] > 0]  # only neurons that push TOWARD the failure side
+        if cols.numel() == 0:
+            continue
+        tensors.append(TensorEdit.rank_one(sites[layer].name, u, alpha, cols=cols.sort().values))
+        picked[str(layer)] = {"n_columns": int(cols.numel()),
+                              "separation": round(separation[layer], 6)}
+    if not tensors:
+        raise ValueError("the FAIL and PASS groups do not differ at any candidate layer")
+    return WeightEdit(tensors, name=name, metadata={
+        "source": "contrast", "alpha": float(alpha), "layers": picked,
+        "n_fail": min(fail[i]["n"] for i in shared), "n_pass": min(passed[i]["n"] for i in shared),
+        "position": "last_prompt_token",
+    })
+
+
+@contextmanager
+def output_shift(model: Any, shifts: "dict[str, Any]") -> Iterator[None]:
+    """Add a constant vector to the output of chosen linear layers, weights untouched.
+
+    *shifts* maps a weight's full parameter name (as in
+    :attr:`WriteSite.name`) to a vector of the layer's output size. This is the
+    activation-steering counterpart of a weight edit: if a constant shift
+    reproduces the edit's effect, the edit did not need to depend on the input.
+    """
+    import torch
+
+    module = module_of(model)
+    owners = {f"{n}.weight" if n else "weight": m for n, m in module.named_modules()
+              if isinstance(m, torch.nn.Linear)}
+    handles = []
+    try:
+        for key, vector in shifts.items():
+            if key not in owners:
+                raise KeyError(f"no linear layer owns parameter {key!r}")
+
+            def hook(_module: Any, _args: Any, output: Any, vector: Any = vector) -> Any:
+                return output + vector.to(device=output.device, dtype=output.dtype)
+
+            handles.append(owners[key].register_forward_hook(hook))
+        yield
+    finally:
+        for handle in handles:
+            handle.remove()

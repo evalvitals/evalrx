@@ -74,6 +74,10 @@ BUILTIN_DESCRIPTIONS: "dict[str, str]" = {
         "makes a yes-or-no call.",
     "pai_image_attention":
         "Makes the model weigh the picture more heavily and its own prior expectations less.",
+    "rank_one_weight_edit":
+        "Changes a small part of the model's own weights directly, without any training, "
+        "so that the internal signal seen on failing questions is removed, and compares "
+        "that against an equally large random change.",
     "salient_crop":
         "Crops the picture to its most eye-catching region before asking.",
     "self_consistency_5":
