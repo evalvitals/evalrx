@@ -77,8 +77,8 @@ class ToyLM(torch.nn.Module):
             mlp.down_proj.weight[:, DEFECT_NEURON].zero_()
             mlp.down_proj.weight[WRONG_TOKEN, DEFECT_NEURON] = 3.0
 
-    def forward(self, ids: torch.Tensor) -> torch.Tensor:
-        h = self.embed(ids)                 # [1, seq, D]
+    def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
+        h = self.embed(input_ids)           # [1, seq, D]
         for layer in self.layers:
             h = layer(h)
         return h                            # identity unembedding: logits are the stream

@@ -61,7 +61,11 @@ from evalrx.analyzers.uncertainty.entropy import TokenEntropyAnalyzer
 from evalrx.analyzers.uncertainty.logprob_entropy import LogprobEntropyAnalyzer
 from evalrx.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer
 from evalrx.analyzers.uncertainty.verbalized_conf import VerbalizedConfidenceAnalyzer
-from evalrx.analyzers.weights import WeightEditAudit, WeightEditStructure
+from evalrx.analyzers.weights import (
+    WeightEditAudit,
+    WeightEditContinuationAudit,
+    WeightEditStructure,
+)
 from evalrx.core.capability import Capability, CapabilityError
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label, Step, StepRole, Trajectory
 from evalrx.core.registry import registry
@@ -241,6 +245,8 @@ _SKIPPED_REASON: dict[str, str] = {
     # a planted defect in test_weight_edit_analyzers.py.
     "weight_edit_structure": "needs a WeightEdit + live torch module; see test_weight_edit_analyzers.py",
     "weight_edit_audit":     "needs a WeightEdit + live torch module; see test_weight_edit_analyzers.py",
+    "weight_edit_continuation_audit":
+        "needs a WeightEdit + live torch module; see test_weight_edit_continuation.py",
 }
 
 
@@ -889,6 +895,7 @@ _CLASS_FACTORIES: dict[str, Callable[[], Any]] = {
     "trajectory_rubric": lambda: TrajectoryRubricJudge(judge=_RUBRIC_JUDGE),
     "weight_edit_structure": lambda: WeightEditStructure(edit=_WEIGHT_EDIT),
     "weight_edit_audit": lambda: WeightEditAudit(edit=_WEIGHT_EDIT),
+    "weight_edit_continuation_audit": lambda: WeightEditContinuationAudit(edit=_WEIGHT_EDIT),
 }
 
 

@@ -170,6 +170,37 @@ box = ProbeToolbox(model, cases, overrides={"weight_edit_audit": WeightEditAudit
 box.call("weight_edit_audit", {"target": "gold", "n_seeds": 5})
 ```
 
+### Audit an edit along a generation
+
+Some edits act only during generation. `weight_edit_continuation_audit` appends
+each case's recorded output (`case.observed`) to its prompt and scores every
+continuation position on the token that actually came next:
+
+```python
+from evalrx.analyzers.weights import WeightEditContinuationAudit
+
+findings = WeightEditContinuationAudit(
+    edit=edit, groups="repetition", repeat_ngram=32, n_seeds=2,
+).run(model, cases).findings
+```
+
+A prediction counts as in-loop when the `repeat_ngram` tokens before the
+predicted token already occurred earlier in the sequence, and as productive
+otherwise. Per group the findings give the change in negative log-likelihood of
+the recorded token (`mean_dnll_<state>_<group>`), the KL divergence from the
+unedited distribution, `specificity_<control>_<group>` and
+`steer_recovery_<group>`; `dnll_edit_loop_minus_productive` is positive when the
+edit makes looped text less likely than ordinary text.
+
+This is teacher-forced on text the unedited model wrote. It measures what each
+state does to the probability of that text, not what an edited model would
+write. Positions within one generation are not independent, so compare the
+`per_case` rows before drawing a conclusion from the pooled means. The model
+handle must tokenise the prompt exactly as it was when the text was generated.
+
+`tools/check_astra_edit_qwen35.py` and `tools/audit_astra_edit_qwen35.py` run
+the structure check and this audit for the published p50c edit on Qwen3.5-0.8B.
+
 ### As a repair (fix tier L4)
 
 ```python
@@ -208,8 +239,11 @@ reason it did not run. The judge never writes the edit or any hook code.
   rebuild rule bit for bit on synthetic bfloat16 tensors, and reads the
   published edit files. It has not been run against the original base
   checkpoint.
-- Nothing here has been run on a full-size model. Whether a contrast-derived
-  edit repairs real failures is an open empirical question.
+- On Qwen3.5-0.8B with the published p50c edit, the base and rebuilt tensor
+  hashes match the manifest and the structure read-out gives 64 columns per
+  layer, rank one, alpha = 6.000 at layers 15 and 19.
+- No behavioural measurement on a full-size model is recorded here yet. Whether
+  a contrast-derived edit repairs real failures is an open empirical question.
 
 ## References
 
