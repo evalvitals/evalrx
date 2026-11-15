@@ -6,6 +6,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — generation-level check of a weight edit
+
+`tools/generate_astra_edit_qwen35.py` runs the published p50c edit through the
+L4 fix path on GSM8K: baseline, edit and random-direction control are each
+generated (thinking on, the original sampling settings, batched and cached per
+weight state), validated with the paired test, and summarised by whether the
+model left its thinking block, stopped on its own, ended in a loop, and was
+correct. `--timing-only` checks that padded batching is exact on the
+architecture and prints a time estimate.
+
 ### Added — deriving and comparing weight edits along a generation
 
 `continuation_contrast_edit` derives a rank-one edit from the contrast between
