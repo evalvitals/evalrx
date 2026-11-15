@@ -6,6 +6,16 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — weight-edit audit along a generation
+
+`weight_edit_continuation_audit` follows a weight edit along recorded
+generations (`case.observed`), teacher-forced, and reports the change in
+next-token NLL and the KL from the unedited model separately for positions
+inside a repeated stretch and outside one, beside the random-direction,
+random-neuron and steering controls. `tools/check_astra_edit_qwen35.py` and
+`tools/audit_astra_edit_qwen35.py` run the structure check and this audit for
+the published p50c edit on Qwen3.5-0.8B.
+
 ### Added — probe tools (`evalrx.probing`)
 
 Every registered analyzer is described as a tool: family, the question it
