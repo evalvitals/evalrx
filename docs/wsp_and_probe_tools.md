@@ -141,6 +141,35 @@ does not show that the edit helps. Activations are read at the last prompt
 position, so a failure that only develops during generation is not visible to
 it.
 
+For a failure that only exists during generation, contrast positions instead of
+cases. `continuation_contrast_edit` appends each case's recorded output to its
+prompt and contrasts positions inside a repeated stretch with positions outside
+one:
+
+```python
+from evalrx.wsp import continuation_contrast_edit
+
+edit = continuation_contrast_edit(model, looping_cases, repeat_ngram=32, n_columns=64, alpha=6.0)
+```
+
+`collect_continuation_stats` returns the per-layer group means on their own, and
+`rank_columns` the direction with each neuron's push, projection and activation
+difference, for comparing ranking signals.
+
+### Compare and re-express edits
+
+```python
+from evalrx.wsp import edit_agreement, fit_rank_one
+
+rule = fit_rank_one(model, published)      # u, columns and alpha that reproduce the edit
+rule.metadata["fit"]                       # alpha and the unexplained share, per tensor
+edit_agreement(model, mine, published)     # shared tensors, direction cosine, neuron overlap
+```
+
+An edit stored as overwritten entries cannot be scaled; its rank-one fit can,
+which gives a dose curve over `alpha`. Check `rank_one_residual` before treating
+the fit as the edit.
+
 ### Audit an edit
 
 ```python
@@ -199,7 +228,9 @@ write. Positions within one generation are not independent, so compare the
 handle must tokenise the prompt exactly as it was when the text was generated.
 
 `tools/check_astra_edit_qwen35.py` and `tools/audit_astra_edit_qwen35.py` run
-the structure check and this audit for the published p50c edit on Qwen3.5-0.8B.
+the structure check and this audit for the published p50c edit on Qwen3.5-0.8B;
+`tools/recover_astra_edit_qwen35.py` derives an edit from the loop contrast and
+compares it with the published one.
 
 ### As a repair (fix tier L4)
 
@@ -242,8 +273,16 @@ reason it did not run. The judge never writes the edit or any hook code.
 - On Qwen3.5-0.8B with the published p50c edit, the base and rebuilt tensor
   hashes match the manifest and the structure read-out gives 64 columns per
   layer, rank one, alpha = 6.000 at layers 15 and 19.
-- No behavioural measurement on a full-size model is recorded here yet. Whether
-  a contrast-derived edit repairs real failures is an open empirical question.
+- The continuation audit of p50c on Qwen3.5-0.8B (12 unfinished GSM8K
+  generations of the unedited model, 48,099 positions, teacher-forced) gives a
+  change in next-token NLL of +0.079 at loop positions and +0.047 at productive
+  positions; a matched random direction gives +0.011 / +0.010, the same rule on
+  other neurons -0.000 / +0.000, and a constant activation shift of the edit's
+  mean size +0.029 / +0.125. EditLens reports +0.093 / +0.053 for the edit on 6
+  texts. The edit is specific and acts more in loops, and it is not free on
+  ordinary text: the most likely token changes at 4.9% of productive positions.
+- No generation-level result on a full-size model is recorded here. Whether a
+  contrast-derived edit repairs real failures is an open empirical question.
 
 ## References
 

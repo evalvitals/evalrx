@@ -6,6 +6,17 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — deriving and comparing weight edits along a generation
+
+`continuation_contrast_edit` derives a rank-one edit from the contrast between
+positions inside a repeated stretch and positions outside one, along recorded
+generations; `collect_continuation_stats` and `rank_columns` expose the group
+means and per-neuron signals. `fit_rank_one` re-expresses any edit as the
+rank-one rule that reproduces it (so it can be scaled), and `edit_agreement`
+compares two edits by direction and neuron overlap. `contrast_edit` and the new
+function share one core, `edit_from_stats`. `tools/recover_astra_edit_qwen35.py`
+runs the comparison against the published p50c edit.
+
 ### Added — weight-edit audit along a generation
 
 `weight_edit_continuation_audit` follows a weight edit along recorded

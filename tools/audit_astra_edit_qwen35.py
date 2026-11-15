@@ -16,9 +16,11 @@ next-token distribution moves (KL), under
 
 separately for loop positions and productive positions.
 
-EditLens reports that the edit lowers the probability of the repeated
-continuation inside loops and leaves productive positions largely alone. The
-script prints what it measures; it does not assume that outcome.
+EditLens's own teacher-forced table (results/02_loops/steering/
+q4_simpler_intervention.md, 6 texts) has the edit raise the NLL of the repeated
+continuation by +0.093 inside loops and by +0.053 at productive positions: a
+larger effect in loops, with measurable collateral outside them. The script
+prints what it measures; it does not assume that outcome.
 
 Requirements: this branch of evalrx installed, a GPU with ~12 GB free (two
 ``[4096, vocab]`` logit tensors plus float32 work chunks), and a clone of
@@ -99,8 +101,12 @@ def as_evalrx_model(module, tokenizer):
 
 
 def looping_cases(edit_lens: str, tokenizer, *, n_texts: int, max_tokens: int,
-                  repeat_ngram: int, min_loop_frac: float):
-    """Unfinished GSM8K generations of the unedited model with enough loop positions."""
+                  repeat_ngram: int, min_loop_frac: float, offset: int = 0):
+    """Unfinished GSM8K generations of the unedited model with enough loop positions.
+
+    *offset* skips that many qualifying generations first, so two calls with
+    ``offset=0`` and ``offset=n`` return disjoint sets.
+    """
     from evalrx.analyzers.weights.continuation_audit import repetition_mask
     from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 
@@ -135,12 +141,13 @@ def looping_cases(edit_lens: str, tokenizer, *, n_texts: int, max_tokens: int,
                 cases.append(FailureCase(
                     inputs=Inputs(prompt=prompt), observed=row["text"], label=Label.FAIL,
                     id=str(row["id"]), metadata={"source": os.path.basename(os.path.dirname(path))}))
-                if len(cases) >= n_texts:
+                if len(cases) >= offset + n_texts:
                     break
-        if len(cases) >= n_texts:
+        if len(cases) >= offset + n_texts:
             break
+    cases = cases[offset:]
     print(f"recorded generations read: {seen}; unfinished (no </think>): {unfinished}; "
-          f"kept with loop share > {min_loop_frac}: {len(cases)}")
+          f"kept with loop share > {min_loop_frac}: {len(cases)} (after skipping {offset})")
     if not cases:
         raise SystemExit("no looping generation found; lower --min-loop-frac or --repeat-ngram")
     return CaseBatch(cases)

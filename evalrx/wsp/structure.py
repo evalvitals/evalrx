@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from evalrx.wsp.edit import WeightEdit, module_of, resolve_parameters
+from evalrx.wsp.edit import TensorEdit, WeightEdit, module_of, resolve_parameters
 
 
 def delta_structure(w0: Any, w1: Any, *, top_singular: int = 8) -> dict[str, Any]:
@@ -103,3 +103,87 @@ def edit_structure(model: Any, edit: WeightEdit, **kwargs: Any) -> dict[str, Any
         if ua.numel() == ub.numel()
     }
     return {"edit": edit.name, "tensors": rows, "direction_cosines": cosines}
+
+
+def _delta_and_direction(param: Any, tensor_edit: TensorEdit) -> "tuple[Any, Any, Any]":
+    """``(delta, changed columns, top left singular vector)`` of one tensor edit."""
+    import torch
+
+    d = tensor_edit.apply_to(param).double().cpu() - param.detach().double().cpu()
+    cols = torch.nonzero((d != 0).any(dim=0)).flatten() if d.ndim == 2 else torch.zeros(0)
+    if d.ndim != 2 or cols.numel() == 0:
+        return d, cols, None
+    return d, cols, torch.linalg.svd(d[:, cols], full_matrices=False)[0][:, 0]
+
+
+def fit_rank_one(model: Any, edit: WeightEdit, *, name: "str | None" = None) -> WeightEdit:
+    """Re-express *edit* as the rank-one rule that best reproduces it on the live weights.
+
+    For every edited 2-D tensor: ``u`` is the top left singular vector of the
+    change, the columns are the changed ones, and ``alpha`` is the mean of
+    ``-a_j / p_j`` (see :func:`delta_structure`). The result can be scaled
+    (:meth:`WeightEdit.scaled`), which an edit stored as overwritten entries
+    cannot. ``metadata["fit"]`` records, per tensor, the fitted ``alpha`` and the
+    share of the original change the rule leaves unexplained
+    (``rank_one_residual``); check it before treating the fit as the edit.
+    """
+    import torch
+
+    module = module_of(model)
+    tensors: list[TensorEdit] = []
+    fit: list[dict[str, Any]] = []
+    with torch.no_grad():
+        for tensor_edit, (key, param) in zip(edit.tensors, resolve_parameters(module, edit)):
+            d, cols, u = _delta_and_direction(param, tensor_edit)
+            if u is None:
+                raise ValueError(f"{key}: no 2-D change to fit a rank-one rule to")
+            row = delta_structure(param.detach().cpu(), (param.detach().double().cpu() + d))
+            if "alpha_estimate" not in row:
+                raise ValueError(f"{key}: the changed columns have no component along the "
+                                 "change direction, so no alpha can be read off")
+            tensors.append(TensorEdit.rank_one(key, u, row["alpha_estimate"], cols=cols))
+            fit.append({"name": key, "alpha": row["alpha_estimate"],
+                        "alpha_spread": row.get("alpha_spread"),
+                        "rank_one_residual": row["rank_one_residual"],
+                        "n_columns": int(cols.numel())})
+    return WeightEdit(tensors, name=name or f"{edit.name}_rank_one",
+                      metadata={"source": "rank_one_fit", "fit_of": edit.name, "fit": fit})
+
+
+def edit_agreement(model: Any, edit: WeightEdit, reference: WeightEdit) -> dict[str, Any]:
+    """How closely *edit* matches *reference*: same tensors, direction, neurons.
+
+    For every tensor both edits change, reports ``direction_cosine`` (absolute
+    cosine between the top left singular vectors of the two changes; a
+    direction's sign is arbitrary), and the overlap of the changed columns
+    (``n_shared``, ``jaccard``, and ``expected_shared_by_chance`` for two random
+    column sets of those sizes). ``only_in_edit`` / ``only_in_reference`` list
+    tensors just one of them touches.
+    """
+    import torch
+
+    module = module_of(model)
+    mine = {key: (param, t) for t, (key, param) in zip(edit.tensors,
+                                                       resolve_parameters(module, edit))}
+    theirs = {key: (param, t) for t, (key, param) in zip(reference.tensors,
+                                                         resolve_parameters(module, reference))}
+    rows: list[dict[str, Any]] = []
+    with torch.no_grad():
+        for key in sorted(set(mine) & set(theirs)):
+            param = mine[key][0]
+            _, cols_a, u_a = _delta_and_direction(param, mine[key][1])
+            _, cols_b, u_b = _delta_and_direction(param, theirs[key][1])
+            a, b = set(cols_a.tolist()), set(cols_b.tolist())
+            row: dict[str, Any] = {
+                "name": key, "n_columns_edit": len(a), "n_columns_reference": len(b),
+                "n_shared": len(a & b),
+                "jaccard": round(len(a & b) / len(a | b), 4) if a | b else None,
+            }
+            if param.ndim == 2 and param.shape[1]:
+                row["expected_shared_by_chance"] = round(len(a) * len(b) / param.shape[1], 3)
+            if u_a is not None and u_b is not None:
+                row["direction_cosine"] = float((u_a @ u_b).abs())
+            rows.append(row)
+    return {"edit": edit.name, "reference": reference.name, "tensors": rows,
+            "only_in_edit": sorted(set(mine) - set(theirs)),
+            "only_in_reference": sorted(set(theirs) - set(mine))}
