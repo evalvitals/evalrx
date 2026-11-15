@@ -230,7 +230,9 @@ handle must tokenise the prompt exactly as it was when the text was generated.
 `tools/check_astra_edit_qwen35.py` and `tools/audit_astra_edit_qwen35.py` run
 the structure check and this audit for the published p50c edit on Qwen3.5-0.8B;
 `tools/recover_astra_edit_qwen35.py` derives an edit from the loop contrast and
-compares it with the published one.
+compares it with the published one; `tools/generate_astra_edit_qwen35.py` lets
+the baseline, the edited model and a control generate GSM8K answers through the
+L4 fix path.
 
 ### As a repair (fix tier L4)
 
