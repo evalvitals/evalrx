@@ -6,6 +6,13 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — validation report for the published weight edit on Qwen3.5-0.8B
+
+`docs/validation/astra_p50c_20261115.md` records the structure read-out, the
+teacher-forced audit, the generation-level repair through the L4 fix path, and
+the attempt to derive the edit from a loop contrast, with their limits. The
+README gains sections on probe tools and weight edits.
+
 ### Added — generation-level check of a weight edit
 
 `tools/generate_astra_edit_qwen35.py` runs the published p50c edit through the

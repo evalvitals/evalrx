@@ -44,6 +44,7 @@ nav:
   - Extending: extending.md
   - Roadmap: roadmap.md
   - Validation:
+      - Published weight edit on Qwen3.5-0.8B (2026-11-15): validation/astra_p50c_20261115.md
       - Gemini agentic run (2026-10-13): validation/gemini_agentic_20261013.md
       - Historical Gemma repairs (2026-08-30): validation/gemma_repair_20260830.md
   - Local Artifacts: local_artifacts.md

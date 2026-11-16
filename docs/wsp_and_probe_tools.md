@@ -283,8 +283,14 @@ reason it did not run. The judge never writes the edit or any hook code.
   mean size +0.029 / +0.125. EditLens reports +0.093 / +0.053 for the edit on 6
   texts. The edit is specific and acts more in loops, and it is not free on
   ordinary text: the most likely token changes at 4.9% of productive positions.
-- No generation-level result on a full-size model is recorded here. Whether a
-  contrast-derived edit repairs real failures is an open empirical question.
+- Generated through the L4 fix path on 64 GSM8K problems, the same edit takes
+  the model from 6 to 37 correct, with 31 fixed and 0 broken; a matched random
+  direction gives 7.
+- A loop-vs-productive contrast on that model recovers about half of the
+  published neurons at the published layers, and neither the direction nor the
+  layers. No edit PROPOSED by evalrx has been shown to repair a real model.
+
+Numbers, commands and limits: [validation report](validation/astra_p50c_20261115.md).
 
 ## References
 

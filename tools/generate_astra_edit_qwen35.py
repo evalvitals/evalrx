@@ -496,8 +496,9 @@ def main() -> int:
     if args.exact_batches:
         padding["ok"] = False
     if padding["ok"]:
-        print("  -> padding is exact in float32; batching any prompts together. The "
-              f"{padding['native_dtype']} gap is rounding, of the size batching alone causes.")
+        print("  -> the float32 padded gap is within tolerance; batching any prompts "
+              f"together. Compare it with the {padding['native_dtype']} gap of one prompt "
+              "repeated: batching alone moves the output more than padding does.")
     else:
         print("  -> padding is not used ("
               + ("--exact-batches" if padding["exact"] else
