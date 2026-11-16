@@ -79,6 +79,9 @@ stages/ (M1–M4 implementation):
                               FinetuneSpec + run_lora_repair (v1: LoRA on
                               target="llm" only, trained on a caller-supplied
                               finetune_pool; other recipe shapes recorded only)
+    weight_edit.py       L4 training-free weight edit: WeightEditSpec +
+                              run_weight_edit_repair (opt-in via
+                              FixAgent(weight_edit=...); matched control recorded)
     repair_catalog.py    discovery of pre-audited model repair capabilities
   hypothesis_tester.py M4 — HypothesisTester: statistical test + protocol consistency;
                               stopping_criteria_met() drives the VLDiagnoseLoop exit
@@ -170,6 +173,7 @@ from evalrx.eval_agent.stages.fix.internals import (
 from evalrx.eval_agent.stages.fix.tiers import FixTier, parse_tier, route_min_tier
 from evalrx.eval_agent.stages.fix.tools import PipelineSpec
 from evalrx.eval_agent.stages.fix.types import FixCandidate, FixOutcome, FixValidation
+from evalrx.eval_agent.stages.fix.weight_edit import WeightEditSpec
 from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTester, HypothesisTestResult
 from evalrx.eval_agent.stages.probe import ModelKind, StrategyProbe
 from evalrx.eval_agent.stages.probe_agent import ProbeAgent
@@ -213,6 +217,7 @@ __all__ = [
     "INTERNALS_PRIMITIVES",
     "InternalsPrimitive",
     "FinetuneSpec",
+    "WeightEditSpec",
     # M2
     "AnalysisModule",
     "AnalysisReport",

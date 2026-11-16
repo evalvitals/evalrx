@@ -6,6 +6,77 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — validation report for the published weight edit on Qwen3.5-0.8B
+
+`docs/validation/astra_p50c_20261115.md` records the structure read-out, the
+teacher-forced audit, the generation-level repair through the L4 fix path, and
+the attempt to derive the edit from a loop contrast, with their limits. The
+README gains sections on probe tools and weight edits.
+
+### Added — generation-level check of a weight edit
+
+`tools/generate_astra_edit_qwen35.py` runs the published p50c edit through the
+L4 fix path on GSM8K: baseline, edit and random-direction control are each
+generated (thinking on, the original sampling settings, batched and cached per
+weight state), validated with the paired test, and summarised by whether the
+model left its thinking block, stopped on its own, ended in a loop, and was
+correct. `--timing-only` checks that padded batching is exact on the
+architecture and prints a time estimate.
+
+### Added — deriving and comparing weight edits along a generation
+
+`continuation_contrast_edit` derives a rank-one edit from the contrast between
+positions inside a repeated stretch and positions outside one, along recorded
+generations; `collect_continuation_stats` and `rank_columns` expose the group
+means and per-neuron signals. `fit_rank_one` re-expresses any edit as the
+rank-one rule that reproduces it (so it can be scaled), and `edit_agreement`
+compares two edits by direction and neuron overlap. `contrast_edit` and the new
+function share one core, `edit_from_stats`. `tools/recover_astra_edit_qwen35.py`
+runs the comparison against the published p50c edit.
+
+### Added — weight-edit audit along a generation
+
+`weight_edit_continuation_audit` follows a weight edit along recorded
+generations (`case.observed`), teacher-forced, and reports the change in
+next-token NLL and the KL from the unedited model separately for positions
+inside a repeated stretch and outside one, beside the random-direction,
+random-neuron and steering controls. `tools/check_astra_edit_qwen35.py` and
+`tools/audit_astra_edit_qwen35.py` run the structure check and this audit for
+the published p50c edit on Qwen3.5-0.8B.
+
+### Added — probe tools (`evalrx.probing`)
+
+Every registered analyzer is described as a tool: family, the question it
+answers, access level, cost hint, JSON-schema arguments, and its availability
+on a given model and batch with every reason it cannot run
+(`describe_probes`, modelled on VLMProbe's `Prober.describe()`).
+`ProbeRouter` ranks runnable probes for failure modes, families and access;
+`ProbeToolbox.call(name, params)` runs one with schema-checked arguments and
+`.tools()` returns `evalrx.core.tool.Tool` objects.
+
+The agentic loop gains `list_probes` and `run_probe` accepts `name` + `params`
+(or `probes: [...]`). Named calls run exactly the named probes, add to the
+evidence gathered so far, and are rejected before any model work when the
+arguments or the probe do not fit. `ProbeAgent.probe` takes `analyzer_params`
+and `exact`; a pinned re-run replays the arguments of the named call.
+`run_probe` with no arguments is unchanged and still limited to 3 calls per
+run; the tool's overall cap is 6 to leave room for named calls.
+
+### Added — weight-space programming (`evalrx.wsp`)
+
+Direct, training-free weight edits: `TensorEdit` / `WeightEdit` (rank-one rule
+`w' = w - alpha u (u^T w)`, low-rank, dense delta, sparse overwrite), `applied()`
+(writes the edit and restores the exact weights, also on error), controls
+(`random_direction`, `random_columns`), `edit_structure`, `contrast_edit`
+(an edit derived from failing vs passing cases), and a reader for the edit
+files published with *Sparks of Weight-Space Programming*.
+
+New analyzers `weight_edit_structure` and `weight_edit_audit` (the edit beside
+random-direction, random-neuron and steering controls). New opt-in L4 repair
+candidate `rank_one_weight_edit` via `FixAgent(weight_edit=...)`, validated by
+the existing paired test and recorded with a matched control. See
+`docs/wsp_and_probe_tools.md`, including what has not been checked yet.
+
 ### Fixed — delta-rule relevance on transformers 5.23
 
 transformers 5.23 moved the grouped query/key head expansion of Qwen3-Next /
