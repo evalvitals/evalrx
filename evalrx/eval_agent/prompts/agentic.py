@@ -11,9 +11,7 @@ supported) stop.
 
 {evidence}
 
-Reply with EXACTLY ONE JSON object choosing your next action — no prose
-outside it:
-{{"tool": "<tool name from AVAILABLE TOOLS>", "params": {{...}}, "rationale": "<one sentence: why this tool, why now>"}}
+Choose your next action.
 
 Rules:
 - You may only call "stop" with params.resolved=true once a hypothesis has
@@ -24,23 +22,4 @@ Rules:
   are met — run the blocking step first.
 - Prefer the order that makes evidentiary sense (e.g. you need probe findings
   before stats, stats before hypotheses, hypotheses before testing one) but
-  you decide the sequence and when to stop, not a fixed script.
-
-Return ONLY the JSON object."""
-
-ACTION_REPAIR_PROMPT = """\
-Your previous response could not be used as an action.
-
-Previous response:
-{raw}
-
-Problem(s):
-{errors}
-
-{evidence}
-
-Reply with EXACTLY ONE JSON object choosing your next action — no prose
-outside it:
-{{"tool": "<tool name from AVAILABLE TOOLS>", "params": {{...}}, "rationale": "<one sentence>"}}
-
-Return ONLY the JSON object."""
+  you decide the sequence and when to stop, not a fixed script."""

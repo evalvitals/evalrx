@@ -6,6 +6,31 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — typed judge calls
+
+`evalrx.agent_runtime.judge_call.ask_judge(judge, prompt, OutputModel, role=...)`
+asks a judge for one pydantic object. PydanticAI runs the exchange: the
+reply's first JSON value is validated, an invalid reply goes back to the
+judge with the validation errors, and when the retry budget runs out
+`JudgeOutputError` is raised (`JudgeCallError` when the judge itself fails).
+Both carry every exchange for the log. Stages move onto it one by one and
+drop their own parsers.
+
+### Changed — Python 3.11 and two new core dependencies
+
+`pydantic>=2.12` and `pydantic-ai-slim>=2.71,<3` are core dependencies, and
+the package needs Python 3.11 (pydantic-ai does; Python 3.10 left upstream
+support in October 2026). CI no longer tests 3.10.
+
+### Changed — the agentic loop's decision is a typed answer
+
+`decide` asks through `ask_judge` with an output model whose `tool` field only
+admits registered tool names. Removed: `parse_action`, `ActionParseError`,
+`ACTION_SCHEMA`, the `validate_json_shape` re-export from
+`evalrx.eval_agent.agentic`, `ACTION_REPAIR_PROMPT`, and `decide(max_repairs=)`
+(now `retries=`). Every decision exchange is logged with role `agent_decision`
+and its attempt number; there is no separate `agent_decision_repair` role.
+
 ## [0.2.0] — 2026-11-14
 
 ### Changed — the run logger and its readers lose their "V2" names
