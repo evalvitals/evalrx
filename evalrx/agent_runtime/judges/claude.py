@@ -4,19 +4,11 @@ from __future__ import annotations
 
 import os
 import pathlib
-import re
 import shutil
-import subprocess
 import tempfile
-import warnings
 from pathlib import Path
 
-#: The Claude Code CLI's limit notices (plan / session / spend / usage), which
-#: arrive on stdout with exit 0 exactly like a real answer.
-_LIMIT_RE = re.compile(
-    r"hit your (monthly |weekly |session )?(spend|usage|rate) limit|"
-    r"(spend|usage) limit (reached|exceeded)|out of (extra )?usage|"
-    r"limit resets", re.I)
+from evalrx.agent_runtime.judges._cli import read_reply, run_cli
 
 
 class ClaudeModel:
@@ -110,44 +102,17 @@ class ClaudeModel:
             if self._effort:
                 cmd += ["--effort", self._effort]
 
+            # The CLI runs in a throwaway directory, never the caller's
+            # working tree; an image-bearing call reads the staged figures.
+            cwd = Path(img_dir or tempfile.mkdtemp(prefix="claude_judge_"))
+            scratch = None if img_dir else cwd
             try:
-                proc = subprocess.run(
-                    cmd,
-                    input=prompt_text,
-                    capture_output=True,
-                    timeout=self._timeout_sec,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    env={**os.environ},
-                )
-            except subprocess.TimeoutExpired as exc:
-                raise RuntimeError(
-                    f"ClaudeModel: claude timed out after {self._timeout_sec}s"
-                ) from exc
-
-            output = (proc.stdout or "").strip()
-            # The CLI reports an exhausted plan/session/spend limit as a one-line
-            # *answer* on stdout with exit 0 ("You've hit your monthly spend
-            # limit ..."). Returned as a judge reply it parses to zero
-            # hypotheses and the run "finishes" with an empty diagnosis
-            # (qwen2-audio/mmau 2026-09-07, all three demo128 cells
-            # 2026-09-09). Fail loudly instead.
-            if len(output) < 400 and _LIMIT_RE.search(output):
-                raise RuntimeError(f"ClaudeModel: account limit reached, not a judge answer: {output!r}")
-            if proc.returncode != 0 and not output:
-                reason = (proc.stderr or "").strip()[:240]
-                raise RuntimeError(
-                    f"ClaudeModel: claude exited {proc.returncode}: {reason}"
-                )
-            if not output:
-                warnings.warn(
-                    "ClaudeModel: claude returned an empty response -- likely "
-                    "rate-limited or out of quota; the caller will fall back "
-                    "to a non-LLM path.",
-                    stacklevel=2,
-                )
-            return output
+                run = run_cli(f"ClaudeModel: {Path(self._binary).name}", cmd, cwd=cwd,
+                              timeout_sec=self._timeout_sec, stdin_text=prompt_text)
+            finally:
+                if scratch is not None:
+                    shutil.rmtree(scratch, ignore_errors=True)
+            return read_reply(f"ClaudeModel: {Path(self._binary).name}", run, run.stdout)
         finally:
             if img_dir:
                 shutil.rmtree(img_dir, ignore_errors=True)

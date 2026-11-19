@@ -59,6 +59,14 @@ held-out judge that gives no valid answer now records `verdict="not_judged"`
 with `judge_error`, not `not_testable`. Every fix-judge attempt is logged
 (`FixRecorder.judge_exchanges`).
 
+### Changed — one way to run a CLI judge
+
+`ClaudeModel`, `CodexModel` and `AgyModel` run through the providers'
+`SubprocessRunner`: a timeout kills the CLI's whole process group (its worker
+processes outlived a plain `subprocess.run` timeout), Claude runs in a
+throwaway directory instead of the caller's, and a limit notice printed as an
+answer raises for every provider, not only Claude.
+
 ### Removed
 
 - `create_sandbox`, `SandboxFactoryConfig`, `SandboxConfig`
