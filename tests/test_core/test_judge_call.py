@@ -8,13 +8,13 @@ from pathlib import Path
 from typing import Literal
 
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from evalrx.agent_runtime.judge_call import (
     JudgeCallError,
     JudgeOutputError,
     ask_judge,
-    first_json_value,
+    validate_reply,
 )
 
 
@@ -113,7 +113,24 @@ def test_works_from_threads_and_inside_a_running_event_loop():
     assert asyncio.run(inside()) == "probe"
 
 
-def test_first_json_value_skips_braces_that_do_not_start_json():
-    assert first_json_value('see {this} then [1, 2]') == [1, 2]
-    with pytest.raises(ValueError):
-        first_json_value("nothing")
+def test_a_cited_reference_before_the_answer_is_skipped():
+    # "[2]" is valid JSON but not a Pick; the object after it is.
+    judge = ScriptedJudge('As finding [2] shows: {"tool": "stats", "rationale": "next"}')
+    assert ask_judge(judge, "p", Pick, role="r").output.tool == "stats"
+    assert len(judge.prompts) == 1
+
+
+def test_a_list_wrapped_in_an_object_is_found():
+    from pydantic import RootModel
+
+    class Items(RootModel[list[dict]]):
+        pass
+
+    assert validate_reply('{"candidates": [{"name": "a"}]}', Items).root == [{"name": "a"}]
+
+
+def test_validate_reply_reports_the_first_values_error_or_no_json():
+    with pytest.raises(ValueError, match="no JSON"):
+        validate_reply("nothing", Pick)
+    with pytest.raises(ValidationError, match="tool"):
+        validate_reply('see {this} then {"rationale": "r"}', Pick)

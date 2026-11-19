@@ -3,7 +3,7 @@
 Every stage that needs structured output from a judge calls :func:`ask_judge`
 instead of parsing text itself. PydanticAI runs the exchange:
 
-* the reply's first JSON value is validated against ``output_type``;
+* the first JSON value in the reply that validates as ``output_type`` is the answer;
 * an invalid reply goes back to the judge with the validation errors, up to
   ``retries`` more times;
 * when that budget runs out, :class:`JudgeOutputError` is raised;
@@ -29,7 +29,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Generic, Sequence, TypeVar
+from typing import Any, Callable, Generic, Iterator, Sequence, TypeVar
 
 import pydantic_ai
 from pydantic import BaseModel, ValidationError
@@ -112,21 +112,38 @@ class JudgeOutputError(JudgeError):
 _THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
-def first_json_value(text: str) -> Any:
-    """The first complete JSON object or array in *text*.
+def json_values(text: str) -> Iterator[Any]:
+    """Every JSON object or array in *text*, in order of where it starts.
 
-    Judges wrap JSON in prose and code fences, and reasoning models put a
-    ``<think>`` block first; this drops those blocks and skips anything before
-    the first ``{`` or ``[`` that starts a valid JSON value.
+    Judges wrap JSON in prose and code fences, cite ``[2]``-style references,
+    and reasoning models put a ``<think>`` block first. Think blocks are
+    dropped; every ``{`` or ``[`` that starts a valid JSON value yields it,
+    nested ones included, so the caller can take the first that fits.
     """
     text = _THINK_BLOCK.sub("", text)
     decoder = json.JSONDecoder()
     for i, char in enumerate(text):
         if char in "{[":
             try:
-                return decoder.raw_decode(text, i)[0]
+                yield decoder.raw_decode(text, i)[0]
             except json.JSONDecodeError:
                 continue
+
+
+def validate_reply(text: str, output_type: type[T]) -> T:
+    """The first JSON value in *text* that validates as *output_type*.
+
+    Raises ``ValueError`` when *text* holds no JSON, or the
+    ``ValidationError`` of the first JSON value when none validates.
+    """
+    first_error: ValidationError | None = None
+    for value in json_values(text):
+        try:
+            return output_type.model_validate(value)
+        except ValidationError as exc:
+            first_error = first_error or exc
+    if first_error is not None:
+        raise first_error
     raise ValueError("the reply contains no JSON object or array")
 
 
@@ -223,7 +240,7 @@ def ask_judge(
 
     def parse(ctx: RunContext[None], text: str) -> T:
         try:
-            answer = output_type.model_validate(first_json_value(text))
+            answer = validate_reply(text, output_type)
         except (ValueError, ValidationError) as exc:
             raise ModelRetry(str(exc)) from exc
         problem = check(answer) if check is not None else None
