@@ -13,8 +13,11 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Iterable, cast
+from typing import TYPE_CHECKING, Any, Callable, Iterable, TypeVar, cast
 
+from pydantic import RootModel
+
+from evalrx.agent_runtime.judge_call import JudgeError, ask_judge
 from evalrx.eval_agent.prompts.fix_agent import (
     _L1_PROMPT,
     _L2_PROMPT,
@@ -46,6 +49,17 @@ if TYPE_CHECKING:
     from evalrx.eval_agent.hypothesis import Hypothesis
 
 logger = logging.getLogger(__name__)
+
+
+class _JudgeList(RootModel[list[dict[str, Any]]]):
+    """A fix judge's array of proposal objects."""
+
+
+class _JudgeObject(RootModel[dict[str, Any]]):
+    """A fix judge's single JSON object (the L4 recipe)."""
+
+
+_T = TypeVar("_T", _JudgeList, _JudgeObject)
 
 MAX_JUDGE_CANDIDATES = 3
 
@@ -1417,51 +1431,27 @@ class FixProposer:
         ]
 
     def _ask_judge_object(self, prompt: str) -> "dict[str, Any]":
-        """Single-JSON-object variant of :meth:`_ask_judge`."""
-        if self._judge is None:
-            return {}
-        raw = ""
-        error = None
-        try:
-            raw = str(self._judge.generate(prompt))
-        except Exception as exc:
-            logger.warning("FixAgent: judge call failed: %s", exc)
-            error = str(exc)
-            self.recorder.judge_exchange("fix_judge_object", prompt, raw, error=error)
-            return {}
-        self.recorder.judge_exchange("fix_judge_object", prompt, raw)
-        match = re.search(
-            r"\{.*\}", re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL), flags=re.DOTALL
-        )
-        if not match:
-            return {}
-        try:
-            parsed = json.loads(match.group(0))
-        except json.JSONDecodeError:
-            return {}
-        return parsed if isinstance(parsed, dict) else {}
+        """One JSON object from the judge, or ``{}`` when it gives none."""
+        reply = self._ask(prompt, _JudgeObject, "fix_judge_object")
+        return dict(reply.root) if reply is not None else {}
 
     def _ask_judge(self, prompt: str) -> "list[dict[str, Any]]":
+        """A JSON array of proposal objects, or ``[]`` when the judge gives none.
+
+        Each tier validates its own items (``PipelineSpec.from_dict``, the
+        catalog and primitive lookups), so only the array shape is checked here.
+        """
+        reply = self._ask(prompt, _JudgeList, "fix_judge_list")
+        return list(reply.root) if reply is not None else []
+
+    def _ask(self, prompt: str, output_type: "type[_T]", operation: str) -> "_T | None":
         if self._judge is None:
-            return []
-        raw = ""
-        error = None
+            return None
         try:
-            raw = str(self._judge.generate(prompt))
-        except Exception as exc:
-            logger.warning("FixAgent: judge call failed: %s", exc)
-            error = str(exc)
-            self.recorder.judge_exchange("fix_judge_list", prompt, raw, error=error)
-            return []
-        self.recorder.judge_exchange("fix_judge_list", prompt, raw)
-        match = re.search(
-            r"\[.*\]", re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL), flags=re.DOTALL
-        )
-        if not match:
-            return []
-        try:
-            parsed = json.loads(match.group(0))
-        except json.JSONDecodeError:
-            logger.warning("FixAgent: unparseable judge proposal; using defaults")
-            return []
-        return [p for p in parsed if isinstance(p, dict)] if isinstance(parsed, list) else []
+            reply = ask_judge(self._judge, prompt, output_type, role="fix_judge")
+        except JudgeError as exc:
+            logger.warning("FixAgent: %s; using the tier's defaults", exc)
+            self.recorder.judge_exchanges(operation, exc.exchanges)
+            return None
+        self.recorder.judge_exchanges(operation, reply.exchanges)
+        return reply.output

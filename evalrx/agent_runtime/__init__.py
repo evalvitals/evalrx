@@ -8,7 +8,7 @@ Submodules:
   cli_runtime    SubprocessRunner, ProcessRun, collect_py_files
   cli_transcript CLI stdout post-processing (e.g. Claude stream-json rendering)
   sandbox        ExperimentSandbox — safe subprocess execution of generated code
-  factory        create_sandbox() — subprocess/Docker sandbox backend selection
+  judge_call     ask_judge — one typed judge call with validation retry
   codegen        CodegenRunner — the single boundary stages use to invoke a CLI
                  coding agent and harvest generated files
   providers      CLI coding-provider adapters (claude_code, codex, antigravity, ...)
@@ -25,12 +25,13 @@ from evalrx.agent_runtime.cli_types import (
     CliAgentResult,
 )
 from evalrx.agent_runtime.codegen import CodegenCodeResult, CodegenRunner
-from evalrx.agent_runtime.factory import (
-    SandboxConfig,
-    SandboxFactoryConfig,
-    create_sandbox,
+from evalrx.agent_runtime.judge_call import (
+    JudgeCallError,
+    JudgeError,
+    JudgeOutputError,
+    JudgeReply,
+    ask_judge,
 )
-from evalrx.agent_runtime.json_shape import validate_json_shape
 from evalrx.agent_runtime.judges import (
     AgyModel,
     ClaudeModel,
@@ -56,9 +57,11 @@ __all__ = [
     "CliAgentResult",
     "CodegenCodeResult",
     "CodegenRunner",
-    "SandboxConfig",
-    "SandboxFactoryConfig",
-    "create_sandbox",
+    "ask_judge",
+    "JudgeReply",
+    "JudgeError",
+    "JudgeCallError",
+    "JudgeOutputError",
     "AgyModel",
     "ClaudeModel",
     "CodexModel",
@@ -74,5 +77,4 @@ __all__ = [
     "resolve_skill_paths",
     "skills_hint",
     "fences_hint",
-    "validate_json_shape",
 ]

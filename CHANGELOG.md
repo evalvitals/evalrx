@@ -49,6 +49,24 @@ hypotheses with `review_unavailable`, as a failed critic call did before.
 All proposer attempts are logged as role `diagnosis_judge`; the
 `diagnosis_format_repair` and `diagnosis_plain_language_repair` roles are gone.
 
+### Changed — the remaining structured judge calls go through `ask_judge`
+
+M5 fix proposals (`FixAgent`), failure-mode cluster naming and error signals
+(`cluster_failures`), and held-out grading (`holdout_confirm`) ask through
+`ask_judge`, so a reply in prose or code fences is read, and an invalid one is
+sent back with the errors instead of being repeated blind or dropped. A
+held-out judge that gives no valid answer now records `verdict="not_judged"`
+with `judge_error`, not `not_testable`. Every fix-judge attempt is logged
+(`FixRecorder.judge_exchanges`).
+
+### Removed
+
+- `create_sandbox`, `SandboxFactoryConfig`, `SandboxConfig`
+  (`evalrx.agent_runtime.factory`): nothing called them, and the `docker` mode
+  silently returned the subprocess sandbox. Use `ExperimentSandbox(workdir)`.
+- `evalrx.agent_runtime.json_shape.validate_json_shape`: output models
+  validate with pydantic.
+
 ## [0.2.0] — 2026-11-14
 
 ### Changed — the run logger and its readers lose their "V2" names

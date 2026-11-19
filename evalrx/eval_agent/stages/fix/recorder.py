@@ -11,8 +11,9 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Sequence
 
+    from evalrx.agent_runtime.judge_call import Exchange
     from evalrx.core.case import CaseBatch
     from evalrx.core.model import Model
     from evalrx.eval_agent.run_context import Trial
@@ -45,19 +46,20 @@ class FixRecorder:
         except Exception as exc:  # logging must never break the fix step
             logger.debug("FixAgent: log_fix failed: %s", exc)
 
-    def judge_exchange(
-        self, operation: str, prompt: str, output: str, *, error: "str | None" = None,
-    ) -> None:
-        """Log one fix-judge exchange; logging must never break repair."""
+    def judge_exchanges(self, operation: str, exchanges: "Sequence[Exchange]") -> None:
+        """Log every attempt of one fix-judge call; logging must never break repair."""
         if self.run_logger is None:
             return
-        try:
-            self.run_logger.log_model_exchange(
-                "M5", role="fix_judge", operation=operation,
-                inputs=prompt, output=output, error=error,
-            )
-        except Exception as exc:  # logging must never break repair
-            logger.debug("FixAgent: model exchange logging failed: %s", exc)
+        for exchange in exchanges:
+            call = exchange.record()
+            try:
+                self.run_logger.log_model_exchange(
+                    "M5", role="fix_judge", operation=operation,
+                    inputs=call["inputs"], output=call["output"], error=call["error"],
+                    duration_sec=call["duration_sec"], metadata=call["metadata"],
+                )
+            except Exception as exc:  # logging must never break repair
+                logger.debug("FixAgent: model exchange logging failed: %s", exc)
 
     def target_exchange(
         self,

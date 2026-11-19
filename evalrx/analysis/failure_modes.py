@@ -16,7 +16,9 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable
 
-from evalrx.agent_runtime.json_shape import validate_json_shape
+from pydantic import BaseModel, Field, RootModel
+
+from evalrx.agent_runtime.judge_call import JudgeError, ask_judge
 
 if TYPE_CHECKING:
     from evalrx.core.model import Judge
@@ -134,18 +136,24 @@ def _error_signal_deterministic(row: dict[str, Any], expected_col: str) -> str:
     return f"expected={str(expected)[:80]} got={_row_output(row)[:80]}"
 
 
+class _ErrorSignal(BaseModel):
+    index: int
+    error: str
+
+
+class _ErrorSignals(RootModel[list[_ErrorSignal]]):
+    """One entry per FAIL pair."""
+
+
 def _error_signals_llm(
     fail_rows: list[tuple[int, dict[str, Any]]],
     expected_col: str,
     judge: "Judge",
-    *,
-    max_repairs: int = 1,
 ) -> "list[str] | None":
     """One batched call describing the failure mechanism for every FAIL row.
 
-    Returns a list aligned 1:1 with *fail_rows*, or None if the judge never
-    produced a parseable response (caller falls back to the deterministic
-    signal in that case).
+    Returns a list aligned 1:1 with *fail_rows*, or None when the judge gives
+    no valid answer (the caller then uses the deterministic signal).
     """
     from evalrx.analysis.prompts.failure_modes import ERROR_SIGNAL_PROMPT
 
@@ -153,29 +161,14 @@ def _error_signals_llm(
         f"{i}: expected={str(row.get(expected_col))[:150]!r} got={_row_output(row)[:150]!r}"
         for i, (_, row) in enumerate(fail_rows)
     )
-    prompt = ERROR_SIGNAL_PROMPT.format(pairs_block=pairs_block)
-    schema = {
-        "type": "array",
-        "items": {"type": "object", "required": ["index", "error"]},
-    }
-
-    for _attempt in range(max_repairs + 1):
-        raw = judge.generate(prompt)
-        text = raw.strip()
-        if text.startswith("```"):
-            text = re.sub(r"^```\w*\n?", "", text)
-            text = re.sub(r"\n?```\s*$", "", text)
-        try:
-            import json
-
-            data = json.loads(text)
-        except json.JSONDecodeError:
-            continue
-        if validate_json_shape(data, schema):
-            continue
-        by_index = {int(item["index"]): str(item["error"]) for item in data if "index" in item}
-        return [by_index.get(i, "") for i in range(len(fail_rows))]
-    return None
+    try:
+        reply = ask_judge(judge, ERROR_SIGNAL_PROMPT.format(pairs_block=pairs_block),
+                          _ErrorSignals, role="failure_error_signals")
+    except JudgeError as exc:
+        logger.warning("cluster_failures: %s; using the deterministic error signal", exc)
+        return None
+    by_index = {item.index: item.error for item in reply.output.root}
+    return [by_index.get(i, "") for i in range(len(fail_rows))]
 
 
 def _compute_error_signals(
@@ -381,11 +374,22 @@ def _boundary_contrast_pairs(
     return pairs
 
 
-def _name_clusters_with_llm(
-    judge: "Judge", clusters: list[FailureMode], *, max_repairs: int = 1
-) -> bool:
-    """Best-effort: ask *judge* to name/describe each cluster from its
-    exemplars. Returns True on success (clusters updated in place)."""
+class _ClusterName(BaseModel):
+    cluster_id: int
+    name: str = Field(min_length=1)
+    description: str = ""
+
+
+class _ClusterNames(RootModel[list[_ClusterName]]):
+    """One entry per cluster."""
+
+
+def _name_clusters_with_llm(judge: "Judge", clusters: list[FailureMode]) -> bool:
+    """Ask *judge* to name/describe each cluster from its exemplars.
+
+    Returns True when the clusters were renamed in place, False when the
+    judge gave no valid answer (they keep their deterministic names).
+    """
     from evalrx.analysis.prompts.failure_modes import NAME_CLUSTERS_PROMPT
 
     blocks = []
@@ -402,39 +406,21 @@ def _name_clusters_with_llm(
             ]
             block += "\n  Boundary contrast (failure vs. nearest success):\n" + "\n".join(contrast_lines)
         blocks.append(block)
-    prompt = NAME_CLUSTERS_PROMPT.format(clusters_block="\n\n".join(blocks))
-
-    schema = {
-        "type": "array",
-        "items": {
-            "type": "object",
-            "required": ["cluster_id", "name", "description"],
-            "properties": {"name": {"type": "string", "minLength": 1}},
-        },
-    }
-
-    for _attempt in range(max_repairs + 1):
-        raw = judge.generate(prompt)
-        text = raw.strip()
-        if text.startswith("```"):
-            text = re.sub(r"^```\w*\n?", "", text)
-            text = re.sub(r"\n?```\s*$", "", text)
-        try:
-            import json
-
-            data = json.loads(text)
-        except json.JSONDecodeError:
-            continue
-        if validate_json_shape(data, schema):
-            continue
-        by_id = {int(item["cluster_id"]): item for item in data if "cluster_id" in item}
-        for i, c in enumerate(clusters):
-            item = by_id.get(i)
-            if item:
-                c.name = str(item["name"])
-                c.description = str(item.get("description", c.description))
-        return True
-    return False
+    try:
+        reply = ask_judge(
+            judge, NAME_CLUSTERS_PROMPT.format(clusters_block="\n\n".join(blocks)),
+            _ClusterNames, role="failure_cluster_names",
+        )
+    except JudgeError as exc:
+        logger.warning("cluster_failures: %s; keeping the deterministic names", exc)
+        return False
+    by_id = {item.cluster_id: item for item in reply.output.root}
+    for i, c in enumerate(clusters):
+        item = by_id.get(i)
+        if item:
+            c.name = item.name
+            c.description = item.description or c.description
+    return True
 
 
 def cluster_failures(

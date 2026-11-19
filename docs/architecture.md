@@ -421,8 +421,7 @@ Key properties:
   not timed out), preserving failure artefacts for debugging.
 
 `SandboxProtocol` is a structural type allowing transparent substitution of subprocess,
-Docker, SSH, or other backends.  `create_sandbox(SandboxFactoryConfig, workdir)` selects
-the backend from a `mode` string (`"subprocess"` default, `"docker"` with graceful fallback).
+Docker, SSH, or other backends; `ExperimentSandbox` is the one implementation shipped.
 
 ### Persistent store — `JsonlStore`
 

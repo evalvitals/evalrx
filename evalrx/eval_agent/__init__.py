@@ -84,7 +84,6 @@ stages/ (M1–M4 implementation):
 """
 
 from evalrx.agent_runtime.cli_types import CliAgentConfig, CliAgentResult
-from evalrx.agent_runtime.factory import SandboxConfig, SandboxFactoryConfig, create_sandbox
 from evalrx.agent_runtime.judges import AgyModel, ClaudeModel, CodexModel
 from evalrx.agent_runtime.providers import create_cli_agent
 from evalrx.agent_runtime.sandbox import (
@@ -289,9 +288,6 @@ __all__ = [
     "validate_entry_point",
     "validate_entry_point_resolved",
     # Sandbox factory
-    "SandboxConfig",
-    "SandboxFactoryConfig",
-    "create_sandbox",
     # NL scaffold
     "scaffold_from_description",
     # CLI agents
