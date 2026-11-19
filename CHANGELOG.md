@@ -31,6 +31,24 @@ admits registered tool names. Removed: `parse_action`, `ActionParseError`,
 (now `retries=`). Every decision exchange is logged with role `agent_decision`
 and its attempt number; there is no separate `agent_decision_repair` role.
 
+### Changed — M3 asks for typed hypotheses and a typed review
+
+`DiagnosisAgent` asks for a `Proposal` (`hypotheses`: `hypothesis`,
+`plain_statement`, `failure_mode` as a snake_case tag, `test`,
+`expected_association`) and the critic for a `Review` (one keep/reject
+decision per numbered hypothesis). The Markdown label parser and its
+regexes, the format re-ask and the separate plain-language repair call are
+gone: an invalid answer, or a plain statement that fails the jargon check,
+goes back to the judge once with the reason. An empty proposal means "no
+problem found" (was `NO_ISSUE`).
+
+A proposal that is still invalid after its retry now raises `JudgeOutputError`
+instead of being replaced by template hypotheses; the loop logs every
+exchange and retries M3 or stops. A critic with no usable answer keeps the
+hypotheses with `review_unavailable`, as a failed critic call did before.
+All proposer attempts are logged as role `diagnosis_judge`; the
+`diagnosis_format_repair` and `diagnosis_plain_language_repair` roles are gone.
+
 ## [0.2.0] — 2026-11-14
 
 ### Changed — the run logger and its readers lose their "V2" names

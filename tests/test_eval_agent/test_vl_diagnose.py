@@ -31,6 +31,7 @@ from evalrx.eval_agent import (
 from evalrx.eval_agent.hypothesis import Hypothesis, HypothesisStatus
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol, ProbingSchema
 from tests.conftest import FakeModel
+from tests.judge_replies import hypothesis, keep_all, proposal
 
 # ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -93,6 +94,21 @@ class ScriptedModel(FakeModel):
         answer = self._answers[self._i % len(self._answers)]
         self._i += 1
         return answer
+
+
+class M3Judge(FakeModel):
+    """An M3 judge: gives *reply* to the proposer and keeps every hypothesis
+    when asked as the adversarial critic."""
+
+    def __init__(self, reply: str, n_keep: int = 1, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.reply, self.n_keep = reply, n_keep
+        self.prompts: list[str] = []
+
+    def generate(self, inputs, **kwargs) -> str:
+        prompt = str(inputs)
+        self.prompts.append(prompt)
+        return keep_all(self.n_keep) if "adversarial ML reviewer" in prompt else self.reply
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -663,12 +679,9 @@ class TestHypothesisTester:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _scripted_diagnosis_agent(mode: str = "attention") -> DiagnosisAgent:
-    hyp_json = (
-        f'[{{"hypothesis": "Model fails due to {mode} issue.", '
-        f'"failure_mode": "{mode}"}}]'
-    )
-    judge = ScriptedModel([hyp_json])
-    return DiagnosisAgent(judge=judge)
+    return DiagnosisAgent(judge=M3Judge(proposal(
+        hypothesis(f"Model fails due to {mode} issue.", mode),
+    )))
 
 
 class TestVLDiagnoseLoop:
@@ -921,7 +934,7 @@ class TestVLDiagnoseTwoPhase:
         # An M3 that yields nothing still leaves a valid analysis (stats) report.
         loop, data = self._signal_setup()
         # Swap in a diagnosis agent whose judge returns no hypotheses.
-        loop.diagnosis_agent = DiagnosisAgent(judge=ScriptedModel(["[]"]))
+        loop.diagnosis_agent = DiagnosisAgent(judge=ScriptedModel([proposal()]))
         report = loop.run_analysis(data)
         assert report.final_hypotheses == []
         assert report.stopped_by == "no_hypotheses"
@@ -1207,7 +1220,7 @@ def test_m3_transient_error_retries_without_reprobing(tmp_path):
             self.calls += 1
             if self.calls == 1:
                 raise TimeoutError("transient timeout")
-            return SimpleNamespace(hypotheses=[], raw_judge_output="NO_ISSUE", tokens_used=1)
+            return SimpleNamespace(hypotheses=[], raw_judge_output=proposal(), tokens_used=1)
 
     agent = Transient()
     loop = VLDiagnoseLoop(model=_vlm(), protocol=_spatial_protocol(), diagnosis_agent=agent,

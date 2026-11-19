@@ -19,6 +19,7 @@ from evalrx.eval_agent.stages.diagnosis import (
     _format_explore_section,
 )
 from tests.conftest import FakeModel
+from tests.judge_replies import hypothesis, keep_all, proposal, review
 
 # ---------------------------------------------------------------------------
 # ExploreContext construction
@@ -69,10 +70,13 @@ class _ImageJudge(FakeModel):
     def generate(self, inputs, images=None, **kw):  # noqa: D401
         self.calls.append({"prompt": str(inputs), "images": list(images or [])})
         # M3 cites the explore chart it drew the hypothesis from (by title); the
-        # critic pass keeps it. _extract_referenced reads this output for provenance.
-        return ("HYPOTHESIS: model ignores the image, consistent with the ObjSize by "
-                "label chart\nFAILURE_MODE: weak_visual_grounding\n"
-                "KEEP: model ignores the image, consistent with the ObjSize by label chart")
+        # critic keeps it. _extract_referenced reads this output for provenance.
+        if "adversarial ML reviewer" in str(inputs):
+            return keep_all(1)
+        return proposal(hypothesis(
+            "model ignores the image, consistent with the ObjSize by label chart",
+            "weak_visual_grounding",
+        ))
 
 
 def _stats_report_with_figure(fig: str) -> StatsAnalysisReport:
@@ -241,7 +245,7 @@ def test_log_diagnosis_persists_the_critic_prompt_beside_its_response(tmp_path):
     h1 = Hypothesis(statement="h1", target_model="vlm", predicted_failure_mode="x")
     diag = DiagnosisResult(
         model_name="vlm", hypotheses=[h1], raw_judge_output="...",
-        critic_raw_output="REJECT: h1\nREASON: n=30",
+        critic_raw_output=review((1, "reject", "n=30")),
         critic_prompt="adversarial reviewer ... LABEL SUMMARY ... gold=no answered=yes",
         n_critic_rejected=1,
         proposed_hypotheses=[h1],
@@ -254,5 +258,5 @@ def test_log_diagnosis_persists_the_critic_prompt_beside_its_response(tmp_path):
     assert entry["proposed_hypotheses"][0]["statement"] == "h1"
     assert entry["review"]["n_rejected"] == 1 and entry["review"]["decisions"][0]["decision"] == "reject"
     # Inlined directly (no sibling .prompt.txt/.response.txt files).
-    assert entry["critic_raw_output"] == "REJECT: h1\nREASON: n=30"
+    assert entry["critic_raw_output"] == review((1, "reject", "n=30"))
     assert "LABEL SUMMARY" in entry["critic_prompt"]

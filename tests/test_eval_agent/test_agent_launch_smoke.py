@@ -14,6 +14,7 @@ from evalrx.eval_agent import (
 )
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 from tests.conftest import FakeModel
+from tests.judge_replies import hypothesis, keep_all, proposal
 
 
 class _ScriptedJudge(FakeModel):
@@ -27,26 +28,14 @@ class _ScriptedJudge(FakeModel):
         prompt = str(inputs)
         self.calls.append(prompt)
         if "adversarial ML reviewer" in prompt:
-            return (
-                "KEEP: Failure is driven by an attention signal present on failing cases.\n"
-                "REASON: evidence directly supports this claim"
-            )
-        return json.dumps(
-            [
-                {
-                    "hypothesis": (
-                        "Failure is driven by an attention signal present on failing cases."
-                    ),
-                    # Present because the prompt asks for it: a missing or
-                    # jargon-y plain line costs one extra plain-language
-                    # repair call, which would change the call count below.
-                    "plain_statement": (
-                        "The model looks at the wrong part of the input on the cases it gets wrong."
-                    ),
-                    "failure_mode": "attention",
-                }
-            ]
-        )
+            return keep_all(1)
+        return proposal(hypothesis(
+            "Failure is driven by an attention signal present on failing cases.",
+            "attention",
+            # A clean plain statement: a missing or jargon-y one costs one extra
+            # revision call, which would change the call count below.
+            plain="The model looks at the wrong part of the input on the cases it gets wrong.",
+        ))
 
 
 class _SignalProbe(ProbeAgent):

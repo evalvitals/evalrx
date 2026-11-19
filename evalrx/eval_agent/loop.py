@@ -849,6 +849,13 @@ class VLDiagnoseLoop:
                 logger.warning("M3 attempt %d failed (%s); retrying=%s",
                                attempt + 1, error, retrying)
                 if self.run_logger is not None:
+                    # A JudgeError carries what the judge was asked and answered.
+                    for call in (e.record() for e in getattr(exc, "exchanges", ())):
+                        self.run_logger.log_model_exchange(
+                            "M3", cycle=cycle, role=call["role"], operation=call["operation"],
+                            inputs=call["inputs"], output=call["output"], error=call["error"],
+                            duration_sec=call["duration_sec"], metadata=call["metadata"],
+                        )
                     self.run_logger.log_model_exchange(
                         stage="M3", cycle=cycle, role="diagnosis", operation="diagnose",
                         inputs=None, output=None, error=error,

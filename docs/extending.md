@@ -224,15 +224,26 @@ loop  = VLDiagnoseLoop(model=my_model, protocol=protocol,
                        diagnosis_agent=DiagnosisAgent(judge=judge))
 ```
 
-The judge receives a JSON dump of all analyzer findings and must reply with lines
-of the form `HYPOTHESIS: ...` / `FAILURE_MODE: ...` (one pair per hypothesis) or
-`NO_ISSUE`.  You can use `evalrx.eval_agent.prompts.diagnosis._DIAGNOSE_PROMPT` as a
-starting point and override it by subclassing `DiagnosisAgent`. `diagnose` takes
-the M2 report (an `AnalysisReport`; `raw_results` holds each analyzer's `Result`)
-and the earlier cycles' summary:
+The judge receives a JSON dump of all analyzer findings and answers with JSON.
+M3 does not parse text: it calls `evalrx.agent_runtime.judge_call.ask_judge`, which
+appends the JSON Schema of the output model to the prompt and validates the reply
+against it. The proposer's answer is a `Proposal` (up to three hypotheses, each with
+`hypothesis`, `plain_statement`, a snake_case `failure_mode`, and optional `test` and
+`expected_association`; an empty list means no problem was found). The adversarial
+critic's answer is a `Review` (`keep`/`reject` plus a reason per numbered hypothesis).
+An invalid reply is sent back once with the validation errors; if the second one is
+invalid too, `ask_judge` raises `JudgeOutputError` (a judge that raises gives
+`JudgeCallError`), and the loop logs the exchanges and retries M3.
+
+You can use `evalrx.eval_agent.prompts.diagnosis._DIAGNOSE_PROMPT` as a starting
+point and override it by subclassing `DiagnosisAgent`. `diagnose` takes the M2
+report (an `AnalysisReport`; `raw_results` holds each analyzer's `Result`) and the
+earlier cycles' summary:
 
 ```python
-from evalrx.eval_agent.stages.diagnosis import DiagnosisAgent, _parse_hypotheses, DiagnosisResult
+from evalrx.agent_runtime.judge_call import ask_judge
+from evalrx.eval_agent.hypothesis import Hypothesis
+from evalrx.eval_agent.stages.diagnosis import DiagnosisAgent, DiagnosisResult, Proposal
 import json
 
 class MyDiagnosisAgent(DiagnosisAgent):
@@ -240,17 +251,21 @@ class MyDiagnosisAgent(DiagnosisAgent):
 
     def diagnose(self, analysis, prior_cycles=None):
         summary = {name: r.findings for name, r in analysis.raw_results.items()}
-        raw = self.judge.generate(
-            self._PROMPT.format(
-                model_name=analysis.model_name,
-                findings_json=json.dumps(summary, indent=2, default=str),
-            )
+        prompt = self._PROMPT.format(
+            model_name=analysis.model_name,
+            findings_json=json.dumps(summary, indent=2, default=str),
         )
+        reply = ask_judge(self.judge, prompt, Proposal, role="diagnosis_judge")
         return DiagnosisResult(
             model_name=analysis.model_name,
-            hypotheses=_parse_hypotheses(str(raw), analysis.model_name),
+            hypotheses=[
+                Hypothesis(statement=d.hypothesis, target_model=analysis.model_name,
+                           predicted_failure_mode=d.failure_mode,
+                           plain_statement=d.plain_statement, test_design=d.test)
+                for d in reply.output.hypotheses
+            ],
             findings_summary=summary,
-            raw_judge_output=str(raw),
+            raw_judge_output=reply.raw,
         )
 ```
 

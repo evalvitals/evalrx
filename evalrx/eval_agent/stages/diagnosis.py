@@ -1,9 +1,9 @@
 """M3 — DiagnosisAgent: synthesize analysis findings into falsifiable hypotheses.
 
 The agent reads the structured :class:`~evalrx.eval_agent.analysis.AnalysisReport`
-produced by M2, formats it as a prompt, sends it to an LLM judge (Gemini by
-default), and parses the response into :class:`~evalrx.eval_agent.hypothesis.Hypothesis`
-objects.
+produced by M2, formats it as a prompt, and asks the judge for a typed
+:class:`Proposal` through :func:`~evalrx.agent_runtime.judge_call.ask_judge`.
+A second call, the adversarial critic, returns a typed :class:`Review`.
 
 The judge model defaults to **Gemini** when ``GEMINI_API_KEY`` is set in the
 environment and no explicit judge is passed.
@@ -22,20 +22,16 @@ Usage::
 from __future__ import annotations
 
 import json
-import re
-import time
+import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
-from evalrx.agent_runtime.json_shape import validate_json_shape
+from pydantic import BaseModel, Field
+
+from evalrx.agent_runtime.judge_call import JudgeError, ask_judge
 from evalrx.analysis.plain_language import jargon_violation
 from evalrx.eval_agent.hypothesis import Hypothesis
-from evalrx.eval_agent.prompts.diagnosis import (
-    _DIAGNOSE_PROMPT,
-    _FORMAT_REPAIR_PROMPT,
-    _PLAIN_REPAIR_PROMPT,
-    _VALIDATE_PROMPT,
-)
+from evalrx.eval_agent.prompts.diagnosis import _DIAGNOSE_PROMPT, _VALIDATE_PROMPT
 
 if TYPE_CHECKING:
     from evalrx.analysis.analysis_module import AnalysisReport
@@ -230,196 +226,66 @@ class DiagnosisResult:
     model_calls: list[dict[str, Any]] = field(default_factory=list)
 
 
-_HYPOTHESIS_SCHEMA: dict = {
-    "type": "array",
-    "items": {
-        "type": "object",
-        "required": ["hypothesis", "failure_mode"],
-        "properties": {
-            "hypothesis":   {"type": "string", "minLength": 10},
-            "plain_statement": {"type": "string"},
-            "failure_mode": {"type": "string", "minLength": 2},
-            "expected_association": {"type": "string"},
-        },
-    },
-}
+logger = logging.getLogger(__name__)
 
 
-def _parse_hypotheses_json(raw: str, model_name: str) -> list[Hypothesis] | None:
-    """Try to parse *raw* as a JSON array of hypothesis objects.
+class HypothesisDraft(BaseModel):
+    """One hypothesis as the judge proposes it."""
 
-    Returns ``None`` when the response is not JSON or fails schema validation
-    so the caller can fall back to the text parser.
-    """
-    text = raw.strip()
-    # Strip markdown code fences if present
-    if text.startswith("```"):
-        import re as _re
-        text = _re.sub(r"^```\w*\n?", "", text)
-        text = _re.sub(r"\n?```\s*$", "", text)
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        return None
+    hypothesis: str = Field(min_length=10, description="one-sentence falsifiable technical claim")
+    plain_statement: str = Field("", description="the same claim in one everyday sentence")
+    failure_mode: str = Field(pattern=r"^[a-z][a-z0-9_]*$",
+                              description="snake_case tag naming the mechanism")
+    test: str = Field("", description="the evidence that verifies the claim")
+    expected_association: Literal["higher_on_failures", "lower_on_failures"] | None = None
 
-    errors = validate_json_shape(data, _HYPOTHESIS_SCHEMA)
-    if errors:
-        import logging as _logging
-        _logging.getLogger(__name__).debug(
-            "DiagnosisAgent JSON schema validation failed: %s", errors
-        )
-        return None
 
-    return [
-        Hypothesis(
-            statement=item["hypothesis"],
-            target_model=model_name,
-            predicted_failure_mode=item["failure_mode"],
-            plain_statement=str(item.get("plain_statement") or item.get("plain_language") or item.get("plain") or ""),
-            test_design=str(item.get("test", "")),
-            expected_association=str(item.get("expected_association", "")),
-        )
-        for item in data
-        if item.get("hypothesis") and item.get("failure_mode")
+class Proposal(BaseModel):
+    """M3's answer: up to three hypotheses, none when there is no problem."""
+
+    hypotheses: list[HypothesisDraft] = Field(max_length=3)
+
+
+class ReviewDecision(BaseModel):
+    number: int = Field(ge=1, description="the hypothesis number in the list")
+    decision: Literal["keep", "reject"]
+    reason: str = Field(min_length=1)
+
+
+class Review(BaseModel):
+    """The critic's answer: one decision per numbered hypothesis."""
+
+    decisions: list[ReviewDecision]
+
+
+def _plain_language_problems(proposal: Proposal) -> str | None:
+    """Feedback for plain statements that fail the jargon check, or ``None``."""
+    problems = [
+        f"- hypothesis {i}'s plain_statement {reason}: {d.plain_statement!r}"
+        for i, d in enumerate(proposal.hypotheses, start=1)
+        for reason in [jargon_violation(d.plain_statement, d.hypothesis)]
+        if reason
     ]
+    if not problems:
+        return None
+    return (
+        "Some plain_statement fields fail the plain-language check. Rewrite only "
+        "those, for an engineer who runs evaluations but does no statistics: no "
+        "statistics terms, acronyms or symbols, not a copy of the hypothesis, and "
+        "every number with what it amounts to. Keep every other field as it was.\n"
+        + "\n".join(problems)
+    )
 
 
-# A judge that answers in Markdown decorates the labels — ``**HYPOTHESIS:**``,
-# ``**HYPOTHESIS**:``, ``- HYPOTHESIS:``, ``1. TEST:``, ``### FAILURE_MODE:`` —
-# and the bare ``startswith("HYPOTHESIS:")`` check saw none of them: a live
-# qwen3.5-2b/bbh_word_sorting run had three well-formed hypotheses in the
-# response and M3 reported zero. Normalise the label, leave the text alone.
-#
-# The ordinal AFTER the label is the same bug and was missed the first time.
-# ``HYPOTHESIS 1:`` is how a model numbers a list of three of them — the most
-# natural formatting there is, and the one Opus used on a 560-case audio-visual
-# run: three hypotheses, each with a test design naming a BH-surviving signal,
-# and M3 again reported zero. Two and a half hours of GPU and a high-effort
-# judge, discarded over a digit. Accept the ordinal in either position.
-_LABEL_LINE = re.compile(
-    r"^\s*(?:(?:[-*•>]|#+|\d+[.)])\s*)*[*_`]*\s*"
-    r"(HYPOTHESIS|PLAIN_STATEMENT|PLAIN_LANGUAGE|FAILURE_MODE|TEST|EXPECTED_ASSOCIATION|KEEP|REJECT|REASON)"
-    r"(?:\s*[#(]?\d+[.)]?)?"        # HYPOTHESIS 1:  /  TEST #2:  /  REASON (3):
-    r"\s*(?P<close>[*_`]*)\s*:\s*(?P<after>[*_`]*)\s*",
-    re.IGNORECASE,
-)
-
-
-#: A leading emphasis/code marker, past any list bullet or heading. Its presence
-#: is what makes a marker after the colon a CLOSER rather than content.
-_OPENING_MARKER = re.compile(r"^\s*(?:(?:[-*•>]|#+|\d+[.)])\s*)*[*_`]")
-
-
-#: A value that is ENTIRELY one code span or emphasis pair: `mode`, **mode**.
-_WRAPPED_VALUE = re.compile(r"^([*_`]{1,2})(.+?)\1$")
-
-
-def _unwrap_value(value: str) -> str:
-    """Strip wrapping decoration from a value that is a bare identifier.
-
-    Applied to FAILURE_MODE and EXPECTED_ASSOCIATION only. Those are looked up
-    verbatim -- ``_FAILURE_MODE_TO_ANALYZERS["ignored_obs"]`` decides which
-    analyzers the next cycle re-probes with -- so a judge writing
-    ``FAILURE_MODE: `ignored_obs` `` must not produce a key with a backtick in
-    it. Prose fields (HYPOTHESIS, TEST) keep their code spans: there the
-    backticks mark identifiers inside a sentence and removing them was its own
-    bug.
-
-    Only an ENTIRELY wrapped value is unwrapped, so ``some `sig` text`` is left
-    exactly as written.
-    """
-    text = value.strip()
-    m = _WRAPPED_VALUE.match(text)
-    return m.group(2).strip() if m else text
-
-
-#: ``predicted_failure_mode`` given to a hypothesis whose ``FAILURE_MODE:`` line the
-#: judge omitted. Downstream stages treat the mode as a tag, so an explicit
-#: placeholder keeps the claim (statement / test design) instead of dropping it.
-MISSING_FAILURE_MODE = "unspecified"
-
-
-def _normalise_label_line(line: str) -> str:
-    """``**HYPOTHESIS:** foo`` / ``- FAILURE_MODE: bar`` → ``HYPOTHESIS: foo`` /
-    ``FAILURE_MODE: bar``. Lines without a recognised label are returned
-    stripped and otherwise untouched (emphasis inside the statement stays)."""
-    line = line.strip()
-    m = _LABEL_LINE.match(line)
-    if not m:
-        return line
-
-    # Decoration is only decoration when something opened it. `**KEEP:** x` and
-    # `` `KEEP:` x `` wrap the LABEL, so the marker after the colon closes that
-    # wrapper and goes. `TEST: `modality_ablation.grounded_in_audio` ...` opens a
-    # code span belonging to the CONTENT, and eating it corrupts the identifier
-    # M4 routes on. The difference is whether the line opened with a marker at
-    # all -- so decide on that rather than on the marker's position.
-    opened = bool(_OPENING_MARKER.match(line))
-    rest = line[m.end():] if opened else (m.group("after") or "") + line[m.end():]
-    rest = rest.strip()
-    if opened:
-        rest = re.sub(r"[*_`]+$", "", rest).strip()
-    return f"{m.group(1).upper()}: {rest}"
-
-
-def _parse_hypotheses(raw: str, model_name: str) -> list[Hypothesis]:
-    """Parse hypothesis objects from LLM output.
-
-    Tries JSON structured format first (more reliable), then falls back to the
-    line-oriented ``HYPOTHESIS:`` / ``FAILURE_MODE:`` text format.  This makes
-    the parser resilient to both output modes without requiring a hard migration.
-    Labels may carry Markdown decoration (see :func:`_normalise_label_line`).
-    """
-    json_result = _parse_hypotheses_json(raw, model_name)
-    if json_result is not None:
-        return json_result
-
-    # Text-format fallback. A hypothesis is opened by ``HYPOTHESIS:`` and closed
-    # by ``FAILURE_MODE:`` — or, when the judge forgot that line, by the next
-    # ``HYPOTHESIS:`` / the end of the text. gemma-4-e2b / gsm8k (2026-08-27):
-    # the judge wrote three complete HYPOTHESIS / PLAIN_STATEMENT / TEST blocks
-    # without FAILURE_MODE and the old parser (append-on-FAILURE_MODE only)
-    # returned zero, so the loop stopped with "no_hypotheses" and the fix stage
-    # never ran. The mode is a tag; a missing tag must not erase the claim.
-    hypotheses: list[Hypothesis] = []
-    pending: Hypothesis | None = None
-
-    def _flush() -> None:
-        nonlocal pending
-        if pending is not None and pending.statement:
-            if not pending.predicted_failure_mode:
-                pending.predicted_failure_mode = MISSING_FAILURE_MODE
-            hypotheses.append(pending)
-        pending = None
-
-    for line in raw.splitlines():
-        line = _normalise_label_line(line)
-        upper = line.upper()
-        if upper.startswith("HYPOTHESIS:"):
-            _flush()
-            pending = Hypothesis(
-                statement=line[len("HYPOTHESIS:"):].strip(),
-                target_model=model_name,
-                predicted_failure_mode="",
-            )
-            continue
-        target = pending if pending is not None else (hypotheses[-1] if hypotheses else None)
-        if upper.startswith("PLAIN_STATEMENT:") or upper.startswith("PLAIN_LANGUAGE:"):
-            tag = "PLAIN_STATEMENT:" if upper.startswith("PLAIN_STATEMENT:") else "PLAIN_LANGUAGE:"
-            if target is not None and not target.plain_statement:
-                target.plain_statement = line[len(tag):].strip()
-        elif upper.startswith("FAILURE_MODE:") and pending is not None:
-            pending.predicted_failure_mode = _unwrap_value(line[len("FAILURE_MODE:"):])
-            _flush()
-        elif upper.startswith("TEST:") and target is not None:
-            # Attach the test design to the hypothesis being read (or the last one).
-            target.test_design = line[len("TEST:"):].strip()
-        elif upper.startswith("EXPECTED_ASSOCIATION:") and target is not None:
-            target.expected_association = _unwrap_value(
-                line[len("EXPECTED_ASSOCIATION:"):]
-            ).lower()
-    _flush()
-    return hypotheses
+def _to_hypothesis(draft: HypothesisDraft, model_name: str) -> Hypothesis:
+    return Hypothesis(
+        statement=draft.hypothesis,
+        target_model=model_name,
+        predicted_failure_mode=draft.failure_mode,
+        plain_statement=draft.plain_statement,
+        test_design=draft.test,
+        expected_association=draft.expected_association or "",
+    )
 
 
 def _format_label_context(cases: "Any | None") -> str:
@@ -480,41 +346,30 @@ def _validate_hypotheses(
     capture: "dict[str, Any] | None" = None,
     context: str = "",
 ) -> list[Hypothesis]:
-    """Adversarial review of *hypotheses*: a critic call at temperature=0.
+    """Adversarial review of *hypotheses* by a second judge call.
 
-    The same judge is called a second time with a prompt designed to find
-    reasons to *reject* each hypothesis, breaking the confirmation-bias loop
-    where the model that generated a claim then waves it through.
+    The same judge is asked to find reasons to *reject* each hypothesis,
+    breaking the loop where the model that proposed a claim then waves it
+    through.
 
-    The critic ANNOTATES, it does not filter: every hypothesis comes back,
+    The critic ANNOTATES, it does not filter: every hypothesis comes back with
     ``metadata["critic"]`` set to ``"keep"`` / ``"reject"`` (``"unparsed"``
-    when the critic's answer named neither), ``metadata["critic_reason"]``
-    carrying its ``REASON:`` line, kept hypotheses ordered first. Dropping
-    the rejected ones used to end a run at "0 hypotheses" whenever a strict
-    critic (opus at high effort, n=32 evidence) rejected all of them —
-    three llm_benchmark runs in a row on 2026-08-20 — with no M4, M5 or fix
-    afterwards. M4 now tests on the held-out split, so the data decides; the
-    critic's verdict travels with the hypothesis as provenance and as the
-    tie-breaker for M5's best-lead ordering.
+    for one the critic gave no decision for) and ``metadata["critic_reason"]``,
+    kept hypotheses first. Dropping rejected ones used to end runs at "0
+    hypotheses" with no M4, M5 or fix; M4 tests on held-out data, so the data
+    decides and the verdict travels with the hypothesis as provenance.
 
-    *capture*, when given, receives ``raw`` (the critic's verbatim answer),
-    ``prompt``, ``n_kept`` and ``n_rejected``. Falls back to the unannotated
-    list if the critic call fails so the loop is never blocked by a transient
-    error.
+    *capture*, when given, receives ``prompt``, ``raw``, ``error``,
+    ``exchanges``, ``decisions``, ``n_kept`` and ``n_rejected``. When the
+    critic call fails, the hypotheses come back unannotated and every
+    decision reads ``review_unavailable``.
 
-    *context* is the evidence the PROPOSER worked from beyond the findings
-    JSON -- M2's conclusion and evidence chain, the statistical verdicts, the
-    explore notes and the label summary. Without it the critic judged the
-    hypotheses against less than the proposer had seen and rejected them for
-    missing evidence that was on the table (audiocaps 2026-08-20).
+    *context* is the evidence the proposer worked from beyond the findings
+    JSON, so the critic judges against what the proposer saw.
     """
     if not hypotheses:
         return hypotheses
-
-    hyp_lines = "\n".join(
-        f"- HYPOTHESIS: {h.statement}  (failure_mode: {h.predicted_failure_mode})"
-        for h in hypotheses
-    )
+    capture = {} if capture is None else capture
     context_section = (
         "\nContext the proposer worked from (analyst conclusion, evidence chain, "
         "statistical verdicts, exploratory notes, label summary):\n"
@@ -523,106 +378,47 @@ def _validate_hypotheses(
     prompt = _VALIDATE_PROMPT.format(
         context_section=context_section,
         findings_json=findings_json,
-        hypotheses_text=hyp_lines,
+        hypotheses_text="\n".join(
+            f"{i}. {h.statement}  (failure_mode: {h.predicted_failure_mode})"
+            for i, h in enumerate(hypotheses, start=1)
+        ),
     )
-    if capture is not None:
-        capture["prompt"] = prompt
-
-    started = time.perf_counter()
+    capture["prompt"] = prompt
     try:
-        # Use temperature=0 so the critic is deterministic and strict.
-        # Models that don't accept a temperature kwarg are called without it.
-        import inspect
-        sig = inspect.signature(judge.generate)
-        if "temperature" in sig.parameters:
-            raw = judge.generate(prompt, temperature=0)
-        else:
-            raw = judge.generate(prompt)
-    except Exception as exc:
-        if capture is not None:
-            # A transport failure must not silently delete ideas — and the
-            # record must distinguish it from an evidence-based rejection.
-            capture["decisions"] = [{
+        reply = ask_judge(judge, prompt, Review, role="hypothesis_critic")
+    except JudgeError as exc:
+        logger.warning("DiagnosisAgent: the critic gave no usable review (%s); "
+                       "keeping %d hypothesis(es) unreviewed", exc, len(hypotheses))
+        capture.update(
+            raw=exc.raw, error=str(exc), exchanges=exc.exchanges, n_kept=0, n_rejected=0,
+            decisions=[{
                 "statement": h.statement, "decision": "review_unavailable",
-                "reason": "The adversarial review call failed; proposal retained.",
-            } for h in hypotheses]
-            capture["error"] = str(exc)
-            capture["duration_sec"] = time.perf_counter() - started
-        return hypotheses  # validation failed — keep originals, unannotated
-    raw = str(raw)
-    if capture is not None:
-        capture["raw"] = raw
-        capture["error"] = None
-        capture["duration_sec"] = time.perf_counter() - started
-
-    def _match(stmt: str) -> "Hypothesis | None":
-        stmt = stmt.strip().lower()
-        for h in hypotheses:
-            hs = h.statement.lower()
-            if hs[:60] in stmt or stmt[:60] in hs:
-                return h
-        return None
-
-    verdicts: dict[int, str] = {}
-    reasons: dict[int, str] = {}
-    last: "Hypothesis | None" = None
-    saw_decision = False
-    for line in raw.splitlines():
-        line = _normalise_label_line(line)
-        upper = line.upper()
-        if upper.startswith("KEEP:") or upper.startswith("REJECT:"):
-            saw_decision = True
-            verdict = "keep" if upper.startswith("KEEP:") else "reject"
-            h = _match(line.split(":", 1)[1])
-            if h is not None:
-                verdicts[id(h)] = verdict
-                last = h
-            else:
-                last = None
-        elif upper.startswith("REASON:") and last is not None:
-            reasons[id(last)] = line[len("REASON:"):].strip()
-
-    if not saw_decision:
-        # Malformed/empty critic output is an infrastructure failure: keep the
-        # proposals, say so, and mark them so the record shows no review ran.
-        import logging as _logging
-        _logging.getLogger(__name__).warning(
-            "DiagnosisAgent validation: critic response could not be parsed for "
-            "%d hypothesis(es) — keeping them unreviewed",
-            len(hypotheses),
+                "reason": "The adversarial review produced no usable answer; proposal retained.",
+            } for h in hypotheses],
         )
-        for h in hypotheses:
-            h.metadata["critic"] = "unparsed"
-        if capture is not None:
-            capture.update(n_kept=0, n_rejected=0, decisions=_critic_decisions(hypotheses))
         return hypotheses
 
+    for d in reply.output.decisions:
+        if d.number <= len(hypotheses):
+            hypotheses[d.number - 1].metadata.update(critic=d.decision, critic_reason=d.reason)
     for h in hypotheses:
-        h.metadata["critic"] = verdicts.get(id(h), "unparsed")
-        if id(h) in reasons:
-            h.metadata["critic_reason"] = reasons[id(h)]
-    n_kept = sum(1 for h in hypotheses if h.metadata.get("critic") == "keep")
-    n_rejected = sum(1 for h in hypotheses if h.metadata.get("critic") == "reject")
-    if capture is not None:
-        capture.update(n_kept=n_kept, n_rejected=n_rejected,
-                       decisions=_critic_decisions(hypotheses))
+        h.metadata.setdefault("critic", "unparsed")
+    n_kept = sum(1 for h in hypotheses if h.metadata["critic"] == "keep")
+    n_rejected = sum(1 for h in hypotheses if h.metadata["critic"] == "reject")
+    capture.update(raw=reply.raw, error=None, exchanges=reply.exchanges,
+                   n_kept=n_kept, n_rejected=n_rejected, decisions=_critic_decisions(hypotheses))
     if n_rejected and not n_kept:
-        import logging as _logging
-        _logging.getLogger(__name__).info(
-            "DiagnosisAgent validation: critic rejected all %d hypothesis(es) — "
-            "kept as flagged leads; M4 testing decides",
-            len(hypotheses),
-        )
-    order: dict[Any, int] = {"keep": 0, "unparsed": 1, "reject": 2}
-    return sorted(hypotheses, key=lambda h: order.get(h.metadata.get("critic"), 1))
+        logger.info("DiagnosisAgent: the critic rejected all %d hypothesis(es); "
+                    "kept as flagged leads, M4 testing decides", len(hypotheses))
+    order = {"keep": 0, "unparsed": 1, "reject": 2}
+    return sorted(hypotheses, key=lambda h: order.get(h.metadata["critic"], 1))
 
 
 def _critic_decisions(hypotheses: list[Hypothesis]) -> list[dict[str, Any]]:
     """Per-hypothesis review record derived from the critic's annotations: the
     ``{statement, decision, reason}`` shape the run log, report and Langfuse
-    consume. ``decision`` is ``keep`` / ``reject`` / ``unparsed`` (or
-    ``review_unavailable`` when the critic call itself failed). The critic
-    never removes a hypothesis, so this is a record, not a filter."""
+    consume. The critic never removes a hypothesis, so this is a record, not a
+    filter."""
     return [{
         "statement": h.statement,
         "decision": str(h.metadata.get("critic", "unparsed")),
@@ -691,101 +487,6 @@ class DiagnosisAgent:
     @judge.setter
     def judge(self, value: "Judge") -> None:
         self._judge = value
-
-    def _reask_for_format(self, raw: str, model_name: str) -> tuple[str, list[Hypothesis]]:
-        """One re-ask when a non-empty, non-NO_ISSUE answer parsed to zero hypotheses.
-
-        gemma-4-e2b / gsm8k (2026-08-27): the judge wrote three hypotheses in prose
-        blocks the label parser could not read and the run ended with
-        ``no_hypotheses`` — no warning, no second chance, no fix stage. The
-        label format is the contract, but a single formatting miss should cost
-        one more judge call, not the diagnosis. Returns the answer that was
-        finally parsed (so ``raw_judge_output`` records what the hypotheses came
-        from) and the hypotheses; on any failure the original answer and the
-        empty list come back and the existing fallbacks apply.
-        """
-        text = raw.strip()
-        if not text or "NO_ISSUE" in text.upper():
-            return raw, []
-        import logging
-
-        log = logging.getLogger(__name__)
-        log.warning(
-            "DiagnosisAgent: the judge wrote %d chars that parsed to zero hypotheses; "
-            "re-asking once for the labelled format: %r", len(text), text[:160],
-        )
-        repair_prompt = _FORMAT_REPAIR_PROMPT.format(raw=raw)
-        started = time.perf_counter()
-        try:
-            reasked = str(self.judge.generate(repair_prompt))
-        except Exception as exc:  # noqa: BLE001
-            self._model_calls.append({
-                "role": "diagnosis_format_repair", "operation": "generate",
-                "inputs": repair_prompt, "output": None, "error": str(exc),
-                "duration_sec": time.perf_counter() - started,
-            })
-            log.warning("DiagnosisAgent: format re-ask failed: %s", exc)
-            return raw, []
-        self._model_calls.append({
-            "role": "diagnosis_format_repair", "operation": "generate",
-            "inputs": repair_prompt, "output": reasked, "error": None,
-            "duration_sec": time.perf_counter() - started,
-        })
-        hypotheses = _parse_hypotheses(reasked, model_name)
-        if hypotheses:
-            return reasked, hypotheses
-        if "NO_ISSUE" in reasked.upper():
-            return reasked, []
-        log.warning("DiagnosisAgent: the re-asked answer also parsed to zero hypotheses")
-        return raw, []
-
-    def _repair_plain_language(
-        self, raw: str, hypotheses: list[Hypothesis], model_name: str,
-    ) -> list[Hypothesis]:
-        """One bounded retry when a PLAIN_STATEMENT line is missing or jargon-y.
-
-        The prompt asking for plain language is not enough on its own — a judge
-        will happily reuse the technical line — so the same host-side check the
-        explorer and the analysis-side hypothesis agent already run
-        (:func:`~evalrx.analysis.plain_language.jargon_violation`) also
-        guards this path, which is the one the benchmark runner takes. Never
-        raises: a failed repair keeps the original hypotheses, since a jargon-y
-        headline is worse than no diagnosis only for the reader, not for M4.
-        """
-        if not hypotheses:
-            return hypotheses
-        violations = [
-            f"hypothesis {i}'s PLAIN_STATEMENT {reason}: {h.plain_statement!r}"
-            for i, h in enumerate(hypotheses, start=1)
-            for reason in [jargon_violation(h.plain_statement, h.statement)]
-            if reason
-        ]
-        if not violations:
-            return hypotheses
-        repair_prompt = _PLAIN_REPAIR_PROMPT.format(
-            raw=raw, violations="\n".join(f"- {v}" for v in violations),
-        )
-        started = time.perf_counter()
-        try:
-            repaired_raw = self.judge.generate(repair_prompt)
-        except Exception as exc:  # noqa: BLE001
-            self._model_calls.append({
-                "role": "diagnosis_plain_language_repair", "operation": "generate",
-                "inputs": repair_prompt, "output": None, "error": str(exc),
-                "duration_sec": time.perf_counter() - started,
-            })
-            import logging
-
-            logging.getLogger(__name__).warning(
-                "DiagnosisAgent: plain-language repair failed: %s", exc)
-            return hypotheses
-        self._model_calls.append({
-            "role": "diagnosis_plain_language_repair", "operation": "generate",
-            "inputs": repair_prompt, "output": str(repaired_raw), "error": None,
-            "duration_sec": time.perf_counter() - started,
-        })
-        repaired = _parse_hypotheses(str(repaired_raw), model_name)
-        return repaired or hypotheses
 
     def diagnose(
         self,
@@ -884,7 +585,6 @@ class DiagnosisAgent:
             available_signals_section=available_signals_section,
             findings_json=json.dumps(summary, indent=2, default=str),
         )
-        import inspect as _inspect
         from pathlib import Path as _Path
         # M2's confirmatory figures, then the explorer's (UNCONFIRMED) charts.
         # The explore charts are attached to the M3 prompt ONLY — they never reach
@@ -892,35 +592,16 @@ class DiagnosisAgent:
         _figs = [_Path(f) for f in getattr(analysis, "figures", []) if _Path(f).exists()]
         if explore_context is not None:
             _figs += [_Path(f) for f in explore_context.figure_paths if _Path(f).exists()]
-        _sig = _inspect.signature(self.judge.generate)
-        started = time.perf_counter()
-        try:
-            if "images" in _sig.parameters and _figs:
-                raw = self.judge.generate(prompt, images=_figs)
-            else:
-                raw = self.judge.generate(prompt)
-        except Exception as exc:
-            self._model_calls.append({
-                "role": "diagnosis_judge", "operation": "generate",
-                "inputs": {"prompt": prompt, "images": [str(f) for f in _figs]},
-                "output": None, "error": str(exc),
-                "duration_sec": time.perf_counter() - started,
-            })
-            raise
-        self._model_calls.append({
-            "role": "diagnosis_judge", "operation": "generate",
-            "inputs": {"prompt": prompt, "images": [str(f) for f in _figs]},
-            "output": str(raw), "error": None,
-            "duration_sec": time.perf_counter() - started,
-        })
-        proposed_hypotheses = _parse_hypotheses(str(raw), analysis.model_name)
-        if not proposed_hypotheses:
-            raw, proposed_hypotheses = self._reask_for_format(
-                str(raw), analysis.model_name,
-            )
-        proposed_hypotheses = self._repair_plain_language(
-            str(raw), proposed_hypotheses, analysis.model_name,
+        # A failed or unreadable proposal raises JudgeError with every exchange;
+        # the loop logs them and retries M3 or stops, instead of this stage
+        # standing in a guess for the judge's answer.
+        reply = ask_judge(
+            self.judge, prompt, Proposal, role="diagnosis_judge",
+            images=_figs, check=_plain_language_problems,
         )
+        self._model_calls.extend(e.record() for e in reply.exchanges)
+        raw = reply.raw
+        proposed_hypotheses = [_to_hypothesis(d, analysis.model_name) for d in reply.output.hypotheses]
         hypotheses = list(proposed_hypotheses)
 
         # Adversarial validation: run a second critic call at temperature=0 to
@@ -945,32 +626,14 @@ class DiagnosisAgent:
                 hypotheses, findings_json_str, self.judge, capture=critic,
                 context=critic_context,
             )
-            self._model_calls.append({
-                "role": "hypothesis_critic", "operation": "generate",
-                "inputs": critic.get("prompt", ""), "output": critic.get("raw"),
-                "error": critic.get("error"),
-                "duration_sec": critic.get("duration_sec"),
-            })
+            self._model_calls.extend(e.record() for e in critic.get("exchanges", ()))
 
-        # Fallback: if the judge returned NO_ISSUE but M2 has medium/high findings,
-        # auto-generate one hypothesis per finding so M5 can still run.
-        # This prevents self-diagnosis bias when the judge is the model under test.
+        # The judge saw no problem, but M2 has medium/high findings: one
+        # hypothesis per finding so M4 still tests them. This guards against
+        # self-diagnosis bias when the judge is the model under test.
         if not hypotheses and analysis.findings:
             from evalrx.analysis.analysis_module import _SEVERITY_ORDER
-            raw_text = str(raw or "").strip()
-            if raw_text and "NO_ISSUE" not in raw_text.upper():
-                # Not a NO_ISSUE verdict: the judge proposed something the label
-                # parser could not read (gemma-4-e2b/bbh_causal_judgement 2026-08-22:
-                # ``**HYPOTHESIS 1:**``). Substituting templates silently turned a
-                # three-hypothesis diagnosis into "low self-consistency".
-                import logging
 
-                logging.getLogger(__name__).warning(
-                    "DiagnosisAgent: the judge wrote %d chars that parsed to zero hypotheses "
-                    "(not NO_ISSUE); falling back to analysis-module template hypotheses — "
-                    "check the label format in the response: %r",
-                    len(raw_text), raw_text[:160],
-                )
             for finding in analysis.findings:
                 if _SEVERITY_ORDER.get(finding.severity, 0) >= 2:  # medium or high
                     hypotheses.append(Hypothesis(

@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -36,7 +37,6 @@ from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.messages import (
     ModelMessage,
-    ModelRequest,
     ModelResponse,
     RetryPromptPart,
     TextPart,
@@ -109,12 +109,17 @@ class JudgeOutputError(JudgeError):
     """The judge answered, but no answer was valid within the retry budget."""
 
 
+_THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL)
+
+
 def first_json_value(text: str) -> Any:
     """The first complete JSON object or array in *text*.
 
-    Judges wrap JSON in prose and code fences; this skips anything before
+    Judges wrap JSON in prose and code fences, and reasoning models put a
+    ``<think>`` block first; this drops those blocks and skips anything before
     the first ``{`` or ``[`` that starts a valid JSON value.
     """
+    text = _THINK_BLOCK.sub("", text)
     decoder = json.JSONDecoder()
     for i, char in enumerate(text):
         if char in "{[":
@@ -135,17 +140,20 @@ def _part_text(part: Any) -> str:
 
 
 def render_prompt(messages: Sequence[ModelMessage], instructions: str | None) -> str:
-    """Flatten a PydanticAI conversation into one prompt for a stateless judge."""
+    """Flatten a PydanticAI conversation into one prompt for a stateless judge.
+
+    Everything sent after the judge's first answer is feedback on it.
+    """
     blocks: list[str] = [instructions] if instructions else []
+    answered = False
     for message in messages:
         texts = [t for t in (_part_text(p) for p in message.parts) if t]
         if not texts:
             continue
         if isinstance(message, ModelResponse):
             blocks.append("Your previous answer:\n" + "\n".join(texts))
-        elif isinstance(message, ModelRequest) and any(
-            isinstance(p, RetryPromptPart) for p in message.parts
-        ):
+            answered = True
+        elif answered:
             blocks.append("That answer could not be used:\n" + "\n".join(texts))
         else:
             blocks.append("\n".join(texts))

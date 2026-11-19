@@ -21,6 +21,7 @@ from evalrx.eval_agent.stages.probe_agent import ProbeAgent
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 from evalrx.reporting.run_events import read_run_events
 from tests.conftest import FakeModel
+from tests.judge_replies import hypothesis, keep_all, proposal
 
 
 class _ScriptedM3Judge(FakeModel):
@@ -35,14 +36,12 @@ class _ScriptedM3Judge(FakeModel):
         prompt = str(inputs)
         self.calls.append(prompt)
         if "adversarial ML reviewer" in prompt:
-            return (
-                "KEEP: Failure is driven by an attention signal present on failing cases.\n"
-                "REASON: evidence directly supports this claim"
-            )
-        return json.dumps([{
-            "hypothesis": "Failure is driven by an attention signal present on failing cases.",
-            "failure_mode": "attention",
-        }])
+            return keep_all(1)
+        return proposal(hypothesis(
+            "Failure is driven by an attention signal present on failing cases.",
+            "attention",
+            plain="The model looks at the wrong part of the input on the cases it gets wrong.",
+        ))
 
 
 class _ScriptedActionJudge(FakeModel):

@@ -29,6 +29,7 @@ from evalrx.eval_agent.stages.diagnosis import DiagnosisResult, ExploreContext
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 from evalrx.reporting.run_events import read_run_events
 from tests.conftest import FakeModel
+from tests.judge_replies import hypothesis, keep_all, proposal
 
 # ── stubs ─────────────────────────────────────────────────────────────────────
 
@@ -320,9 +321,12 @@ class _ImageJudge(FakeModel):
 
     def generate(self, inputs, images=None, **kw):
         self.calls.append({"prompt": str(inputs), "images": [str(p) for p in (images or [])]})
-        return ("HYPOTHESIS: long chains lose words, consistent with the Mean n_steps "
-                "by label chart\nFAILURE_MODE: long_chain\n"
-                "KEEP: long chains lose words, consistent with the Mean n_steps by label chart")
+        if "adversarial ML reviewer" in str(inputs):
+            return keep_all(1)
+        return proposal(hypothesis(
+            "long chains lose words, consistent with the Mean n_steps by label chart",
+            "long_chain",
+        ))
 
 
 def test_real_m3_gets_the_explore_notes_and_the_rendered_png(tmp_path):

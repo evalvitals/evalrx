@@ -14,6 +14,7 @@ from evalrx.core.capability import Capability
 from evalrx.eval_agent.stages.diagnosis import DiagnosisAgent
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 from tests.conftest import FakeModel
+from tests.judge_replies import hypothesis, keep_all, proposal
 
 
 def _stats_report_with_conclusion() -> StatsAnalysisReport:
@@ -45,15 +46,21 @@ class CapturingJudge(FakeModel):
 
     def generate(self, inputs, **kw) -> str:
         # diagnose() makes a second adversarial-validation call; record all and
-        # let tests inspect the first (the diagnosis prompt). The response
-        # carries a clean PLAIN_STATEMENT because the prompt demands one — a
-        # missing or jargon-y line costs a third call (the plain-language
-        # repair turn), which is what test_plain_language_repair covers.
-        self.prompts.append(str(inputs))
-        return ("HYPOTHESIS: model fails to ground answers in the image\n"
-                "PLAIN_STATEMENT: The model answers from the wording of the question "
-                "instead of looking at the picture.\n"
-                "FAILURE_MODE: weak_visual_grounding")
+        # let tests inspect the first (the diagnosis prompt). The proposal
+        # carries a clean plain_statement because the prompt demands one — a
+        # missing or jargon-y one costs a third call (the plain-language
+        # revision), which is what test_plain_language_revision covers.
+        prompt = str(inputs)
+        self.prompts.append(prompt)
+        if "adversarial ML reviewer" in prompt:
+            return keep_all(1)
+        return _proposal()
+
+
+def _proposal(plain: str = "The model answers from the wording of the question "
+                           "instead of looking at the picture.") -> str:
+    return proposal(hypothesis("model fails to ground answers in the image",
+                               "weak_visual_grounding", plain=plain))
 
 
 def test_prompt_includes_conclusion_evidence_and_stats():
@@ -149,8 +156,9 @@ def test_critic_reviews_against_the_proposers_context_and_a_label_summary():
     # the proposer's own prompt is unchanged by the cases kwarg
     assert "LABEL SUMMARY" not in judge.prompts[0]
     # and the critic prompt travels on the result so the run logger can persist it
+    # (the request itself; the judge also saw the Review schema ask_judge adds)
     diag = DiagnosisAgent(judge=CapturingJudge()).diagnose(_stats_report_with_conclusion(), cases=cases)
-    assert "LABEL SUMMARY" in diag.critic_prompt and diag.critic_prompt == judge.prompts[1]
+    assert "LABEL SUMMARY" in diag.critic_prompt and diag.critic_prompt in judge.prompts[1]
 
 
 def test_diagnose_without_cases_keeps_the_critic_prompt_label_free():
@@ -160,7 +168,7 @@ def test_diagnose_without_cases_keeps_the_critic_prompt_label_free():
     assert "Context the proposer worked from" in judge.prompts[1]  # conclusion/evidence still travel
 
 
-def test_plain_language_repair_runs_once_when_the_plain_line_is_jargon():
+def test_plain_language_revision_runs_once_when_the_plain_statement_is_jargon():
     """The prompt asking for plain language is not enough on its own — a judge
     will reuse the technical line — so the host checks it and spends ONE extra
     call to fix it. The analysis-side hypothesis agent already worked this way;
@@ -171,33 +179,38 @@ def test_plain_language_repair_runs_once_when_the_plain_line_is_jargon():
             self.prompts: list[str] = []
 
         def generate(self, inputs, **kw) -> str:
-            self.prompts.append(str(inputs))
-            plain = ("Spearman rho of 0.42 between the coefficient and the p-value"
-                     if len(self.prompts) == 1
-                     else "The model answers Yes whatever the picture shows.")
-            return ("HYPOTHESIS: model fails to ground answers in the image\n"
-                    f"PLAIN_STATEMENT: {plain}\n"
-                    "FAILURE_MODE: weak_visual_grounding")
+            prompt = str(inputs)
+            self.prompts.append(prompt)
+            if "adversarial ML reviewer" in prompt:
+                return keep_all(1)
+            return _proposal("Spearman rho of 0.42 between the coefficient and the p-value"
+                             if len(self.prompts) == 1
+                             else "The model answers Yes whatever the picture shows.")
 
     judge = JargonThenPlain()
     diag = DiagnosisAgent(judge=judge).diagnose(_stats_report_with_conclusion())
-    assert len(judge.prompts) == 3, "proposer, plain-language repair, then the critic"
-    assert "fail a plain-language check" in judge.prompts[1]
+    assert len(judge.prompts) == 3, "proposer, its plain-language revision, then the critic"
+    assert "fail the plain-language check" in judge.prompts[1]
+    assert "Spearman rho of 0.42" in judge.prompts[1]          # the rejected answer goes back
     assert diag.hypotheses[0].plain_statement == (
         "The model answers Yes whatever the picture shows."
     )
-    assert [call["role"] for call in diag.model_calls] == [
-        "diagnosis_judge", "diagnosis_plain_language_repair", "hypothesis_critic",
+    assert [(call["role"], call["metadata"]["attempt"]) for call in diag.model_calls] == [
+        ("diagnosis_judge", 1), ("diagnosis_judge", 2), ("hypothesis_critic", 1),
     ]
-    assert diag.model_calls[0]["inputs"]["prompt"] == judge.prompts[0]
-    assert [call["inputs"] for call in diag.model_calls[1:]] == judge.prompts[1:]
+    assert [call["inputs"] for call in diag.model_calls] == judge.prompts
     assert all(call["duration_sec"] >= 0 for call in diag.model_calls)
 
 
-def test_plain_language_repair_failure_keeps_the_original_hypotheses():
-    """A repair that raises must not cost the run its diagnosis — a jargon-y
-    headline is a reader problem, not an M4 problem."""
-    class RaisesOnRepair(FakeModel):
+def test_a_judge_error_on_the_plain_language_revision_raises():
+    """The revision is attempt 2 of the same typed call, so a judge that raises
+    there fails the call like any other judge failure — JudgeCallError carrying
+    both exchanges — and the loop decides whether to retry M3."""
+    import pytest
+
+    from evalrx.agent_runtime.judge_call import JudgeCallError
+
+    class RaisesOnRevision(FakeModel):
         def __init__(self) -> None:
             super().__init__(capabilities={Capability.GENERATE})
             self.calls = 0
@@ -206,13 +219,13 @@ def test_plain_language_repair_failure_keeps_the_original_hypotheses():
             self.calls += 1
             if self.calls == 2:
                 raise RuntimeError("judge went away")
-            return ("HYPOTHESIS: model fails to ground answers in the image\n"
-                    "PLAIN_STATEMENT: rho of 0.42 against the coefficient\n"
-                    "FAILURE_MODE: weak_visual_grounding")
+            return _proposal("rho of 0.42 against the coefficient")
 
-    diag = DiagnosisAgent(judge=RaisesOnRepair()).diagnose(_stats_report_with_conclusion())
-    assert len(diag.hypotheses) == 1
-    assert diag.hypotheses[0].plain_statement == "rho of 0.42 against the coefficient"
+    with pytest.raises(JudgeCallError, match="judge went away") as err:
+        DiagnosisAgent(judge=RaisesOnRevision()).diagnose(_stats_report_with_conclusion())
+    first, second = err.value.exchanges
+    assert first.output and first.error is None
+    assert second.output is None and "judge went away" in second.error
 
 
 def test_loop_hands_the_case_batch_to_agents_that_accept_it_only():

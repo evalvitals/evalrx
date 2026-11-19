@@ -48,6 +48,7 @@ def test_invalid_answer_is_sent_back_with_the_errors():
     reply = ask_judge(judge, "pick one", Pick, role="decide", retries=1)
     assert reply.output.tool == "probe"
     second = judge.prompts[1]
+    assert "Your previous answer:" in second and "That answer could not be used:" in second
     assert '"launch"' in second  # the judge sees its own answer ...
     assert "probe" in second and "stats" in second  # ... and what was allowed
     assert [e.record()["metadata"]["attempt"] for e in reply.exchanges] == [1, 2]
