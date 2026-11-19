@@ -137,7 +137,7 @@ done here.
 `python run.py --smoke-test` builds a synthetic model + 4 synthetic cases and
 runs the **real** `VLDiagnoseLoop` + `FixAgent` code paths (stub M1 probe and
 M3 diagnosis, everything else real) — specifically to catch
-`tcd_temporal_blur`'s admission gate (`fix_agent.py`'s `_l3_candidates`)
+`tcd_temporal_blur`'s admission gate (`fix/proposal.py`'s `_l3_candidates`)
 silently never firing, which would otherwise complete a whole run and produce
 nothing, with no error anywhere. Passing, as of this rewrite:
 
@@ -253,3 +253,8 @@ This renders one finished run as a single self-contained page (every figure and
 clip inlined) covering all eight `STAGE_IO` stages, including the ones the run
 skipped. It is the supported viewer; `demo_page/index.html` is simply a
 shareable output location. Needs `ffmpeg` to transcode embedded audio.
+
+The generated 91.2 MiB HTML is retained locally and ignored by Git. To recover
+the exact historical export without rerunning the model, follow the
+[demo recovery instructions](demo_page/README.md). The recovery command checks
+its SHA-256 digest and preserves an existing file.

@@ -158,7 +158,7 @@ def test_default_runner_constructs_agentic_pipeline_for_every_modality(monkeypat
     def run(loop, data):
         assert loop.probe_agent.allow_codegen
         assert loop.max_actions == 12
-        assert loop.fix_agent._floor_candidates == ()
+        assert loop.fix_agent.proposer._floor_candidates == ()
         assert len(data) == 8
         raise ReachedController
 

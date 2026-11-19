@@ -1,7 +1,6 @@
-"""Tests for the AutoDiagnose pipeline.
+"""Tests for the diagnosis stages.
 
-M1 ProbeAgent, M2 AnalysisModule, M3 DiagnosisAgent, M5 SurgeryAgent,
-and the full AutoDiagnoseLoop that ties them together.
+M1 ProbeAgent, M2 AnalysisModule, M3 DiagnosisAgent, M5 SurgeryAgent.
 """
 
 from __future__ import annotations
@@ -15,8 +14,6 @@ from evalrx.core.registry import registry
 from evalrx.eval_agent import (
     AnalysisModule,
     AnalysisReport,
-    AutoDiagnoseLoop,
-    AutoDiagnoseReport,
     DiagnosisAgent,
     DiagnosisResult,
     HypothesisStatus,
@@ -116,6 +113,13 @@ def test_probe_agent_returns_results_dict():
     assert isinstance(results, dict)
     assert len(results) <= 2
     assert all(name in registry.analyzers.list() for name in results)
+
+
+def test_probe_agent_docker_mode_falls_back_gracefully(recwarn):
+    """When Docker is unavailable, ProbeAgent warns and falls back (no crash)."""
+    agent = ProbeAgent(use_docker=True, docker_image="nonexistent:tag", max_analyzers=1)
+    results = agent.probe(_llm_model(), CaseBatch([FailureCase(inputs=Inputs(prompt="x"))]))
+    assert isinstance(results, dict)
 
 
 def test_probe_agent_only_compatible_analyzers():
@@ -512,123 +516,6 @@ def test_m5_experiment_gets_its_own_trial_with_kept_sandbox(tmp_path):
         assert exp["code"]["main.py"].startswith("# experiment for")
         assert exp["workspace_snapshot"] is not None
         assert any(name.endswith(".py") for name in (exp["workspace_snapshot"].get("files") or {}))
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# AutoDiagnoseLoop — full M1→M2→M3→M5
-# ══════════════════════════════════════════════════════════════════════════════
-
-def test_loop_analysis_only_mode():
-    model = _llm_model()
-    data = CaseBatch([FailureCase(inputs=Inputs(prompt="x"))])
-    loop = AutoDiagnoseLoop(model=model, probe_agent=ProbeAgent(max_analyzers=2))
-    report = loop.run(data)
-    assert isinstance(report, AutoDiagnoseReport)
-    assert report.resolved is False
-    assert report.final_hypotheses == []
-    assert report.final_analysis is not None
-    assert len(report.final_results) <= 2
-
-
-def test_loop_analysis_report_populated():
-    model = _llm_model()
-    data = CaseBatch([FailureCase(inputs=Inputs(prompt="x"))])
-    loop = AutoDiagnoseLoop(model=model, probe_agent=ProbeAgent(max_analyzers=1))
-    report = loop.run(data)
-    assert report.final_analysis is not None
-    assert isinstance(report.final_analysis.narrative, str)
-    assert len(report.final_analysis.narrative) > 0
-
-
-def test_loop_resolves_when_surgery_returns_fixed():
-    model = _llm_model()
-    data = CaseBatch([FailureCase(inputs=Inputs(prompt="x"))])
-
-    judge = ScriptedModel(
-        answers=["HYPOTHESIS: sink\nFAILURE_MODE: attention_sink\n"],
-        capabilities={Capability.GENERATE},
-    )
-
-    def always_fixed(h, m, r, d):
-        return InterventionResult(h, HypothesisStatus.SUPPORTED, fixed=True, evidence={})
-
-    loop = AutoDiagnoseLoop(
-        model=model,
-        probe_agent=ProbeAgent(max_analyzers=1),
-        diagnosis_agent=DiagnosisAgent(judge=judge),
-        surgery_agent=SurgeryAgent(verify_fn=always_fixed),
-        max_cycles=5,
-    )
-    report = loop.run(data)
-    assert report.resolved is True
-    assert report.cycles == 1
-
-
-def test_loop_stops_when_no_hypotheses():
-    model = _llm_model()
-    data = CaseBatch([FailureCase(inputs=Inputs(prompt="x"))])
-    judge = ScriptedModel(answers=["NO_ISSUE"], capabilities={Capability.GENERATE})
-    loop = AutoDiagnoseLoop(
-        model=model,
-        probe_agent=ProbeAgent(max_analyzers=1),
-        diagnosis_agent=DiagnosisAgent(judge=judge),
-        max_cycles=5,
-    )
-    report = loop.run(data)
-    assert report.resolved is False
-    assert report.final_hypotheses == []
-
-
-def test_loop_max_cycles_respected():
-    model = _llm_model()
-    data = CaseBatch([FailureCase(inputs=Inputs(prompt="x"))])
-    judge = ScriptedModel(
-        answers=["HYPOTHESIS: h\nFAILURE_MODE: f\n"],
-        capabilities={Capability.GENERATE},
-    )
-    loop = AutoDiagnoseLoop(
-        model=model,
-        probe_agent=ProbeAgent(max_analyzers=1),
-        diagnosis_agent=DiagnosisAgent(judge=judge),
-        surgery_agent=SurgeryAgent(verify_fn=lambda h, m, r, d: InterventionResult(
-            h, HypothesisStatus.INCONCLUSIVE, fixed=False, evidence={}
-        )),
-        max_cycles=3,
-    )
-    report = loop.run(data)
-    assert report.resolved is False
-    assert report.cycles <= 3
-
-
-def test_loop_store_accumulates():
-    model = _llm_model()
-    data = CaseBatch([FailureCase(inputs=Inputs(prompt="x"))])
-    judge = ScriptedModel(
-        answers=["HYPOTHESIS: h\nFAILURE_MODE: f\n"],
-        capabilities={Capability.GENERATE},
-    )
-    loop = AutoDiagnoseLoop(
-        model=model,
-        probe_agent=ProbeAgent(max_analyzers=1),
-        diagnosis_agent=DiagnosisAgent(judge=judge),
-        surgery_agent=SurgeryAgent(verify_fn=lambda h, m, r, d: InterventionResult(
-            h, HypothesisStatus.INCONCLUSIVE, fixed=False, evidence={}
-        )),
-        max_cycles=1,
-    )
-    report = loop.run(data)
-    assert len(report.store.results) > 0
-    assert len(report.store.hypotheses) > 0
-
-
-def test_loop_docker_mode_falls_back_gracefully(recwarn):
-    """When Docker is unavailable, ProbeAgent warns and falls back (no crash)."""
-    model = _llm_model()
-    data = CaseBatch([FailureCase(inputs=Inputs(prompt="x"))])
-    agent = ProbeAgent(use_docker=True, docker_image="nonexistent:tag", max_analyzers=1)
-    loop = AutoDiagnoseLoop(model=model, probe_agent=agent)
-    report = loop.run(data)
-    assert isinstance(report, AutoDiagnoseReport)
 
 
 # ── the per-analyzer case ceiling ────────────────────────────────────────────

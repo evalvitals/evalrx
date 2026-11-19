@@ -18,9 +18,19 @@ import type { UploadedRun } from "./upload";
 
 const FIGURE_SUFFIXES = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"];
 const MIME: Record<string, string> = {
-  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp",
-  svg: "image/svg+xml", wav: "audio/wav", mp3: "audio/mpeg", flac: "audio/flac", ogg: "audio/ogg",
-  m4a: "audio/mp4", mp4: "video/mp4", webm: "video/webm",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  svg: "image/svg+xml",
+  wav: "audio/wav",
+  mp3: "audio/mpeg",
+  flac: "audio/flac",
+  ogg: "audio/ogg",
+  m4a: "audio/mp4",
+  mp4: "video/mp4",
+  webm: "video/webm",
 };
 
 const join = (dir: string, rel: string) => (dir ? `${dir}/${rel}` : rel);
@@ -34,15 +44,16 @@ export async function readRunArchive(file: File): Promise<UploadedRun> {
     .sort((a, b) => a.length - b.length); // the top-most published report wins
   if (dataEntries.length === 0) {
     throw new Error(
-      "This archive holds no published report (no report/report_data.json). "
-      + "Run `evalrx publish <run-dir>` — or open the run once with `evalrx serve` — then zip it again.",
+      "This archive holds no published report (no report/report_data.json). " +
+        "Run `evalrx publish <run-dir>` — or open the run once with `evalrx serve` — then zip it again.",
     );
   }
   const dataPath = dataEntries[0];
-  const reportDir = parentOf(dataPath);        // <root>/report
-  const root = parentOf(reportDir);            // the run root ("" when zipped from inside it)
+  const reportDir = parentOf(dataPath); // <root>/report
+  const root = parentOf(reportDir); // the run root ("" when zipped from inside it)
   const specPath = `${reportDir}/report_spec.json`;
-  if (!files[specPath]) throw new Error(`The archive has ${dataPath} but no ${specPath} beside it.`);
+  if (!files[specPath])
+    throw new Error(`The archive has ${dataPath} but no ${specPath} beside it.`);
 
   const data = JSON.parse(await files[dataPath].async("string"));
   const layout = JSON.parse(await files[specPath].async("string"));
@@ -61,18 +72,28 @@ export async function readRunArchive(file: File): Promise<UploadedRun> {
   const grand = parentOf(parent);
   const candidates = (raw: string) => {
     const rel = raw.replace(/^\.\//, "");
-    return [join(root, rel), join(parent, rel), join(join(parent, "data"), rel), join(join(grand, "data"), rel), rel];
+    return [
+      join(root, rel),
+      join(parent, rel),
+      join(join(parent, "data"), rel),
+      join(join(grand, "data"), rel),
+      rel,
+    ];
   };
   const urls = new Map<string, string>();
   const resolve = async (raw: unknown): Promise<string | undefined> => {
-    if (typeof raw !== "string" || !raw || /^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.startsWith("/")) return undefined;
+    if (typeof raw !== "string" || !raw || /^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.startsWith("/"))
+      return undefined;
     for (const name of candidates(raw)) {
       const entry = files[name];
       if (!entry || entry.dir) continue;
       if (!urls.has(name)) {
         const ext = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
         const bytes = await entry.async("arraybuffer");
-        urls.set(name, URL.createObjectURL(new Blob([bytes], { type: MIME[ext] || "application/octet-stream" })));
+        urls.set(
+          name,
+          URL.createObjectURL(new Blob([bytes], { type: MIME[ext] || "application/octet-stream" })),
+        );
       }
       return urls.get(name);
     }
@@ -86,10 +107,17 @@ export async function readRunArchive(file: File): Promise<UploadedRun> {
     }
   }
   const attachFigures = async (node: any): Promise<void> => {
-    if (Array.isArray(node)) { for (const value of node) await attachFigures(value); return; }
+    if (Array.isArray(node)) {
+      for (const value of node) await attachFigures(value);
+      return;
+    }
     if (!node || typeof node !== "object") return;
     const raw = node.path;
-    if (typeof raw === "string" && !node.data_uri && FIGURE_SUFFIXES.some((s) => raw.toLowerCase().endsWith(s))) {
+    if (
+      typeof raw === "string" &&
+      !node.data_uri &&
+      FIGURE_SUFFIXES.some((s) => raw.toLowerCase().endsWith(s))
+    ) {
       const url = await resolve(raw);
       if (url) node.data_uri = url;
     }
@@ -102,6 +130,7 @@ export async function readRunArchive(file: File): Promise<UploadedRun> {
     await attachFigures(data[key]);
   }
 
-  const label = root.split("/").filter(Boolean).slice(-2).join("/") || file.name.replace(/\.zip$/i, "");
+  const label =
+    root.split("/").filter(Boolean).slice(-2).join("/") || file.name.replace(/\.zip$/i, "");
   return { label, data, layout };
 }

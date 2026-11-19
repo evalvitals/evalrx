@@ -19,21 +19,36 @@ export function StaticLanding({ onLoaded }: { onLoaded: (run: UploadedRun) => vo
       .then((list) => setDemos(Array.isArray(list) ? list : []))
       .catch(() => setDemos([]));
   }, []);
-  return <div className="landing">
-    <header className="landing-head">
-      <div className="landing-brand"><span className="logo-mark">EV</span><strong>EvalRX</strong></div>
-      <h1>From failure to fix, with the evidence attached.</h1>
-      <p>One loop diagnoses a model's failures (M1–M3), verifies each hypothesis on held-out cases (M4) and validates a repair on untouched ones (M5). These reports are its output.</p>
-    </header>
-    {demos.length > 0 && <section className="demo-grid" aria-label="Demo reports">
-      {demos.map((demo) => <a key={demo.href} className="demo-card" href={demo.href}>
-        <small>{demo.tag}</small>
-        <b>{demo.title}<ArrowUpRight size={14} /></b>
-        <span>{demo.blurb}</span>
-      </a>)}
-    </section>}
-    <section className="landing-drop">
-      <RunDrop onLoaded={onLoaded} />
-    </section>
-  </div>;
+  return (
+    <div className="landing">
+      <header className="landing-head">
+        <div className="landing-brand">
+          <span className="logo-mark">EV</span>
+          <strong>EvalRX</strong>
+        </div>
+        <h1>From failure to fix, with the evidence attached.</h1>
+        <p>
+          One loop diagnoses a model's failures (M1–M3), verifies each hypothesis on held-out cases
+          (M4) and validates a repair on untouched ones (M5). These reports are its output.
+        </p>
+      </header>
+      {demos.length > 0 && (
+        <section className="demo-grid" aria-label="Demo reports">
+          {demos.map((demo) => (
+            <a key={demo.href} className="demo-card" href={demo.href}>
+              <small>{demo.tag}</small>
+              <b>
+                {demo.title}
+                <ArrowUpRight size={14} />
+              </b>
+              <span>{demo.blurb}</span>
+            </a>
+          ))}
+        </section>
+      )}
+      <section className="landing-drop">
+        <RunDrop onLoaded={onLoaded} />
+      </section>
+    </div>
+  );
 }

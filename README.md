@@ -9,7 +9,7 @@
   <img src="docs/assets/figures/model-health-teaser.svg" alt="A model-health signal enters an auto-research loop that probes, explains and intervenes; only a held-out verified pass updates the model to n+1, which recurs as the next research subject." width="640">
 </picture>
 
-[![Paper](https://img.shields.io/badge/Paper-PDF-3D8DFF)](https://github.com/evalvitals/evalvitals-pages/blob/main/docs/assets/Evalvitals.pdf)
+[![Paper](https://img.shields.io/badge/arXiv-pdf-b31b1b.svg)](https://arxiv.org/pdf/2610.25767)
 [![PyPI version](https://img.shields.io/pypi/v/evalrx?color=3D8DFF)](https://pypi.org/project/evalrx/)
 [![Python versions](https://img.shields.io/pypi/pyversions/evalrx?color=3D8DFF)](https://pypi.org/project/evalrx/)
 [![CI](https://github.com/evalvitals/evalrx/actions/workflows/ci.yml/badge.svg)](https://github.com/evalvitals/evalrx/actions/workflows/ci.yml)
@@ -50,7 +50,7 @@ supply the question and the ceiling — everything between is unattended.
 </picture>
 
 The held-out split is taken *before* Explore runs, so Verify always scores on
-rows the analysis never touched. [Full-loop quickstart →](docs/quickstart.md#vldiagnoseloop--automated-failure-attribution-current) · [Intervention guide →](docs/intervention.md)
+rows the analysis never touched. [Full-loop quickstart →](docs/quickstart.md#diagnosis-loop) · [Intervention guide →](docs/intervention.md)
 
 ## Quickstart
 
@@ -155,11 +155,29 @@ spec runs through a black-box API or a white-box local backend — only the
 available capability set changes. [Analyzer Zoo →](docs/analyzers.md) ·
 [Architecture guide →](docs/architecture.md)
 
+Analyzers are also callable as tools. Each one is described by the question it
+answers, what it needs and the arguments it takes, and reports whether it can
+run on the model and data in hand — and if not, why:
+
+```python
+from evalrx.probing import ProbeToolbox
+
+box = ProbeToolbox(model, cases)
+box.describe()["attention_knockout"]["missing"]     # why a probe cannot run here
+box.route(failure_modes=["visual_neglect"]).names   # what to run first
+box.call("logit_lens", {"top_k": 5})                # arguments checked against a schema
+```
+
+In the agentic loop the judge gets the same view: `list_probes` shows what can
+run, and `run_probe` takes a probe's name and arguments.
+[Probe tools →](docs/wsp_and_probe_tools.md#probe-tools)
+
 ## Docs & Examples
 
 [Quickstart](docs/quickstart.md) · [CLI](docs/cli.md) ·
 [Exploratory Analysis](docs/m2_analysis.md) ·
 [Intervention & Verification](docs/intervention.md) ·
+[Weight Edits & Probe Tools](docs/wsp_and_probe_tools.md) ·
 [Analyzer Zoo](docs/analyzers.md) · [Architecture](docs/architecture.md) ·
 [Extending EvalRX](docs/extending.md) · [Roadmap](docs/roadmap.md) — all live,
 searchable, at [evalvitals.github.io/evalrx](https://evalvitals.github.io/evalrx/overview/).
@@ -203,10 +221,46 @@ raising it rather than climbing on its own.
 | **L2** | Scaffolds around an unchanged model — multi-call, tools, aggregation | ✅ |
 | **L3a** | Read internals — attention-guided cropping, contrastive decoding | ✅ |
 | **L3b** | Write internals — attention reweighting, activation steering | ✅ |
-| **L4** | **Parameter space — build a dataset, fine-tune, re-test** | ✅ LoRA on the LLM ([`fix_internals.py`](evalrx/eval_agent/stages/fix_internals.py)); other recipe shapes recorded, not yet executed |
+| **L4** | **Parameter space — build a dataset, fine-tune, re-test; or write a training-free weight edit** | ✅ LoRA on the LLM ([`internals.py`](evalrx/eval_agent/stages/fix/internals.py)); ✅ rank-one weight edit, opt-in ([`weight_edit.py`](evalrx/eval_agent/stages/fix/weight_edit.py)); other recipe shapes recorded, not yet executed |
 
 **L3b and L4 only exist for open weights** — you cannot modify a forward pass
 or fine-tune through somebody's API.
+
+### Weight edits
+
+A weight edit changes a model by writing new values into a few tensors, with no
+training: for example `w' = w - alpha * u (u^T w)` on some columns of one MLP
+output projection. `evalrx.wsp` builds, applies and restores such edits, reads
+their structure from the weights, and audits them against controls:
+
+```python
+from evalrx.analyzers.weights import WeightEditContinuationAudit
+from evalrx.wsp import WeightEdit, applied, edit_structure
+
+edit = WeightEdit.load("path/to/edit")
+edit_structure(model, edit)                  # where it moved, its rank, its alpha
+with applied(model, edit):                   # written in, then restored exactly
+    answer = model.generate(case.inputs)
+WeightEditContinuationAudit(edit=edit).run(model, cases)   # vs random direction, other neurons, steering
+```
+
+As a repair it is one more L4 candidate, validated by the same paired test and
+recorded beside a matched random-direction control:
+`FixAgent(max_tier="L4", weight_edit=True, finetune_pool=...)`.
+
+Checked on Qwen3.5-0.8B with the edit published in
+[*Sparks of Weight-Space Programming*](https://rikiyat.github.io/blog/weight-space-programming/):
+
+| | Unedited | Edited | Random-direction control |
+|---|---|---|---|
+| GSM8K correct (64 problems, 16,384-token budget) | 6 | 37 | 7 |
+| Left the thinking block | 10.9% | 92.2% | 9.4% |
+| Ended in a verbatim loop | 87.5% | 1.6% | 90.6% |
+
+31 fixed, 0 broken. That edit was written by another system; deriving one from
+the model's own behaviour recovered about half of its neurons and not its
+direction. [Full results and limits →](docs/validation/astra_p50c_20261115.md) ·
+[Weight edits guide →](docs/wsp_and_probe_tools.md#weight-edits)
 
 ## Project Status
 

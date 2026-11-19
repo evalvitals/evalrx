@@ -1,8 +1,8 @@
-"""deco_hallu — PHASE 1 of the decoupled run: analyse + propose, build the dashboard.
+"""deco_hallu — PHASE 1 of the decoupled run: analyse + propose, then report.
 
 Runs M1 → M2 → M3 on the FROZEN M1 result (outputs/m1_state.pkl) WITHOUT
 confirming any hypothesis (M4) and WITHOUT attempting a fix. The point is to get
-the analysis story onto the dashboard first:
+the analysis story into the report first:
 
   M1 (replayed)  →  M2 rigorous stats + charts  →  M3 proposes hypotheses  →  STOP
 
@@ -11,15 +11,15 @@ What it produces:
   outputs/analysis/proposed_hypotheses.json   the hypotheses, human-readable
   outputs/analysis/analysis_state.pkl     {hypotheses, stats_report} for PHASE 2
 
-Then point the dashboard at outputs/ to read "what we analysed → what we found →
-hypotheses formed" — the hypotheses are PROPOSED, not yet confirmed (no M4/M5/Fix
+Then open the report on outputs/logs_analysis to read "what we analysed → what
+we found → hypotheses formed" — the hypotheses are PROPOSED, not yet confirmed (no M4/M5/Fix
 verdicts). Confirmation + repair are deferred to run_confirm_fix.py, which reuses
 the two artifacts above so the SAME hypotheses/stats are what gets confirmed.
 
     python run_m1.py        --model qwen3-vl-2b-instruct --device cuda   # once (GPU)
     python run_fused.py     --backend claude                            # Step 1 (no GPU)
     python run_analysis.py  --backend claude --recipes outputs/fused/confirmed_recipes.json --explore-report outputs/fused/fused_report.json   # PHASE 1 (no GPU)
-    python -m evalrx.cli dashboard outputs                         # the analysis report
+    python -m evalrx.cli serve outputs/logs_analysis               # the analysis report
     python run_confirm_fix.py --device cuda                            # PHASE 2 (GPU + claude)
 
 No GPU here: M1 is replayed from the pickle, and M2/M3 only call the judge/coder
@@ -52,8 +52,8 @@ def main() -> None:
     ap.add_argument("--explore-report", default="",
                     help="path to Step 1 fused_report.json — its charts/observations "
                          "(UNCONFIRMED) are shown to M3 only, never to the M2 family")
-    ap.add_argument("--dashboard", action="store_true",
-                    help="launch the Streamlit dashboard on outputs/ when done")
+    ap.add_argument("--serve", action="store_true",
+                    help="open the analysis report (evalrx serve) when done")
     args = ap.parse_args()
     OUT.mkdir(exist_ok=True)
 
@@ -132,7 +132,7 @@ def main() -> None:
     state_out = {"schema_version": 1, "model_key": state.get("model_key", args.model),
                  "hypotheses": hyp_dicts, "stats_report": None}
     # The M2 report is the exact evidence M4 will confirm against. Pickle it when
-    # possible so PHASE 2 confirms the SAME statistics the dashboard showed; if it
+    # possible so PHASE 2 confirms the SAME statistics the report showed; if it
     # cannot pickle, PHASE 2 regenerates M2 from the frozen M1 (a safe fallback).
     try:
         pickle.dumps(report.final_stats_report)
@@ -145,15 +145,15 @@ def main() -> None:
     print(f"\nwrote {ANALYSIS_DIR / 'proposed_hypotheses.json'}")
     print(f"wrote {ANALYSIS_DIR / 'analysis_state.pkl'}  (hypotheses + stats for PHASE 2)")
     print(f"analysis logs -> {run_logger.run_dir}")
-    print("\nView the analysis dashboard (proposed hypotheses, no verdicts yet):")
-    print("  python -m evalrx.cli dashboard outputs")
+    print("\nView the analysis report (proposed hypotheses, no verdicts yet):")
+    print(f"  python -m evalrx.cli serve {run_logger.run_dir}")
     print("\nPHASE 2 (confirm + fix, reuses the artifacts above):")
     print("  python run_confirm_fix.py --device cuda")
 
-    if args.dashboard:
-        from evalrx.analysis.dashboard import launch_dashboard
+    if args.serve:
+        from evalrx.reporting.server import serve_dynamic_report
 
-        raise SystemExit(launch_dashboard(OUT))
+        raise SystemExit(serve_dynamic_report(run_logger.run_dir))
 
 
 if __name__ == "__main__":

@@ -97,8 +97,9 @@ def test_dynamic_api_filters_and_serves_spa(tmp_path):
     publish_report(tmp_path)
 
     with TestClient(create_app(tmp_path)) as client:
-        assert client.get("/api/report").status_code == 200
-        response = client.get("/api/cases", params={"status": "fail", "limit": 1})
+        run = client.get("/api/session").json()["run"]
+        assert client.get(f"/api/runs/{run['id']}/report").status_code == 200
+        response = client.get(f"/api/runs/{run['id']}/cases", params={"status": "fail", "limit": 1})
         assert response.json()["total"] == 1
         assert response.json()["items"][0]["id"] == "a"
         assert client.get("/").headers["content-type"].startswith("text/html")
@@ -137,11 +138,69 @@ def test_runs_panel_lists_and_opens_sibling_experiments(tmp_path):
 
         opened = client.post(f"/api/runs/{unpublished['id']}/open")
         assert opened.status_code == 200
+        assert opened.json()["id"] == unpublished["id"]
         assert opened.json()["data"]["setting"]["model"] == "model-b"
-        # The session actually swapped: /api/report now serves run_b too.
-        assert client.get("/api/report").json()["data"]["setting"]["model"] == "model-b"
+        # Opening run_b changed nothing for run_a: each run is read by its own id.
+        initial = client.get("/api/session").json()["run"]
+        assert initial["id"] == published["id"] and initial["root"] == published["root"]
+        assert client.get(f"/api/runs/{initial['id']}/report").json()["data"]["setting"]["model"] == "model-a"
+        assert client.get(f"/api/runs/{unpublished['id']}/report").json()["data"]["setting"]["model"] == "model-b"
 
         assert client.post("/api/runs/not-a-real-id/open").status_code == 404
+        assert client.get("/api/runs/not-a-real-id/report").status_code == 404
+
+        # Every report route answers for the run it names.
+        report_b = client.get(f"/api/runs/{unpublished['id']}/report").json()
+        assert (report_b["id"], report_b["root"]) == (unpublished["id"], unpublished["root"])
+        stage = client.get(f"/api/runs/{unpublished['id']}/stages/m1")
+        assert stage.status_code == 200 and stage.json()["stage"]["id"] == "m1"
+        assert client.get(f"/api/runs/{unpublished['id']}/stages/m9").status_code == 404
+        debug = client.get(f"/api/runs/{unpublished['id']}/debug", params={"limit": 1}).json()
+        assert debug["total"] >= 1 and len(debug["items"]) == 1
+
+
+def test_an_uploaded_run_gets_its_own_id_and_an_empty_server_names_no_run(tmp_path):
+    import io
+    import zipfile
+
+    from fastapi.testclient import TestClient
+
+    from evalrx.core import CaseBatch, FailureCase, Label
+    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.reporting.server import create_app
+
+    run = tmp_path / "shared" / "logs"
+    logger = RunLoggerV2(run)
+    logger.log_run_start({"model": "uploaded-model", "n_cases": 1})
+    logger.log_cases(CaseBatch([FailureCase.from_prompt("q", id="c1", label=Label.FAIL)]))
+    logger.log_stage_skipped("M1", "no_signal")
+    logger.close()
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as bundle:
+        for path in run.rglob("*"):
+            if path.is_file():
+                bundle.write(path, path.relative_to(tmp_path).as_posix())
+
+    with TestClient(create_app(runs_root=tmp_path)) as client:
+        assert client.get("/api/session").json()["run"] is None
+        uploaded = client.post("/api/upload", files={"file": ("shared.zip", archive.getvalue())})
+        assert uploaded.status_code == 200
+        key = uploaded.json()["id"]
+        assert uploaded.json()["data"]["setting"]["model"] == "uploaded-model"
+        assert client.get(f"/api/runs/{key}/cases/c1").json()["id"] == "c1"
+        assert client.get("/api/session").json()["run"] is None
+        bad = client.post("/api/upload", files={"file": ("empty.zip", _empty_zip())})
+        assert bad.status_code == 400
+
+
+def _empty_zip() -> bytes:
+    import io
+    import zipfile
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as bundle:
+        bundle.writestr("readme.txt", "no run here")
+    return buffer.getvalue()
 
 
 def test_runs_listing_keeps_the_most_recent_past_the_display_limit(tmp_path, monkeypatch):
@@ -315,7 +374,8 @@ def test_read_only_run_can_be_served_without_publishing(tmp_path, monkeypatch):
         lambda _root: (_ for _ in ()).throw(PermissionError("read only")),
     )
     with TestClient(create_app(tmp_path)) as client:
-        payload = client.get("/api/report").json()
+        run = client.get("/api/session").json()["run"]
+        payload = client.get(f"/api/runs/{run['id']}/report").json()
     assert payload["layout"]["generated_by"]["mode"] == "deterministic-read-only"
     assert payload["data"]["setting"]["model"] == "read-only-demo"
 

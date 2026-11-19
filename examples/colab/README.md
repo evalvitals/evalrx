@@ -5,8 +5,8 @@ Select the matching hardware runtime, add `GEMINI_API_KEY` to Colab Secrets, the
 | Hardware | Model | Task | Notebook |
 |---|---|---|---|
 | TPU | Gemma 4 E2B-it | BBH word sorting or CRUXEval output prediction (set `DATASET`) | [`tpu/evalrx_tpu.ipynb`](tpu/evalrx_tpu.ipynb): install once, then launch anywhere (below) |
-| GPU | Gemma 4 E2B-it | BBH word sorting | Execution in progress; notebook pending |
-| GPU | Gemma 4 E2B-it | CRUXEval output prediction | Queued; notebook pending |
+| GPU | Gemma 4 E2B-it | BBH word sorting | Incomplete local execution; not published |
+| GPU | Gemma 4 E2B-it | CRUXEval output prediction | Incomplete local execution; not published |
 
 The planned TPU/GPU pairs use the same model and dataset, 128 cases, seed 0, a 64/64 EXPLORE/CONFIRM split, a 512-token generation budget, and the same agent and repair settings. The hardware adaptation changes installation, device checks, and `--backend`/`--device`: `jax_local`/`tpu` versus `hf_local`/`cuda`. Both default to bfloat16; use a compatible GPU such as L4 or A100. Backend numerics can still produce different predictions.
 
@@ -18,7 +18,9 @@ Results on a Colab TPU v5e:
   - CRUXEval: **32/64 → 41/64** (9 fixed, 0 broken), e = 51.2. The verdict is **fixed**, by the candidate `scratchpad_and_expanded_limit`.
   - `tpu/evalrx_tpu.ipynb` replaces those notebooks. They remain in git history at `f55fbea`, with their outputs.
 
-The remaining two GPU notebooks will be published after execution.
+The two local GPU notebooks are retained with their outputs; see the
+[GPU notebook status](gpu/README.md). They will be published only after their
+complete executions and confirmation results are audited.
 
 A successful repair must pass the independent CONFIRM check. EXPLORE gains alone are not enough. These are inference repairs around unchanged model weights, not fine-tuning.
 

@@ -68,7 +68,7 @@ through it, and each one is a work item below:
    them: `lens/logit_lens.py`, `lens/layer_contrast.py`, `geometry/cka.py`,
    `geometry/linear_probe.py` (trains a probe with `torch.optim`),
    `uncertainty/entropy.py`, `attention/summary.py` and `rollout.py`.
-2. **L3b and L4 reach around `Model`.** `eval_agent/stages/fix_internals.py`
+2. **L3b and L4 reach around `Model`.** `eval_agent/stages/fix/internals.py`
    reads the private `model._hf` tuple (`_resolve_hf`), registers a torch
    forward hook on the input embedding for `visual_embedding_boost`, and
    hands the same object to `peft` in `run_lora_repair`.

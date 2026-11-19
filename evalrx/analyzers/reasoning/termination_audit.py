@@ -172,7 +172,7 @@ class TerminationAudit(Analyzer):
         # produces that EXACT shape on every case that terminated perfectly
         # normally. When the model itself has told us how generation actually
         # ended (metadata["finish_reason"], populated by e.g. mine_cases.py's
-        # generate_with_meta -- see fix_agent.py's L0 telemetry gate for the
+        # generate_with_meta -- see fix/proposal.py's L0 telemetry gate for the
         # other consumer of this same field), that real signal overrides the
         # text-shape guess: "stop" means it did NOT hit the token budget,
         # regardless of how terse the output looks; "length" confirms it did,

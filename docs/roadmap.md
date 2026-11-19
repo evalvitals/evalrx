@@ -21,18 +21,15 @@ surfaces and planned interfaces.
 | Geometry | `CKAAnalyzer` (linear CKA over residual stream). |
 | Agent analyzers | `LoopDetector`, `IgnoredObservationDetector`, `FirstErrorJudge`, `CounterfactualReplay`. |
 | Statistics | `compare()` (McNemar + e-value + clustered bootstrap CI), `compare_multiple()` (Friedman + Nemenyi), `ebh()`, `kendall_tau`, `stratified_subset`. |
-| Eval agent — pre-registered A/B | `EvalOrchestrator`, `DataSplit`, `PreregisteredHypothesis`, `PreregistrationLog`. |
-| **AutoDiagnoseLoop** | **M1→M5 controller with hint-driven probe focus, prior-cycle context, and `resolved` fast-exit.** |
 | **ExperimentWriter** | **6-phase CodeAgent: blueprint → sequential multi-file generation (CodeMem AST summaries) → hard-validate → exec-fix (targeted traceback repair) → tree-search → review.  CLI agent backends: `codex`, `claude_code`, `opencode`, `gemini_cli`, `kimi_cli`.** |
 | **ExperimentSandbox** | **`run_project()` for multi-file projects; path traversal protection; harness injection; cleanup-on-success; `SandboxProtocol` + `create_sandbox()` factory.** |
-| **ExperimentGitManager** | **Git-native run versioning: `eval/{run_id}` branches; commit on resolve; `git reset --hard` on discard.** |
-| **EvolutionStore** | **JSONL lesson accumulation with 30-day half-life time decay; `extract_lessons(report)`; `build_overlay()` for prompt injection.** |
 | **JsonlStore** | **Durable JSONL-backed `Store`; hypotheses serialized via `hypothesis_to_dict`/`from_dict`; survives process restart.** |
-| **Run-directory infrastructure** | **Atomic checkpoints (`checkpoint.json`), heartbeat (`heartbeat.json`), `AutoDiagnoseLoop.resume()`, auto-created `EvolutionStore`.** |
 | **VLM image-attention rule** | **M2 derives `image_token_attention_ratio` from `top_attended_tokens`; fires medium-severity finding when VLM ignores image tokens.** |
 | **RunContext** | **Single owner of a run's output directory (`report/`, `figures/`, `artifacts/`, `experiments/`, `fixes/`, `manifest.json`, auto-generated `README.txt`); per-trial folders (`new_trial()`) for fix candidates and M5 experiments.** |
 | **FixAgent** | **Tiered post-loop repair (L1 prompt → L2 scaffold → L3a/b internals → L4 parameter space); paired McNemar + e-value validation; `max_repair_rounds` feedback-driven retry with candidate dedup; `loop.run_fix(auto_escalate=True)` steps the tier ladder.** |
 | **Result image overlays** | **`RelativeAttentionResult.overlay()`/`.image_overlays()` — CAM-style heatmap-on-source-image blending; duck-typed hook picked up by `RunLogger` into `figures/`.** |
+| **Probe tools** | **`evalrx.probing`: every analyzer as a tool (family, question, access, cost, JSON-schema arguments), availability with reasons, `ProbeRouter`, `ProbeToolbox.call(name, params)`; agentic `list_probes` and named `run_probe`.** |
+| **Weight edits (WSP)** | **`evalrx.wsp`: `WeightEdit` / `TensorEdit` (rank-one, low-rank, dense, sparse), reversible `applied()`, controls, structure read-out, contrast-derived edits; `weight_edit_structure` / `weight_edit_audit` analyzers; opt-in L4 `rank_one_weight_edit` repair. Tested on a planted-defect model and tiny random modules, not yet on a full-size model.** |
 | Contract tests | Parametrized pyod-style suite covering all 26 registered analyzers (554 unit tests). |
 
 ## Stage 2 stubs (registered, `_run` raises `NotImplementedError`)

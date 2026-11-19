@@ -525,7 +525,6 @@ def test_run_context_v2_root_holds_no_v1_named_directories(tmp_path):
 
 
 def test_reporting_reader_and_server_discover_v2_run(tmp_path):
-    from evalrx.analysis.dashboard import load_loop_story
     from evalrx.observability.tracer import backfill_run_to_langfuse
     from evalrx.reporting.run_events import read_v2_events, resolve_v2_root
     from evalrx.reporting.server import find_run_root
@@ -541,8 +540,10 @@ def test_reporting_reader_and_server_discover_v2_run(tmp_path):
     assert any(event["event"] == "probe" and event["stage"] == "M1" for event in events)
     assert any(event["event"] == "fix" and event["stage"] == "M5" for event in events)
     assert all(event.get("trace_id") for event in events)
-    story = load_loop_story(root.parent)
-    assert story is not None and story["probes"] and story["diagnoses"]
+    from evalrx.reporting.run_data import extract_run_data
+
+    data = extract_run_data(root.parent)
+    assert data["m1"]["results"] and data["m3"]["hypotheses"]
     backfill = backfill_run_to_langfuse(root.parent, dry_run=True)
     assert backfill["trace_id"] == events[0]["trace_id"]
     assert backfill["events"] == len(events)
@@ -737,3 +738,13 @@ def test_hypothesis_id_joins_m3_to_m4_and_m5(tmp_path):
     # statement (id="", per _emit_every_method's `hyp`) would compute —
     # no drift between the log and an independent join.
     assert hid == hypothesis_id({"id": "", "statement": "s"})
+
+
+def test_outbox_dir_is_per_user(monkeypatch, tmp_path):
+    # A shared /tmp/evalrx-v2-outbox is owned by whoever created it first, so
+    # every other user on the host failed with "unable to open database file".
+    import evalrx.eval_agent.run_logger_v2 as v2
+
+    monkeypatch.setattr(v2.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(v2.getpass, "getuser", lambda: "alice")
+    assert v2._outbox_dir() == tmp_path / "evalrx-v2-outbox-alice"

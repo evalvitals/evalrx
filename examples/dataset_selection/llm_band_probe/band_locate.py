@@ -21,12 +21,10 @@ import argparse
 import json
 import math
 import os
-import random
 import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 import requests
@@ -37,14 +35,20 @@ from evalrx.analyzers.reasoning._text import (  # noqa: E402
     extract_answer,
     normalize_answer,
 )
+from evalrx.benchmark.tasks.llm.fetch import fetch_rows  # noqa: E402
+from evalrx.benchmark.tasks.llm.specs import (  # noqa: E402
+    ANSWER_MARK,
+    MC_LETTERS,
+    Spec,
+    bbh_adapter,
+    field_text,
+    grade_latex,
+    mc_adapter,
+    mc_prompt,
+    plain_adapter,
+)
+from evalrx.benchmark.tasks.llm.specs import SPECS as TASK_SPECS  # noqa: E402
 
-ROWS_API = "https://datasets-server.huggingface.co/rows"
-#: server-side row filtering. A slice holding <1% of a split (SuperGPQA
-#: Medicine/hard is 217 of 26,529) would need ~6,000 rows pulled and thrown
-#: away to collect 50 through /rows; /filter also reports num_rows_total for
-#: the FILTERED set, so the sampling windows spread across the slice itself
-#: rather than across the split that contains it.
-FILTER_API = "https://datasets-server.huggingface.co/filter"
 BASE_URL = os.environ.get("BAND_BASE_URL", "http://127.0.0.1:8020/v1")
 MODEL_ID = os.environ.get("BAND_MODEL_ID", "qwen3.5-9b")
 #: Thinking mode for every request this module sends. OFF by default: each call
@@ -56,106 +60,23 @@ MODEL_ID = os.environ.get("BAND_MODEL_ID", "qwen3.5-9b")
 #: reproduce that mode.
 ENABLE_THINKING = os.environ.get("BAND_ENABLE_THINKING", "0") == "1"
 
-_MC_LETTERS = "ABCDEFGHIJ"
-
 
 # ----------------------------------------------------------------------
-# Candidate specs
+# Candidate specs. The nine the benchmark runs (TASK_SPECS) and their shared
+# adapters/graders live in evalrx.benchmark.tasks.llm.specs; the rest of the
+# survey is defined here.
 # ----------------------------------------------------------------------
-@dataclass
-class Spec:
-    """One candidate dataset slice to measure."""
-
-    name: str
-    chapter: str
-    dataset: str
-    config: str = "default"
-    split: str = "test"
-    question_field: str = "question"
-    answer_field: str = "answer"
-    # row -> (prompt, gold) ; None drops the row
-    adapter: Optional[Callable[[dict], Optional[tuple]]] = None
-    instruction: str = (
-        "Solve the problem. Put the final answer on its own last line as "
-        "'Answer: <answer>'."
-    )
-    # Gold shapes differ enough that a single grader would silently under-report
-    # (list-wrapped LaTeX, answer aliases, full grids) -> allow an override.
-    grader: Optional[Callable[[str, Any], bool]] = None
-    #: Feed the grader the RAW generation instead of the extracted answer.
-    #: extract_answer is structurally single-line (the tag regex does not span
-    #: newlines), so a multi-line gold — a puzzle grid — graded on the extracted
-    #: span can only ever see its first row and scores 0 for every model.
-    grades_raw_output: bool = False
-    max_tokens: int = 8192
-    note: str = ""
-    meta: dict = field(default_factory=dict)
-    #: ``row -> keep?``, applied BEFORE the adapter.
-    #:
-    #: Several of these datasets carry their own difficulty ladder as a column
-    #: (ZebraLogic ``size``, Enigmata ``task_name``). Measuring the pooled split
-    #: averages a saturated rung with a floored one and reports a number that
-    #: describes NEITHER — a pooled 0.22 on ZebraLogic is not "22% hard", it is
-    #: "some rungs are free and some are impossible". The filter exists to scan
-    #: the ladder rung by rung instead.
-    row_filter: Optional[Callable[[dict], bool]] = None
-    #: Over-fetch factor, counted in rows that PASS ``row_filter``.
-    #: A filter keeping 1/25 of the split needs far more than the default, or
-    #: the sweep silently reports a band on four items.
-    fetch_multiplier: int = 3
-    #: Windows spread across the split. A filtered spec needs the whole split
-    #: swept, not a sample of it, because its rows may be contiguous.
-    n_windows: int = 12
-    #: datasets-server ``where`` clause, e.g. ``"discipline"='Law'``.
-    #: Set it to address a NAMED subdivision of a split that is too large to
-    #: use whole. Prefer this over ``row_filter`` whenever the predicate is
-    #: expressible server-side: the filter runs before the download, so the
-    #: sample is drawn from the slice instead of sieved out of the split.
-    where: Optional[str] = None
-    #: Append ``instruction`` to the prompt.
-    #:
-    #: Off for datasets that ship their OWN response-format section. Enigmata
-    #: tells the model to print a fenced grid; appending "put the final answer
-    #: on its own last line as 'Answer: <answer>'" on top of that is a second,
-    #: contradictory format order, and a model that obeys either one is graded
-    #: against the other. Adding an instruction is not free.
-    append_instruction: bool = True
-
-
-def _text(row: dict, *keys: str) -> str:
-    for key in keys:
-        value = row.get(key)
-        if value not in (None, ""):
-            return str(value)
-    return ""
-
-
-def _mc_prompt(question: str, options: list[str]) -> str:
-    lines = [question, ""]
-    lines += [f"{_MC_LETTERS[i]}. {opt}" for i, opt in enumerate(options[: len(_MC_LETTERS)])]
-    return "\n".join(lines)
-
-
-# -- per-dataset adapters (field names verified against /first-rows) -----
-def _adapter_plain(q: str, a: str) -> Callable[[dict], Optional[tuple]]:
-    def _fn(row: dict) -> Optional[tuple]:
-        question, gold = _text(row, q), _text(row, a)
-        return (question, gold) if question and gold else None
-
-    return _fn
-
-
 def _adapter_imo(row: dict) -> Optional[tuple]:
     # IMO-AnswerBench ships field names WITH SPACES; only integer answers are
     # cheaply gradable, the rest need a judge.
-    question, gold = _text(row, "question", "Question"), _text(row, "answer", "Answer")
+    question, gold = field_text(row, "question", "Question"), field_text(row, "answer", "Answer")
     if not question or not gold or not re.fullmatch(r"-?\d+", gold.strip()):
         return None
     return question, gold.strip()
 
 
 def _adapter_gsm_symbolic(row: dict) -> Optional[tuple]:
-    question, gold = _text(row, "question"), _text(row, "answer")
+    question, gold = field_text(row, "question"), field_text(row, "answer")
     if not question or not gold:
         return None
     # GSM8K-style gold: "reasoning #### 42"
@@ -163,7 +84,7 @@ def _adapter_gsm_symbolic(row: dict) -> Optional[tuple]:
 
 
 def _adapter_lcb_execution(row: dict) -> Optional[tuple]:
-    code, inp, out = _text(row, "code"), _text(row, "input"), _text(row, "output")
+    code, inp, out = field_text(row, "code"), field_text(row, "input"), field_text(row, "output")
     if not code or not out:
         return None
     prompt = (
@@ -174,141 +95,22 @@ def _adapter_lcb_execution(row: dict) -> Optional[tuple]:
     return prompt, out.strip()
 
 
-def _adapter_cruxeval(row: dict) -> Optional[tuple]:
-    code, inp, out = _text(row, "code"), _text(row, "input"), _text(row, "output")
-    if not code or not out:
-        return None
-    prompt = (
-        "Predict the output of this Python function for the given input.\n\n"
-        f"{code}\n\nInput: {inp}\n\n"
-        "Give only the output value on the last line as 'Answer: <value>'."
-    )
-    return prompt, out.strip()
-
-
-def _adapter_mc(question_keys: tuple, options_key: str, answer_key: str):
-    def _fn(row: dict) -> Optional[tuple]:
-        question = _text(row, *question_keys)
-        options = row.get(options_key)
-        gold = _text(row, answer_key)
-        if not question or not isinstance(options, (list, tuple)) or not gold:
-            return None
-        if len(options) > len(_MC_LETTERS):
-            return None  # would need a letter the prompt cannot label
-        if gold in _MC_LETTERS:
-            letter = gold
-        elif gold in options:
-            letter = _MC_LETTERS[list(options).index(gold)]
-        else:
-            return None
-        return _mc_prompt(question, list(options)), letter
-
-    return _fn
-
-
 def _adapter_polymath(row: dict) -> Optional[tuple]:
     # golds are LaTeX wrapped in $...$ ("$\\frac{\\pi}{3}$"); the delimiters are
     # notation, not answer
-    question, gold = _text(row, "question"), _text(row, "answer")
+    question, gold = field_text(row, "question"), field_text(row, "answer")
     gold = gold.strip().strip("$").strip()
     if not question or not gold:
         return None
     return question, gold
 
 
-#: Spacing/sizing commands and the two \frac aliases carry no meaning, so two
-#: answers that differ only in them are the same answer.
-_LATEX_NOISE = re.compile(
-    # the (?![a-zA-Z]) guard keeps \\left from eating \\leftarrow
-    r"\\(?:left|right|qquad|quad|displaystyle|text|mathrm)(?![a-zA-Z])|\\[!,;:]"
-)
-
-
-def _latex_key(value: Any) -> str:
-    """Normalised surface form of a LaTeX answer.
-
-    Deliberately NOT a CAS: it collapses notation that never changes meaning
-    (\\dfrac vs \\frac, \\left(, stray spaces) and nothing else. Two answers that
-    are algebraically equal but written differently (1/2 vs 0.5, \\sqrt2/2 vs
-    1/\\sqrt2) still miss — which is why the specs using it say so.
-    """
-    text = str(value or "").strip().strip("$").strip()
-    text = text.replace("\\dfrac", "\\frac").replace("\\tfrac", "\\frac")
-    text = _LATEX_NOISE.sub("", text)
-    text = re.sub(r"\\cdot|\\times", "*", text)
-    text = re.sub(r"[\s{}]", "", text)
-    return text.lower()
-
-
-_ANSWER_MARK = re.compile(r"answer\s*:", re.IGNORECASE)
-
-
-#: `4.5 \times 10^{33}`, `4.5 \cdot 10^33`, `4.5 x 10^33` -> `4.5e33`. Requiring a
-#: literal `10^` after the operator is what keeps the bare `x` alternative from
-#: eating a variable; nothing else in these answer sets looks like this.
-_SCI_LATEX = re.compile(
-    r"(-?\d+(?:\.\d+)?)\s*(?:\\times|\\cdot|\\ast|[x*])\s*10\s*\^\s*\{?\s*(-?\d+)\s*\}?"
-)
-
-
-def _sci_float(value: Any) -> Optional[float]:
-    """Parse a lone scalar written in program OR LaTeX scientific notation.
-
-    Returns None unless the whole string is that one number, so a expression that
-    merely contains a power of ten never reaches the tolerant comparison below.
-    """
-    text = str(value or "").strip().strip("$").strip()
-    text = _LATEX_NOISE.sub("", text)
-    text = _SCI_LATEX.sub(lambda m: f"{m.group(1)}e{int(m.group(2))}", text)
-    text = re.sub(r"[\s{},]", "", text)
-    try:
-        return float(text)
-    except ValueError:
-        return None
-
-
-def _has_exponent(value: Any) -> bool:
-    text = str(value or "")
-    return bool(_SCI_LATEX.search(text) or re.search(r"\de-?\d", text, re.I))
-
-
-def _grade_latex(prediction: Any, gold: Any) -> bool:
-    """Numeric equality first, then normalised LaTeX surface form.
-
-    Scientific notation gets one extra pass.  Minerva-style physics sets write
-    their golds in PROGRAM form (`4.5e33`) while a model writing mathematics
-    writes `4.5 \\times 10^{33}`, so surface comparison marks correct answers
-    wrong -- 23.5% of minervamath's golds look like this.  Collapsing the two
-    notations is in the same spirit as _latex_key: it never changes meaning.
-
-    The 1% relative tolerance is NOT applied to ordinary numbers.  These golds
-    carry 2-3 significant figures (`4.5e33`, `8.7e8`), so a correct derivation
-    rounds differently in the last digit; a competition answer of `100` gets no
-    such licence, because there `99.5` is simply wrong.
-    """
-    if answer_equal(prediction, gold):
-        return True
-    # a newline is only a proxy for "this is a generation, not a bare answer";
-    # a single-line "Answer: 4.5e33" needs the label stripped just as much
-    text = str(prediction)
-    pred_raw = (
-        extract_answer(prediction)
-        if "\n" in text or _ANSWER_MARK.search(text) else prediction
-    )
-    if _has_exponent(pred_raw) or _has_exponent(gold):
-        p, g = _sci_float(pred_raw), _sci_float(gold)
-        if p is not None and g is not None:
-            return math.isclose(p, g, rel_tol=1e-2, abs_tol=0.0)
-    pred = _latex_key(pred_raw)
-    return bool(pred) and pred == _latex_key(gold)
-
-
 def _adapter_musr(row: dict) -> Optional[tuple]:
     # MuSR ships `choices` as the STRING repr of a list, not a list
     import ast
 
-    narrative, question = _text(row, "narrative"), _text(row, "question")
-    raw, gold = row.get("choices"), _text(row, "answer_choice")
+    narrative, question = field_text(row, "narrative"), field_text(row, "question")
+    raw, gold = row.get("choices"), field_text(row, "answer_choice")
     if isinstance(raw, str):
         try:
             raw = ast.literal_eval(raw)
@@ -316,13 +118,13 @@ def _adapter_musr(row: dict) -> Optional[tuple]:
             return None
     if not narrative or not isinstance(raw, (list, tuple)) or gold not in raw:
         return None
-    letter = _MC_LETTERS[list(raw).index(gold)]
-    return _mc_prompt(f"{narrative}\n\n{question}", list(raw)), letter
+    letter = MC_LETTERS[list(raw).index(gold)]
+    return mc_prompt(f"{narrative}\n\n{question}", list(raw)), letter
 
 
 def _adapter_olympiadbench(row: dict) -> Optional[tuple]:
     # final_answer is a LIST of LaTeX strings; take the first and strip the $
-    question = _text(row, "question")
+    question = field_text(row, "question")
     gold = row.get("final_answer")
     if isinstance(gold, (list, tuple)):
         gold = gold[0] if gold else ""
@@ -333,7 +135,7 @@ def _adapter_olympiadbench(row: dict) -> Optional[tuple]:
 
 
 def _adapter_musique(row: dict) -> Optional[tuple]:
-    question, gold = _text(row, "question"), _text(row, "answer")
+    question, gold = field_text(row, "question"), field_text(row, "answer")
     if not question or not gold:
         return None
     paragraphs = row.get("paragraphs") or []
@@ -375,7 +177,7 @@ def _hotpot_context(row: dict) -> str:
 
 def _adapter_hotpot(row: dict) -> Optional[tuple]:
     """Open-book: the model is handed the paragraphs and must combine two of them."""
-    question, gold = _text(row, "question"), _text(row, "answer")
+    question, gold = field_text(row, "question"), field_text(row, "answer")
     if not question or not gold:
         return None
     context = _hotpot_context(row)
@@ -391,7 +193,7 @@ def _adapter_hotpot_closed(row: dict) -> Optional[tuple]:
     different tasks: one measures multi-hop READING, the other multi-hop RECALL,
     and pooling them would average a reading score with a memory score.
     """
-    question, gold = _text(row, "question"), _text(row, "answer")
+    question, gold = field_text(row, "question"), field_text(row, "answer")
     if not question or not gold:
         return None
     return question, gold
@@ -406,7 +208,7 @@ def _answer_region(text: str) -> str:
     the score would approach 100% without measuring anything. No marker means
     no stated answer, which is a failure and not a licence to go looking.
     """
-    marks = list(_ANSWER_MARK.finditer(str(text or "")))
+    marks = list(ANSWER_MARK.finditer(str(text or "")))
     return text[marks[-1].end():] if marks else ""
 
 
@@ -452,7 +254,7 @@ def _zebra_cells(text: str) -> set:
 
 
 def _adapter_zebra(row: dict) -> Optional[tuple]:
-    puzzle = _text(row, "puzzle")
+    puzzle = field_text(row, "puzzle")
     solution = row.get("solution")
     if not puzzle or not isinstance(solution, dict):
         return None
@@ -718,9 +520,9 @@ def _enigmata_filter(difficulty: Optional[str] = None,
 
 
 def _adapter_folio(row: dict) -> Optional[tuple]:
-    premises = _text(row, "premises")
-    conclusion = _text(row, "conclusion")
-    gold = _text(row, "label")
+    premises = field_text(row, "premises")
+    conclusion = field_text(row, "conclusion")
+    gold = field_text(row, "label")
     if not premises or not conclusion or not gold:
         return None
     prompt = (
@@ -728,10 +530,6 @@ def _adapter_folio(row: dict) -> Optional[tuple]:
         "Is the conclusion True, False, or Uncertain given ONLY the premises?"
     )
     return prompt, gold
-
-
-def _adapter_bbh(row: dict) -> Optional[tuple]:
-    return _adapter_plain("input", "target")(row)
 
 
 # ── LiveBench-Math ────────────────────────────────────────────────────────────
@@ -752,12 +550,12 @@ _LB_SEQUENCE = re.compile(r"[\d,\s]+")
 def _adapter_livebench_math(row: dict) -> Optional[tuple]:
     turns = row.get("turns")
     if isinstance(turns, (list, tuple)):
-        # an EMPTY list must not fall through to _text(), which stringifies it
+        # an EMPTY list must not fall through to field_text(), which stringifies it
         # to "[]" — a non-empty string that would be sent to the model verbatim
         prompt = str(turns[0]) if turns else ""
     else:
-        prompt = _text(row, "turns")
-    gold = _text(row, "ground_truth")
+        prompt = field_text(row, "turns")
+    gold = field_text(row, "ground_truth")
     if not prompt or not gold:
         return None
     return prompt, gold.strip()
@@ -776,7 +574,7 @@ def _grade_livebench_math(prediction: Any, gold: Any) -> bool:
         got = extract_answer(prediction)
         seq = [p.strip() for p in str(got).split(",")]
         return [p for p in seq if p] == [p.strip() for p in want.split(",") if p.strip()]
-    return _grade_latex(prediction, gold)
+    return grade_latex(prediction, gold)
 
 
 def _still_live(row: dict) -> bool:
@@ -786,7 +584,7 @@ def _still_live(row: dict) -> bool:
 
 def _adapter_imo_answerbench(row: dict) -> Optional[tuple]:
     # field names carry a CAPITAL and a SPACE: "Problem", "Short Answer"
-    question, gold = _text(row, "Problem"), _text(row, "Short Answer")
+    question, gold = field_text(row, "Problem"), field_text(row, "Short Answer")
     if not question or not gold:
         return None
     return question, gold.strip()
@@ -795,7 +593,7 @@ def _adapter_imo_answerbench(row: dict) -> Optional[tuple]:
 SPECS: list[Spec] = [
     # ── ch1 math: expected to span saturated → floor ────────────────────
     Spec("math500", "ch1-math", "HuggingFaceH4/MATH-500", split="test",
-         max_tokens=20480, adapter=_adapter_plain("problem", "answer"), note="saturation check"),
+         max_tokens=20480, adapter=plain_adapter("problem", "answer"), note="saturation check"),
     Spec("gsm_symbolic_main", "ch1-math", "apple/GSM-Symbolic", config="main",
          split="test", adapter=_adapter_gsm_symbolic, max_tokens=4096,
          note="paired-axis anchor (main/p1/p2)"),
@@ -803,16 +601,16 @@ SPECS: list[Spec] = [
          split="test", adapter=_adapter_gsm_symbolic, max_tokens=4096,
          note="hardest rung of the same axis"),
     Spec("aime_2026", "ch1-math", "MathArena/aime_2026", split="train",
-         max_tokens=20480, adapter=_adapter_plain("problem", "answer"), note="frontier-saturated"),
+         max_tokens=20480, adapter=plain_adapter("problem", "answer"), note="frontier-saturated"),
     Spec("hmmt_feb_2026", "ch1-math", "MathArena/hmmt_feb_2026", split="train",
-         adapter=_adapter_plain("problem", "answer"), max_tokens=20480),
+         adapter=plain_adapter("problem", "answer"), max_tokens=20480),
     Spec("matharena_apex", "ch1-math", "MathArena/apex-shortlist", split="train",
-         max_tokens=20480, adapter=_adapter_plain("problem", "answer"), note="floor check"),
+         max_tokens=20480, adapter=plain_adapter("problem", "answer"), note="floor check"),
     Spec("arxivmath", "ch1-math", "MathArena/arxivmath", split="train",
-         adapter=_adapter_plain("problem", "answer"), max_tokens=20480,
+         adapter=plain_adapter("problem", "answer"), max_tokens=20480,
          note="contamination-resistant by construction"),
     Spec("beyond_aime", "ch1-math", "ByteDance-Seed/BeyondAIME", split="test",
-         adapter=_adapter_plain("problem", "answer"), max_tokens=20480),
+         adapter=plain_adapter("problem", "answer"), max_tokens=20480),
     Spec("olympiadbench_math", "ch1-math", "Hothan/OlympiadBench",
          config="OE_TO_maths_en_COMP", split="train", adapter=_adapter_olympiadbench,
          max_tokens=20480),
@@ -820,27 +618,26 @@ SPECS: list[Spec] = [
     # difficulty (low/medium/high/top), 125 problems each, and the same index in
     # two languages is the same problem with the same gold. The `low` rung is
     # GSM8K-level and omitted as pre-saturated.
-    Spec("polymath_en_medium", "ch1-math", "Qwen/PolyMath", grader=_grade_latex, config="en",
+    Spec("polymath_en_medium", "ch1-math", "Qwen/PolyMath", grader=grade_latex, config="en",
          split="medium", adapter=_adapter_polymath, max_tokens=20480,
          note="paired axis: same 125 problems as every other language; "
               "only 47% of golds are plain numbers, the rest are matched on "
               "normalised LaTeX form and algebraic rewrites will miss"),
-    Spec("polymath_en_high", "ch1-math", "Qwen/PolyMath", grader=_grade_latex, config="en",
+    Spec("polymath_en_high", "ch1-math", "Qwen/PolyMath", grader=grade_latex, config="en",
          split="high", adapter=_adapter_polymath, max_tokens=20480,
          note="difficulty ladder rung 3 of 4 (AIME-level); 68% numeric golds"),
-    Spec("polymath_en_top", "ch1-math", "Qwen/PolyMath", grader=_grade_latex, config="en",
+    Spec("polymath_en_top", "ch1-math", "Qwen/PolyMath", grader=grade_latex, config="en",
          split="top", adapter=_adapter_polymath, max_tokens=20480,
          note="difficulty ladder rung 4 of 4 (olympiad-level); only 31% "
               "numeric golds — a low score here is partly the grader"),
-    Spec("polymath_zh_medium", "ch1-math", "Qwen/PolyMath", grader=_grade_latex, config="zh",
+    Spec("polymath_zh_medium", "ch1-math", "Qwen/PolyMath", grader=grade_latex, config="zh",
          split="medium", adapter=_adapter_polymath, max_tokens=20480,
          note="cross-language arm of polymath_en_medium — identical golds"),
     # ── ch2 code: the sandbox-free path ─────────────────────────────────
     Spec("lcb_execution", "ch2-code", "livecodebench/execution-v2", split="test",
          adapter=_adapter_lcb_execution, max_tokens=20480,
          note="exact string, NO sandbox"),
-    Spec("cruxeval_output", "ch2-code", "cruxeval-org/cruxeval", split="test",
-         adapter=_adapter_cruxeval, max_tokens=20480, note="exact string, no sandbox"),
+    TASK_SPECS["cruxeval_output"],
     # ── ch3 puzzles ─────────────────────────────────────────────────────
     # Kept for the record: this is the spec that produced the pooled 0.22.
     # It is SUPERSEDED by the zebra_t* rungs below — see their note.
@@ -849,18 +646,15 @@ SPECS: list[Spec] = [
          grades_raw_output=True, max_tokens=20480, append_instruction=False,
          note="POOLED over 25 grid sizes — superseded by zebra_t1..t5"),
     Spec("enigmata_eval", "ch3-puzzle", "BytedTsinghua-SIA/Enigmata-Eval",
-         split="train", adapter=_adapter_plain("prompt", "answer"), max_tokens=20480,
+         split="train", adapter=plain_adapter("prompt", "answer"), max_tokens=20480,
          note="POOLED over all tasks — superseded by enigmata_* slices"),
     # ── ch4 atomic reasoning ────────────────────────────────────────────
     Spec("bbh_navigate", "ch4-basic", "lukaemon/bbh", config="navigate", split="test",
-         adapter=_adapter_bbh, max_tokens=4096),
-    Spec("bbh_tracking7", "ch4-basic", "lukaemon/bbh",
-         config="tracking_shuffled_objects_seven_objects", split="test",
-         adapter=_adapter_bbh, max_tokens=4096),
-    Spec("bbh_word_sorting", "ch4-basic", "lukaemon/bbh", config="word_sorting",
-         split="test", adapter=_adapter_bbh, max_tokens=4096),
+         adapter=bbh_adapter, max_tokens=4096),
+    TASK_SPECS["bbh_tracking7"],
+    TASK_SPECS["bbh_word_sorting"],
     Spec("bbh_object_counting", "ch4-basic", "lukaemon/bbh",
-         config="object_counting", split="test", adapter=_adapter_bbh,
+         config="object_counting", split="test", adapter=bbh_adapter,
          max_tokens=4096,
          note="250 items; TextGrad's BBH pair with word_sorting. Gold is a bare "
               "integer ('8'), so answer_equal's numeric path grades it exactly "
@@ -870,12 +664,11 @@ SPECS: list[Spec] = [
               "saturated / 0.720 marginal / 0.600 / 0.540, so this one's band "
               "is genuinely unknown"),
     Spec("bbeh", "ch4-basic", "BBEH/bbeh", split="train",
-         adapter=_adapter_plain("input", "target"), max_tokens=20480),
+         adapter=plain_adapter("input", "target"), max_tokens=20480),
     Spec("musique", "ch4-basic", "bdsaglam/musique", split="validation",
          adapter=_adapter_musique, grader=_grade_aliases, max_tokens=4096,
          note="2/3/4-hop x answerable"),
-    Spec("bamboogle", "ch4-basic", "chiayewken/bamboogle", split="test",
-         adapter=_adapter_plain("Question", "Answer"), max_tokens=20480),
+    TASK_SPECS["bamboogle"],
     Spec("hotpotqa_gepa", "ch4-basic", "hotpotqa/hotpot_qa",
          config="fullwiki", split="train", adapter=_adapter_hotpot,
          max_tokens=20480,
@@ -895,7 +688,7 @@ SPECS: list[Spec] = [
     Spec("musr_murder", "ch4-basic", "TAUR-Lab/MuSR", split="murder_mysteries",
          adapter=_adapter_musr, max_tokens=20480),
     Spec("supergpqa", "ch4-basic", "m-a-p/SuperGPQA", split="train",
-         adapter=_adapter_mc(("question",), "options", "answer_letter"),
+         adapter=mc_adapter(("question",), "options", "answer_letter"),
          max_tokens=20480,
          note="285 disciplines; carries difficulty/discipline/is_calculation "
               "fields for slicing"),
@@ -904,23 +697,11 @@ SPECS: list[Spec] = [
     # 67% Engineering+Science, and the small disciplines are humanities skewed
     # heavily toward `easy`, so the band has to be re-measured per slice rather
     # than inherited. Medicine/hard is the only small slice on the hard end.
-    Spec("supergpqa_medicine_hard", "ch4-basic", "m-a-p/SuperGPQA", split="train",
-         where="\"discipline\"='Medicine' AND \"difficulty\"='hard'",
-         adapter=_adapter_mc(("question",), "options", "answer_letter"),
-         max_tokens=20480,
-         note="217 items; the only <1000 slice that is entirely `hard`"),
-    Spec("supergpqa_law", "ch4-basic", "m-a-p/SuperGPQA", split="train",
-         where="\"discipline\"='Law'",
-         adapter=_adapter_mc(("question",), "options", "answer_letter"),
-         max_tokens=20480,
-         note="656 items; highest hard share (9%) among whole disciplines <1000"),
-    Spec("supergpqa_economics", "ch4-basic", "m-a-p/SuperGPQA", split="train",
-         where="\"discipline\"='Economics'",
-         adapter=_adapter_mc(("question",), "options", "answer_letter"),
-         max_tokens=20480,
-         note="873 items; largest whole discipline <1000, 65% `middle`"),
+    TASK_SPECS["supergpqa_medicine_hard"],
+    TASK_SPECS["supergpqa_law"],
+    TASK_SPECS["supergpqa_economics"],
     Spec("mmlu_pro", "ch4-basic", "TIGER-Lab/MMLU-Pro", split="test",
-         adapter=_adapter_mc(("question",), "options", "answer"), max_tokens=20480),
+         adapter=mc_adapter(("question",), "options", "answer"), max_tokens=20480),
     # ── added after the 2026-08-14 screening ────────────────────────────
     Spec("livebench_math", "ch1-math", "livebench/math", split="test",
          adapter=_adapter_livebench_math, grader=_grade_livebench_math,
@@ -937,23 +718,19 @@ SPECS: list[Spec] = [
          note="the 182 questions LiveBench has NOT retired — the actual live "
               "rolling benchmark; contamination-limited by construction"),
     Spec("olymmath_en_hard", "ch1-math", "RUC-AIBOX/OlymMATH", config="en-hard",
-         split="test", adapter=_adapter_plain("problem", "answer"),
+         split="test", adapter=plain_adapter("problem", "answer"),
          max_tokens=40960,
          note="ACL 2026 long; purpose-built to resist saturation. n=100 means "
               "a ~+/-10pp interval — read the band as guidance, not a test"),
-    Spec("minervamath", "ch1-math", "math-ai/minervamath", split="test",
-         adapter=_adapter_plain("question", "answer"), grader=_grade_latex,
-         max_tokens=40960),
+    TASK_SPECS["minervamath"],
     Spec("imo_answerbench", "ch1-math", "Hwilner/imo-answerbench", split="train",
-         adapter=_adapter_imo_answerbench, grader=_grade_latex, max_tokens=40960,
+         adapter=_adapter_imo_answerbench, grader=grade_latex, max_tokens=40960,
          note="EMNLP 2025 main (DeepMind). Every accuracy anchor the screening "
               "produced for this set was found to be fabricated, so the band is "
               "genuinely unknown — this run is the first real evidence"),
-    Spec("bbh_causal_judgement", "ch4-basic", "lukaemon/bbh",
-         config="causal_judgement", split="test", adapter=_adapter_bbh,
-         max_tokens=8192, note="187 items; Yes/No, no grader ambiguity"),
+    TASK_SPECS["bbh_causal_judgement"],
     Spec("bbeh_boardgame_qa", "ch4-basic", "jgyasu/bbeh", config="boardgame_qa",
-         split="train", adapter=_adapter_plain("input", "target"),
+         split="train", adapter=plain_adapter("input", "target"),
          max_tokens=40960,
          note="BBEH (2025) rule-deduction; far less post-training contamination "
               "than 2022-era BBH"),
@@ -991,7 +768,7 @@ SPECS += [
 #: call it the rung.
 SPECS += [
     Spec(f"enigmata_{level}", "ch3-puzzle", "BytedTsinghua-SIA/Enigmata-Eval",
-         split="train", adapter=_adapter_plain("prompt", "answer"),
+         split="train", adapter=plain_adapter("prompt", "answer"),
          grader=_grade_structural, grades_raw_output=True, max_tokens=40960,
          # Enigmata ships its own "Response Format" section
          append_instruction=False,
@@ -1001,7 +778,7 @@ SPECS += [
     for level in ("easy", "medium", "hard")
 ] + [
     Spec("enigmata_short", "ch3-puzzle", "BytedTsinghua-SIA/Enigmata-Eval",
-         split="train", adapter=_adapter_plain("prompt", "answer"),
+         split="train", adapter=plain_adapter("prompt", "answer"),
          grader=_grade_structural, grades_raw_output=True, max_tokens=40960,
          append_instruction=False,
          row_filter=_enigmata_filter(tasks=_ENIGMATA_SHORT),
@@ -1009,201 +786,6 @@ SPECS += [
          note="scalar-gold tasks only (NO/False/Qg7#) — the rung with the "
               "least grader risk, so a floor here is the model, not the parser"),
 ]
-
-
-# ----------------------------------------------------------------------
-# HF rows API
-# ----------------------------------------------------------------------
-def _get_rows(params: dict, timeout: int, retries: int = 5,
-              url: str = ROWS_API) -> Optional[dict]:
-    """One /rows (or /filter) call, retried through the rate limiter.
-
-    The datasets-server 429s readily once a sweep is fetching in parallel with
-    anything else. Without a retry a 429 is indistinguishable from an empty
-    window: the sample quietly shrinks and the run still prints a band, which is
-    the same silent-measurement-artifact failure the tag-rate column exists to
-    catch. Returning None says "this window is unknown", not "this window is
-    empty", so the caller can count it.
-    """
-    for attempt in range(retries):
-        try:
-            resp = requests.get(url, params=params, timeout=timeout)
-            if resp.status_code == 200:
-                return resp.json()
-            if resp.status_code not in (429, 500, 502, 503, 504):
-                return None
-        except requests.RequestException:
-            pass
-        if attempt < retries - 1:
-            time.sleep(min(30, 3 * 2 ** attempt))
-    return None
-
-
-def fetch_rows(spec: Spec, want: int, seed: int = 0, timeout: int = 60,
-               n_windows: Optional[int] = None) -> list[dict]:
-    """Pull rows through the datasets-server from windows spread over the split.
-
-    Many of these splits are ordered by subset, task, or difficulty, so a head
-    sample measures one slice while claiming to measure the set. Shuffling the
-    order of 100-row pages does NOT fix that on its own: stopping as soon as
-    enough rows are collected then takes them all from whichever one or two
-    pages came first, which is still a single contiguous block.
-
-    So: draw ``n_windows`` offsets spaced across the whole split (jittered, not
-    page-aligned) and take an equal share from each. The result is a stratified
-    cluster sample — better than a head, but still clustered, which is why the
-    interval this feeds is called approximate.
-
-    ``spec.row_filter`` is applied HERE rather than after the fetch, because the
-    early-stop has to count rows that survive it. Counting raw rows instead
-    would stop a 1-in-25 slice after four usable items and still report a band.
-    """
-    params = {
-        "dataset": spec.dataset,
-        "config": spec.config,
-        "split": spec.split,
-        "offset": 0,
-        "length": 1,
-    }
-    # a server-side `where` makes every count below -- total, windows, stride --
-    # refer to the SLICE, which is what the band is being claimed about
-    url = ROWS_API
-    if spec.where:
-        params["where"] = spec.where
-        url = FILTER_API
-    meta = _get_rows(params, timeout, url=url)
-    if meta is None:
-        raise RuntimeError(f"datasets-server unavailable for {spec.dataset}")
-    total = meta.get("num_rows_total", 0)
-    if not total:
-        return []
-
-    def get_page(offset: int, length: int):
-        payload = _get_rows({**params, "offset": offset, "length": length}, timeout, url=url)
-        if payload is None:
-            return None
-        return [(entry.get("row_idx"), entry["row"]) for entry in payload.get("rows", [])]
-
-    return _draw_windows(spec, want, seed, n_windows, total, get_page)
-
-
-def _draw_windows(spec: Spec, want: int, seed: int, n_windows: Optional[int],
-                  total: int, get_page) -> list[dict]:
-    """The seeded window draw behind ``fetch_rows``, over any pager.
-
-    ``get_page(offset, length)`` returns ``[(row_key, row), ...]`` for one
-    window or ``None`` when that window is unknown (counted, never treated as
-    empty). The datasets-server and the hub-file fallback share this so a
-    freeze taken either way is the same draw over the same slice.
-    """
-    keep = spec.row_filter or (lambda row: True)
-    #: windows that came back unknown after all retries — reported alongside the
-    #: band so a thin sample is never read as a measured one
-    fetch_rows.last_failed_windows = 0
-    rng = random.Random(seed)
-    # over-fetch: the adapter drops ungradable rows on top of the filter
-    target = want * max(1, spec.fetch_multiplier)
-    windows = max(1, min(n_windows or spec.n_windows, math.ceil(total / 10)))
-    # A filtered spec pays a request per page either way, so take the whole page
-    # — a narrow page just means more requests for the same yield.
-    per_window = (
-        100 if spec.row_filter else min(100, max(1, math.ceil(target / windows)))
-    )
-    if spec.where and not spec.row_filter:
-        # the slice IS the population here, so the default 3x over-fetch is the
-        # only headroom needed (for rows the adapter drops), not a 100x sieve
-        per_window = min(100, max(1, math.ceil(target / windows)))
-    stride = total / windows
-
-    offsets = []
-    for i in range(windows):
-        base = int(i * stride)
-        span = max(1, int(stride) - per_window)
-        offsets.append(min(max(0, base + rng.randrange(span)), max(0, total - 1)))
-    rng.shuffle(offsets)
-
-    rows: list[dict] = []
-    seen_offsets: set[int] = set()
-    # Full-split coverage needs windows to abut, and abutting windows overlap by
-    # a row or two once the stride is not an exact multiple of the page. Without
-    # this the same item can be graded twice inside one n=50 sample.
-    seen_rows: set = set()
-    for offset in offsets:
-        if offset in seen_offsets:
-            continue
-        seen_offsets.add(offset)
-        page = get_page(offset, min(per_window, total - offset))
-        if page is None:
-            fetch_rows.last_failed_windows += 1
-            continue
-        for key, row in page:
-            if key is None:
-                key = json.dumps(row, sort_keys=True, default=str)
-            if key in seen_rows:
-                continue
-            seen_rows.add(key)
-            try:
-                if keep(row):
-                    rows.append(row)
-            except Exception:
-                continue
-        if len(rows) >= target:
-            break
-    rng.shuffle(rows)
-    return rows
-
-
-_WHERE_TERM = re.compile(r"""^\s*"([^"]+)"\s*=\s*'([^']*)'\s*$""")
-
-
-def parse_where(where: str) -> list[tuple[str, str]]:
-    """``"col"='value' [AND "col"='value' ...]`` -> ``[(col, value), ...]``.
-
-    That is the only shape the specs use. Anything wider (OR, !=, LIKE, an
-    unquoted name) raises, so a local filter can never quietly widen a slice
-    the server would have narrowed.
-    """
-    terms = []
-    for part in re.split(r"\s+AND\s+", where.strip(), flags=re.IGNORECASE):
-        m = _WHERE_TERM.match(part)
-        if not m:
-            raise ValueError(f"unsupported where clause for a local filter: {where!r}")
-        terms.append((m.group(1), m.group(2)))
-    return terms
-
-
-def _load_hub_rows(spec: Spec) -> list[dict]:
-    """Every row of the split in file order, from the hub's own files
-    (``datasets.load_dataset``; the datasets-server is not involved)."""
-    import datasets as hf_datasets  # the HF package; only needed on this path
-
-    config = None if spec.config == "default" else spec.config
-    ds = hf_datasets.load_dataset(spec.dataset, config, split=spec.split)
-    return [dict(row) for row in ds]
-
-
-def fetch_rows_hub(spec: Spec, want: int, seed: int = 0,
-                   n_windows: Optional[int] = None) -> list[dict]:
-    """``fetch_rows`` served from the hub files instead of the datasets-server.
-
-    The /filter index behind a ``where`` spec can answer HTTP 500 ("the dataset
-    index is loading") for hours. This loads the split itself, applies the
-    where clause locally (``parse_where``) and draws the same seeded windows
-    ``fetch_rows`` draws over the slice in file order -- the order /filter pages
-    through -- so the freeze is the server's sample, not a different one.
-    """
-    rows = _load_hub_rows(spec)
-    if spec.where:
-        terms = parse_where(spec.where)
-        rows = [r for r in rows if all(str(r.get(col)) == val for col, val in terms)]
-    total = len(rows)
-    if not total:
-        return []
-
-    def get_page(offset: int, length: int):
-        return [(i, rows[i]) for i in range(offset, min(offset + length, total))]
-
-    return _draw_windows(spec, want, seed, n_windows, total, get_page)
 
 
 # ----------------------------------------------------------------------
@@ -1370,7 +952,7 @@ def run_spec(spec: Spec, n: int, concurrency: int, temperature: float,
     except Exception as exc:
         return {"name": spec.name, "error": f"fetch failed: {exc}"}
     failed_windows = getattr(fetch_rows, "last_failed_windows", 0)
-    adapter = spec.adapter or _adapter_plain(spec.question_field, spec.answer_field)
+    adapter = spec.adapter or plain_adapter(spec.question_field, spec.answer_field)
 
     items: list[tuple] = []
     for row in raw:

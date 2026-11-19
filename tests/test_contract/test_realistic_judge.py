@@ -405,7 +405,7 @@ def test_a_fix_tier_enum_serialises_to_its_wire_spelling():
     lost to a spelling. `.label` is exactly the wire form and was already there.
     """
     from evalrx.contract.emit import _tier
-    from evalrx.eval_agent.stages.fix_tiers import FixTier
+    from evalrx.eval_agent.stages.fix.tiers import FixTier
 
     assert _tier(FixTier.L3A_INTERNALS_READ) == "L3a"
     assert _tier(FixTier.L0_RUNTIME_CONFIG) == "L0"
@@ -419,7 +419,7 @@ def test_every_tier_the_pipeline_has_is_representable():
     invasive kind, and one FixTier defines -- could not be reported at all."""
     from evalrx.contract import FixOutput
     from evalrx.contract.emit import _tier
-    from evalrx.eval_agent.stages.fix_tiers import FixTier
+    from evalrx.eval_agent.stages.fix.tiers import FixTier
 
     for tier in FixTier:
         FixOutput(

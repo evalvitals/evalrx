@@ -36,7 +36,7 @@
 | `DiagnosisAgent.diagnose`（[diagnosis.py:370](../eval_agent/stages/diagnosis.py)） | M3，**无 explorer 入口**；prompt(:447) 无 explore 段 | 加 `explore_context=` 参数 + `{explore_section}` |
 | 图表渲染 | explorer 只产 chart **spec**；venv 无 matplotlib → 未渲染 | 新 `render_chart_specs`（宿主确定性渲染） |
 
-**已具备、可复用**：M3 已会把图当 image 传 judge（[diagnosis.py:456](../eval_agent/stages/diagnosis.py)，`if "images" in sig: judge.generate(prompt, images=_figs)`；`ClaudeModel.generate(inputs, images, ...)` 接受 images → **M3 能看见图**）；`write_report_artifacts`/`_verdict_suffix` 在 [chat.py](chat.py)（退役时移入共享单轮模块）；`adjudicate_report` Phase A 宿主裁决已在。
+**已具备、可复用**：M3 已会把图当 image 传 judge（[diagnosis.py](../eval_agent/stages/diagnosis.py)，`if "images" in sig: judge.generate(prompt, images=_figs)`；`ClaudeModel.generate(inputs, images, ...)` 接受 images → **M3 能看见图**）；原 `chat.py` 的产物保存能力已迁入 [explore_run.py](explore_run.py)，交互 REPL 已删除；`adjudicate_report` Phase A 宿主裁决已在。下文保留迁移时的接口和历史行号，当前行为以实现为准。
 
 ---
 

@@ -49,9 +49,10 @@ use `--no-allow-codegen --no-explore --no-m2-codegen --skip-surgery`.
 
 Use `evalrx run --help` for all controls, `--list` for model support, and
 `--download-only` to prepare data. EXPLORE selects a candidate; CONFIRM tests it
-once. `--run-dir` and `--data-dir` control runtime files. Some legacy text-band
-datasets still require `examples/dataset_selection` from a checkout (or
-`EVALRX_DATASET_SELECTION_DIR`); ChartQA is bundled with the package.
+once. `--run-dir` and `--data-dir` control runtime files. The text-LLM slice
+definitions ship with the package (their rows are fetched from the HF
+datasets-server at download time, which needs the `data` extra); ChartQA is
+bundled with the package.
 
 `explore` and `run-codebase` retain their narrower result-analysis workflows
 (M2/M3 and optional held-out confirmation); they do not run the full M1–M5 loop.
@@ -77,7 +78,6 @@ actually confuses people, because two of them sound like the same thing:
 | `evalrx serve` | Starts a local FastAPI server and opens the **dynamic** React report UI (`http://127.0.0.1:8501` by default) — the same interactive interface used throughout this repo's own examples. Nothing is written to disk beyond a small `.evalrx-cache` unless you also ask it to publish. | Default choice. Point it at a run dir, or launch with none and drop a `.zip` on the page. `--runs-root` adds a runs panel to browse several experiments from one server. |
 | `evalrx report` | Renders the **same** React UI but bakes it into one portable, self-contained `report.html` — no server, no network. | Sharing a result with someone who won't run a Python server, or archiving a run as a single file. |
 | `evalrx publish-report` | Compiles and caches the underlying `ReportData` + layout spec that both `serve` and `report` render, without launching or exporting anything. | Pre-warming the cache for a run before serving it, or CI. |
-| `evalrx dashboard` | **Deprecated.** A dependency-free static-HTML server predating the React UI (`evalrx/analysis/dashboard.py`). Kept only for old `explore` outputs that never got a React-compatible `report.html`. | Don't reach for this new — use `serve`. |
 
 `serve`/`report`/`publish-report` all take `--source {auto,local,langfuse}` +
 `--trace-id`: point them at a Langfuse trace instead of a local directory.
@@ -114,8 +114,7 @@ set.
 | `--model` (`--coder-model`) | backend default | Model name passed to the coding agent. |
 | `--max-rows` / `--max-files` | `2000` / `200` | Sampling caps for large inputs. |
 | `--timeout-sec` / `--max-attempts` | `120` / `2` | Per-attempt timeout and repair-retry budget. |
-| `--serve-report` | off | Launch `serve` on the output when the run finishes. |
-| `--port` | auto | Port for `--serve-report`. |
+| `--serve-report` | off | Open the run's static `report.html` in a browser when it finishes. |
 | `--skill DIR` (repeatable) | — | Agent-Skill directory to style agent-authored figures. Implies `--allow-skills`. |
 | `--no-skills` | off | Skip the package's bundled skills (e.g. `nature-figure`). |
 | `--no-hypotheses` | off | Skip M3 — stop after M2's takeaways. |
@@ -125,7 +124,9 @@ set.
 | `--no-narrate` | off | Don't print live per-stage terminal narration (see above). |
 | `--progress-path PATH` | — | Also append durable JSONL progress events to `PATH`, for a separate workbench UI — independent of narration; both can run together. |
 
-`--dashboard` still exists as a deprecated alias for `--serve-report`.
+An explore output is not an M1–M5 run, so `serve` has nothing to show for it;
+its report is the static `report.html` (`evalrx/reporting/html_report.py`)
+written into `--out`, which opens from disk.
 
 ## `evalrx run-codebase`
 
@@ -150,7 +151,7 @@ evalrx run-codebase ./my_eval_repo \
 | `--records-name` | `records.json` | Output-contract filename the run agent must write. |
 | `--timeout-sec` / `--max-attempts` | `1200` / `2` | Budget for running the codebase itself. |
 | `--no-explore` | off | Only run + harvest; skip the M2/M3 explore step. |
-| `--serve-report` / `--port` | off / auto | Same as `explore`. |
+| `--serve-report` | off | Same as `explore`. |
 | `--no-narrate` | off | Don't print live terminal narration (a `RUN codebase` line plus the `explore` narration above). |
 
 ## `evalrx serve`
@@ -201,20 +202,6 @@ evalrx publish-report outputs/qwen3.5-2b/chartqa
 
 Takes `run_dir` (positional, default `outputs`), `--example-dir`,
 `--source`, `--trace-id` — same meanings as `report`.
-
-## `evalrx dashboard` (deprecated)
-
-```bash
-evalrx dashboard evalrx_explore_output
-```
-
-A dependency-free static-HTML server (`evalrx/analysis/dashboard.py`)
-predating the React report UI. It compiles a legacy `report.html`
-(`evalrx/reporting/html_report.py`) if one isn't already there and serves it
-with the standard-library `http.server` — no `fastapi` needed. Kept for old
-`explore` outputs; reach for `serve` for anything new.
-
-Takes `run_dir` (positional) and `--port`.
 
 ## `evalrx export-langfuse`
 

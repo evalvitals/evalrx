@@ -16,7 +16,6 @@ Usage:
 from __future__ import annotations
 
 import html
-import shutil
 from pathlib import Path
 
 SRC = Path(__file__).parent
@@ -156,12 +155,10 @@ def main() -> int:
     out = DOCS / "index.html"
     out.write_text(doc, encoding="utf-8")
 
-    assets_out = DOCS / "assets" / "fonts"
-    assets_out.mkdir(parents=True, exist_ok=True)
-    for fname in FONT_FILES.values():
-        shutil.copyfile(SRC / "assets/fonts" / fname, assets_out / fname)
-    for fname in OFL_FILES:
-        shutil.copyfile(SRC / "assets/fonts" / fname, assets_out / fname)
+    fonts = DOCS / "assets" / "fonts"
+    missing = [f for f in [*FONT_FILES.values(), *OFL_FILES] if not (fonts / f).is_file()]
+    if missing:
+        raise SystemExit(f"missing font files under {fonts}: {missing}")
 
     # .nojekyll, robots.txt and sitemap.xml are NOT written here in this repo:
     # this page rides evalrx's mkdocs gh-deploy (see docs/../mkdocs.yml), which

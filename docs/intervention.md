@@ -63,6 +63,11 @@ it:
 | L3b | internals (write) | Modifies the forward pass (attention reweighting, sink suppression, activation steering). |
 | L4 | parameter space | Fine-tune recipe, always recorded for a human decision. v1 additionally *executes* one shape — LoRA on the language model — when you pass `FixAgent(finetune_pool=...)` (a diagnosis-only `CaseBatch`, disjoint from what's being validated); other recipe shapes stay recorded-only. |
 
+L4 also has a training-free option: `FixAgent(weight_edit=True, finetune_pool=...)`
+proposes a rank-one weight edit built from the diagnosis pool, validated by the
+same paired test and recorded beside a matched random-direction control. See
+[Weight Edits and Probe Tools](wsp_and_probe_tools.md#as-a-repair-fix-tier-l4).
+
 ```python
 outcome = loop.run_fix(report, failure_cases, auto_escalate=True)  # steps L2 → L3a → L3b
 ```
@@ -93,8 +98,8 @@ def my_verify(hypothesis, model, results, data):
         evidence={"custom": True},
     )
 
-loop = AutoDiagnoseLoop(model=model, diagnosis_agent=DiagnosisAgent(judge=judge),
-                         surgery_agent=SurgeryAgent(verify_fn=my_verify))
+loop = VLDiagnoseLoop(..., surgery_agent=SurgeryAgent(verify_fn=my_verify))
+fix = loop.run_m5(report, cases)   # M5 runs once, after the loop
 ```
 
 ## Output layout

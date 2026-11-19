@@ -14,7 +14,7 @@ from evalrx.core.capability import Capability
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.core.model import Model
 from evalrx.eval_agent.hypothesis import Hypothesis
-from evalrx.eval_agent.stages.fix_agent import FixAgent
+from evalrx.eval_agent.stages.fix.agent import FixAgent
 
 
 def _hyp(s: str) -> Hypothesis:

@@ -279,7 +279,7 @@ class RunContext:
     ) -> None:
         """Inline the standard post-diagnosis report into ``run.json``.
 
-        *report* is an :class:`AutoDiagnoseReport` (all three loops return
+        *report* is an :class:`AutoDiagnoseReport` (both loops return
         this one unified class — ``VLDiagnoseReport`` is an alias for it).
         *discovery* (optional) is a list of already-serialised case rows —
         examples that compute task-specific columns (e.g. parsed yes/no)

@@ -116,7 +116,7 @@ def build_report_data(
     """Build the renderer-neutral data model for any completed EvalRX run."""
     root = Path(run_dir).resolve()
     from evalrx.reporting.case_study import build_case_study
-    from evalrx.reporting.html_report import extract_run_data
+    from evalrx.reporting.run_data import extract_run_data
 
     resolved_example = Path(example_dir).resolve() if example_dir else _infer_example_dir(root)
     raw = extract_run_data(root, resolved_example)
@@ -582,12 +582,34 @@ def _stage_detail(
 ) -> dict[str, Any]:
     """Compile the mature stage-specific views into a bounded web contract.
 
-    The contract preserves the old workbench's load-bearing distinctions:
-    M2 is descriptive, M3 is proposal-only, M4 owns held-out verdicts, and M5
-    compares every intervention against the unchanged baseline.
+    The shape is :class:`evalrx.contract.stage_detail.StageDetail`. It preserves
+    the old workbench's load-bearing distinctions: M2 is descriptive, M3 is
+    proposal-only, M4 owns held-out verdicts, and M5 compares every
+    intervention against the unchanged baseline.
     """
     logs_dir = Path(raw.get("logs_dir") or root)
-    m1 = dict(raw.get("m1") or {})
+    m2 = dict(raw.get("m2") or {})
+    explore = dict(m2.get("explore") or {})
+    # M3 starts from M2's evidence, so both stages read the same figures and stats.
+    figures = _m2_figures(raw, m2, explore, logs_dir, root)
+    stats = [
+        _display_stat(item)
+        for item in _enrich_m2_stats(
+            [item for item in m2.get("stats") or [] if isinstance(item, Mapping)], logs_dir
+        )
+    ]
+    return {
+        "m1": _m1_detail(dict(raw.get("m1") or {}), cases, events),
+        "m2": _m2_detail(m2, explore, figures, stats),
+        "m3": _m3_detail(raw, explore, figures, stats),
+        "m4": _m4_detail(dict(raw.get("m4") or {}), logs_dir, cases, events),
+        "m5": _m5_detail(raw, cases, events),
+    }
+
+
+def _m1_detail(
+    m1: Mapping[str, Any], cases: list[dict[str, Any]], events: list[Mapping[str, Any]]
+) -> dict[str, Any]:
     probes = []
     for result in m1.get("results") or []:
         if not isinstance(result, dict):
@@ -615,9 +637,35 @@ def _stage_detail(
             "sample_rows": rows[:12],
             "n_sample_rows": len(rows),
         })
+    # Examples are a first-class, bounded evidence type.  They are deliberately
+    # derived from recorded case I/O and per-case measurements, never written
+    # by the report agent.  A single case makes a measurement legible; it does
+    # not establish the stage conclusion (the UI states that boundary too).
+    logged_examples = [
+        item for event in events if event.get("event") == "probe"
+        for item in (event.get("examples") or []) if isinstance(item, Mapping)
+    ]
+    examples = [dict(item) for item in logged_examples[:2]] or _m1_examples(probes, cases)
+    calls, n_calls = _m1_calls(events)
+    return {
+        "duration": m1.get("duration"), "probes": probes,
+        "n_probes": len(probes), "n_measured": max((int(p.get("n_cases") or 0) for p in probes), default=0),
+        "examples": _attach_example_media(examples, cases),
+        # A trajectory is the only source allowed to say that an agent actually
+        # used an intermediate operation (zoom, crop, search, ...).  Candidate
+        # specs are kept separately (M5's operation previews) because a
+        # proposed operation is not an executed one.
+        "operations": _operation_examples(cases),
+        # What each probe actually asked the model and what came back,
+        # grouped by analyzer: the audit trail behind the numbers above.
+        "calls": calls, "n_calls": n_calls,
+    }
 
-    m2 = dict(raw.get("m2") or {})
-    explore = dict(m2.get("explore") or {})
+
+def _m2_figures(
+    raw: Mapping[str, Any], m2: Mapping[str, Any], explore: Mapping[str, Any],
+    logs_dir: Path, root: Path,
+) -> list[dict[str, Any]]:
     figure_dir = Path(raw.get("explore_dir") or logs_dir.parent / "explore") / "figures"
     figures = _explore_figures(explore, figure_dir, root)
     if not figures:
@@ -630,23 +678,42 @@ def _stage_detail(
         # Neither (a run copied as logs/ alone, or one recorded before the
         # snapshot kept names): the explore and analysis events still name
         # their figures as paths under logs/.
-        figures = _logged_figures(
+        return _logged_figures(
             [*(explore.get("figures") or []), *(m2.get("figures") or [])], logs_dir, root)
-    else:
-        # The analysis step's own chart sits beside the explorer's, as it did
-        # when both came off the events.
-        known = {figure["path"] for figure in figures}
-        figures += [
-            figure for figure in _logged_figures(m2.get("figures") or [], logs_dir, root)
-            if figure["path"] not in known
-        ]
-    takeaways = []
-    for item in explore.get("takeaways") or []:
-        if isinstance(item, dict):
-            takeaways.append({key: item.get(key) for key in (
-                "plain_title", "title", "analysis", "caveat", "chart_names", "table_names",
-            )})
+    # The analysis step's own chart sits beside the explorer's, as it did
+    # when both came off the events.
+    known = {figure["path"] for figure in figures}
+    return figures + [
+        figure for figure in _logged_figures(m2.get("figures") or [], logs_dir, root)
+        if figure["path"] not in known
+    ]
 
+
+def _m2_detail(
+    m2: Mapping[str, Any], explore: Mapping[str, Any],
+    figures: list[dict[str, Any]], stats: list[dict[str, Any]],
+) -> dict[str, Any]:
+    takeaways = [
+        {key: item.get(key) for key in (
+            "plain_title", "title", "analysis", "caveat", "chart_names", "table_names",
+        )}
+        for item in explore.get("takeaways") or [] if isinstance(item, dict)
+    ]
+    return {
+        "mode": "descriptive", "conclusion": m2.get("conclusion") or "",
+        "narrative": m2.get("narrative") or "", "stats": stats,
+        "takeaways": takeaways, "figures": figures,
+        "observations": list(explore.get("observations") or []),
+        "caveats": list(explore.get("caveats") or []),
+        "candidate_signals": list(explore.get("candidate_signals") or []),
+        "recommended_tests": list(explore.get("recommended_confirmatory_tests") or []),
+    }
+
+
+def _m3_detail(
+    raw: Mapping[str, Any], explore: Mapping[str, Any],
+    figures: list[dict[str, Any]], stats: list[dict[str, Any]],
+) -> dict[str, Any]:
     judges = list((raw.get("agents") or {}).get("judge_calls") or [])
     m3_call = next((call for call in judges if "M3" in str(call.get("stage") or "")), {})
     agent_response = str(m3_call.get("response") or "")
@@ -664,14 +731,39 @@ def _stage_detail(
             recovered = proposed.get(str(h.get("statement") or ""), {}).get("plain_statement")
             if recovered:
                 h["plain_statement"] = recovered
+    return {
+        "mode": "proposal", "hypotheses": hypotheses,
+        "unparsed_proposals": _recover_unparsed_hypotheses(agent_response) if not hypotheses else [],
+        "agent_response": agent_response,
+        "candidate_signals": list(explore.get("candidate_signals") or []),
+        "recommended_tests": list(explore.get("recommended_confirmatory_tests") or []),
+        "evidence_figures": figures[:3], "evidence_stats": stats[:6],
+    }
 
-    m4 = dict(raw.get("m4") or {})
-    saved_m4 = _load_json(logs_dir / "report" / "m4_results.json")
-    m4_results = saved_m4 if isinstance(saved_m4, list) and saved_m4 else list(m4.get("results") or [])
-    m4_event = dict(m4.get("event") or {})
 
+def _m4_detail(
+    m4: Mapping[str, Any], logs_dir: Path, cases: list[dict[str, Any]],
+    events: list[Mapping[str, Any]],
+) -> dict[str, Any]:
+    saved = _load_json(logs_dir / "report" / "m4_results.json")
+    results = saved if isinstance(saved, list) and saved else list(m4.get("results") or [])
+    event = dict(m4.get("event") or {})
+    logged = next((
+        item for item in reversed(events)
+        if item.get("event") == "surgery" and item.get("module") == "m4"
+    ), {})
+    return {
+        "ran": bool(m4.get("ran") or results), "mode": "confirmatory",
+        "results": results, "event": event,
+        "examples": _attach_example_media(_m4_examples(results, {**event, **logged}, cases), cases),
+    }
+
+
+def _m5_detail(
+    raw: Mapping[str, Any], cases: list[dict[str, Any]], events: list[Mapping[str, Any]]
+) -> dict[str, Any]:
     m5 = dict(raw.get("m5_fix") or {})
-    # html_report may see an older sibling log when an example contains
+    # extract_run_data may see an older sibling log when an example contains
     # multiple attempts.  The event stream is trace-filtered and is the source
     # of truth for the run currently being rendered.
     fix_event = next((event for event in reversed(events) if event.get("event") == "fix"), {})
@@ -707,79 +799,22 @@ def _stage_detail(
             candidates.append(confirmation)
         else:
             candidates[existing] = {**candidates[existing], **confirmation}
-    # Examples are a first-class, bounded evidence type.  They are deliberately
-    # derived from recorded case I/O and per-case measurements, never written
-    # by the report agent.  A single case makes a measurement legible; it does
-    # not establish the stage conclusion (the UI states that boundary too).
-    logged_m1_examples = [
-        item for event in events if event.get("event") == "probe"
-        for item in (event.get("examples") or []) if isinstance(item, Mapping)
-    ]
-    logged_m4_event = next((event for event in reversed(events) if event.get("event") == "surgery" and event.get("module") == "m4"), {})
-    m1_examples = [dict(item) for item in logged_m1_examples[:2]] or _m1_examples(probes, cases)
-    m4_examples = _m4_examples(m4_results, {**m4_event, **logged_m4_event}, cases)
-    m1_examples = _attach_example_media(m1_examples, cases)
-    m4_examples = _attach_example_media(m4_examples, cases)
-    enriched_stats = _enrich_m2_stats(
-        [item for item in m2.get("stats") or [] if isinstance(item, Mapping)], logs_dir
-    )
-    display_stats = [_display_stat(item) for item in enriched_stats]
-    repair_examples = _m5_examples(candidates, cases, list(m1.get("results") or []))
-    # A trajectory is the only source allowed to say that an agent actually
-    # used an intermediate operation (zoom, crop, search, ...).  Candidate
-    # specs are kept separately below because a proposed operation is not an
-    # executed one.
-    operation_examples = _operation_examples(cases)
-    repair_operation_previews = _repair_operation_previews(candidates, cases)
-    m1_calls, m1_n_calls = _m1_calls(events)
-
     return {
-        "m1": {
-            "duration": m1.get("duration"), "probes": probes,
-            "n_probes": len(probes), "n_measured": max((int(p.get("n_cases") or 0) for p in probes), default=0),
-            "examples": m1_examples, "operations": operation_examples,
-            # What each probe actually asked the model and what came back,
-            # grouped by analyzer: the audit trail behind the numbers above.
-            "calls": m1_calls, "n_calls": m1_n_calls,
-        },
-        "m2": {
-            "mode": "descriptive", "conclusion": m2.get("conclusion") or "",
-            "narrative": m2.get("narrative") or "", "stats": display_stats,
-            "takeaways": takeaways, "figures": figures,
-            "observations": list(explore.get("observations") or []),
-            "caveats": list(explore.get("caveats") or []),
-            "candidate_signals": list(explore.get("candidate_signals") or []),
-            "recommended_tests": list(explore.get("recommended_confirmatory_tests") or []),
-        },
-        "m3": {
-            "mode": "proposal", "hypotheses": hypotheses,
-            "unparsed_proposals": _recover_unparsed_hypotheses(agent_response) if not hypotheses else [],
-            "agent_response": agent_response,
-            "candidate_signals": list(explore.get("candidate_signals") or []),
-            "recommended_tests": list(explore.get("recommended_confirmatory_tests") or []),
-            "evidence_figures": figures[:3], "evidence_stats": display_stats[:6],
-        },
-        "m4": {
-            "ran": bool(m4.get("ran") or m4_results), "mode": "confirmatory",
-            "results": m4_results, "event": m4_event, "examples": m4_examples,
-        },
-        "m5": {
-            "ran": bool(m5.get("ran")), "fixed": bool(m5.get("fixed")),
-            "skipped": bool(m5.get("skipped")),
-            "skip_reason": str(m5.get("skip_reason") or ""),
-            "skip_detail": str(m5.get("skip_detail") or ""),
-            "candidates": candidates, "confirmation": confirmation,
-            "best": _repair_candidate(m5.get("best") or {}),
-            # The FixAgent's own verdict on the run — action + the sentence that
-            # justifies it ("underpowered: only 4 failing cases…"). This is the
-            # line the health card's promotion gate prints.
-            "recommendation": (dict(m5["recommendation"])
-                               if isinstance(m5.get("recommendation"), Mapping) else None),
-            "examples": repair_examples,
-            "operation_previews": repair_operation_previews,
-            "surgeries": list((raw.get("m5_surgery") or {}).get("surgeries") or []),
-            "prompt_template": str(m5.get("prompt_template") or ""),
-        },
+        "ran": bool(m5.get("ran")), "fixed": bool(m5.get("fixed")),
+        "skipped": bool(m5.get("skipped")),
+        "skip_reason": str(m5.get("skip_reason") or ""),
+        "skip_detail": str(m5.get("skip_detail") or ""),
+        "candidates": candidates, "confirmation": confirmation,
+        "best": _repair_candidate(m5.get("best") or {}),
+        # The FixAgent's own verdict on the run — action + the sentence that
+        # justifies it ("underpowered: only 4 failing cases…"). This is the
+        # line the health card's promotion gate prints.
+        "recommendation": (dict(m5["recommendation"])
+                           if isinstance(m5.get("recommendation"), Mapping) else None),
+        "examples": _m5_examples(candidates, cases, list((raw.get("m1") or {}).get("results") or [])),
+        "operation_previews": _repair_operation_previews(candidates, cases),
+        "surgeries": list((raw.get("m5_surgery") or {}).get("surgeries") or []),
+        "prompt_template": str(m5.get("prompt_template") or ""),
     }
 
 
@@ -1137,7 +1172,6 @@ def _m5_examples(
         if example:
             return [example]
     return []
-    return []
 
 
 def _compact_mapping(value: Any, *, limit: int = 18) -> dict[str, Any]:
@@ -1368,10 +1402,10 @@ def _repair_headline(value: Mapping[str, Any]) -> str:
     if headline:
         return headline[:300]
     try:
-        from evalrx.eval_agent.stages.fix_agent import _BUILTIN_DESCRIPTIONS
+        from evalrx.eval_agent.stages.fix.descriptions import BUILTIN_DESCRIPTIONS
     except Exception:
         return ""
-    return _BUILTIN_DESCRIPTIONS.get(str(value.get("name") or ""), "")
+    return BUILTIN_DESCRIPTIONS.get(str(value.get("name") or ""), "")
 
 
 def _repair_name(value: Any) -> str:
@@ -1598,9 +1632,9 @@ def _backfill_repair_identity(payload: Any) -> None:
     if not isinstance(payload, dict):
         return
     try:
-        from evalrx.eval_agent.stages.fix_agent import _BUILTIN_DESCRIPTIONS
+        from evalrx.eval_agent.stages.fix.descriptions import BUILTIN_DESCRIPTIONS
     except Exception:
-        _BUILTIN_DESCRIPTIONS = {}
+        BUILTIN_DESCRIPTIONS = {}
     refs: dict[str, str] = {}
     for group in ("selection", "attempted"):
         for row in payload.get(group) or []:
@@ -1616,7 +1650,7 @@ def _backfill_repair_identity(payload: Any) -> None:
                 row["ref"] = ref
             row.setdefault("headline", "")
             if not row["headline"]:
-                row["headline"] = _BUILTIN_DESCRIPTIONS.get(name, "")
+                row["headline"] = BUILTIN_DESCRIPTIONS.get(name, "")
 
 
 def _repair_outcomes(root: Path, contract: Mapping[str, Any]) -> dict[str, dict[str, Any]]:

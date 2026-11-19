@@ -59,11 +59,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--timeout-sec", type=int, default=120, help="Sandbox/agent timeout.")
     parser.add_argument("--max-attempts", type=int, default=2, help="Code repair attempts.")
     parser.add_argument(
-        "--dashboard",
+        "--serve-report",
         action="store_true",
-        help="Open the Streamlit dashboard on the output directory when done.",
+        help="Open the generated static HTML report in a browser when done.",
     )
-    parser.add_argument("--port", type=int, default=None, help="Optional dashboard port.")
     parser.add_argument(
         "--skill",
         action="append",
@@ -101,8 +100,7 @@ def main(argv: list[str] | None = None) -> int:
         include_tool_calls=args.include_tool_calls,
         timeout_sec=args.timeout_sec,
         max_attempts=args.max_attempts,
-        dashboard=args.dashboard,
-        dashboard_port=args.port,
+        open_report=args.serve_report,
         skills=args.skill,
         allow_skills=args.allow_skills,
         use_bundled_skills=args.use_bundled_skills,
