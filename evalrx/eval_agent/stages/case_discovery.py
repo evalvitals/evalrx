@@ -6,11 +6,13 @@ small: dataset loading and prompt generation can live outside this class, while
 M4 receives the PASS/FAIL labels it needs for statistical testing.
 """
 
-import json
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, Iterable
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal
 
+from pydantic import BaseModel, field_validator
+
+from evalrx.agent_runtime.judge_call import JudgeOutputError, ask_judge
 from evalrx.core.case import CaseBatch, FailureCase, Label
 from evalrx.eval_agent.prompts.case_discovery import _JUDGE_PROMPT
 
@@ -207,22 +209,21 @@ class CaseDiscoveryAgent:
             expected=case.expected,
             observed=observed,
         )
-        raw = self.judge.generate(prompt)  # type: ignore[union-attr]
-        text = str(raw).strip()
-        parsed = _parse_judge_json(text)
-        if parsed is not None:
-            return parsed
-        first_lines = "\n".join(text.splitlines()[:5]).upper()
-        if "PASS" in first_lines and "FAIL" not in first_lines:
-            return Label.PASS, "judge text contained PASS"
-        if "FAIL" in first_lines and "PASS" not in first_lines:
-            return Label.FAIL, "judge text contained FAIL"
-        first = text.splitlines()[0].strip().upper() if text else ""
-        if first.startswith("PASS"):
-            return Label.PASS, "judge first line was PASS"
-        if first.startswith("FAIL"):
-            return Label.FAIL, "judge first line was FAIL"
-        return Label.UNKNOWN, "judge output did not contain a parseable label"
+        try:
+            graded = ask_judge(self.judge, prompt, _CaseLabel, role="case_label").output
+        except JudgeOutputError as exc:
+            return Label.UNKNOWN, f"judge gave no valid label ({exc})"
+        return _coerce_label(graded.label), graded.reason
+
+
+class _CaseLabel(BaseModel):
+    label: Literal["PASS", "FAIL", "UNKNOWN"]
+    reason: str = "judge returned a structured label"
+
+    @field_validator("label", mode="before")
+    @classmethod
+    def _upper(cls, value: Any) -> Any:
+        return value.strip().upper() if isinstance(value, str) else value
 
 
 def _coerce_label(value: Label | bool | str) -> Label:
@@ -236,23 +237,6 @@ def _coerce_label(value: Label | bool | str) -> Label:
     if text in {"fail", "failed", "false", "incorrect", "wrong"}:
         return Label.FAIL
     return Label.UNKNOWN
-
-
-def _parse_judge_json(text: str) -> tuple[Label, str] | None:
-    raw = text.strip()
-    if raw.startswith("```"):
-        raw = re.sub(r"^```\w*\n?", "", raw)
-        raw = re.sub(r"\n?```\s*$", "", raw)
-    match = re.search(r"\{.*\}", raw, flags=re.DOTALL)
-    if not match:
-        return None
-    try:
-        payload = json.loads(match.group())
-    except json.JSONDecodeError:
-        return None
-    label = _coerce_label(payload.get("label", "unknown"))
-    reason = str(payload.get("reason", "judge returned structured label"))
-    return label, reason
 
 
 def _heuristic_score(expected: Any, observed: str) -> Label:

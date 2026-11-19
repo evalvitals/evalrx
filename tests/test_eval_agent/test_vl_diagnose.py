@@ -11,6 +11,7 @@ Covers:
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from evalrx.core.capability import Capability
@@ -241,6 +242,35 @@ class TestCaseDiscoveryAgent:
             "The observed answer names blue."
         )
 
+    def test_judge_without_a_valid_label_falls_back_to_the_rubric_and_says_so(self):
+        model = ScriptedModel(["The answer is red."], capabilities={Capability.GENERATE})
+
+        class Rambling(FakeModel):
+            def __init__(self):
+                super().__init__(capabilities={Capability.GENERATE})
+                self.calls = 0
+
+            def generate(self, inputs, **kwargs):
+                self.calls += 1
+                return "It's probably fine, I guess."
+
+        judge = Rambling()
+        candidates = CaseBatch([FailureCase(
+            id="colour", inputs=Inputs(prompt="Which color is lowest?"),
+            expected={"all_of": ["blue"]},
+        )])
+        report = CaseDiscoveryAgent(judge=judge).discover(model, candidates)
+        assert judge.calls == 2  # sent back once with the validation errors
+        assert report.n_fail == 1  # the rubric decides: "red" lacks "blue"
+        assert "heuristic fallback" in report.cases[0].metadata["discovery_reason"]
+
+    def test_a_lowercase_label_is_read(self):
+        model = ScriptedModel(["blue"], capabilities={Capability.GENERATE})
+        judge = ScriptedModel(['{"label": "fail", "reason": "wrong colour"}'],
+                              capabilities={Capability.GENERATE})
+        candidates = CaseBatch([FailureCase(id="c", inputs=Inputs(prompt="q"), expected="blue")])
+        assert CaseDiscoveryAgent(judge=judge).discover(model, candidates).n_fail == 1
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ProbingSchema / ProbeAgent.probe_with_schema
@@ -394,7 +424,7 @@ class TestStatsAnalysisAgent:
             success_criteria="Reply with only the option letter.",
             output_contract={"kind": "multiple_choice_letter", "choices": ["A", "B", "C", "D"]},
         )
-        judge = ScriptedModel(["CONCLUSION: No issue.\nEVIDENCE_CHAIN:\n- none\nQUALITATIVE:\n- none"])
+        judge = ScriptedModel(['{"conclusion": "No issue.", "evidence_chain": ["none"]}'])
         report = StatsAnalysisAgent(judge=judge).analyze({}, protocol=protocol)
         assert "Reply with only the option letter" in report.llm_prompt
         assert '"kind": "multiple_choice_letter"' in report.llm_prompt
@@ -433,12 +463,12 @@ class TestStatsAnalysisAgent:
         assert report.stats_tool == "threshold_rules"
 
     def test_llm_guided_path_uses_judge(self):
-        expected = (
-            "CONCLUSION: Spatial attention is broken.\n"
-            "EVIDENCE_CHAIN:\n- Analyzer attention flagged anomaly\n"
-            "- Protocol expects spatial tasks\n- No corroborating signals\n"
-            "QUALITATIVE:\n- Entropy is unusually high\n"
-        )
+        expected = json.dumps({
+            "conclusion": "Spatial attention is broken.",
+            "evidence_chain": ["Analyzer attention flagged anomaly", "Protocol expects spatial tasks",
+                               "No corroborating signals"],
+            "qualitative": ["Entropy is unusually high"],
+        })
         judge = ScriptedModel([expected])
         protocol = _spatial_protocol()
         agent = StatsAnalysisAgent(judge=judge)
@@ -448,7 +478,8 @@ class TestStatsAnalysisAgent:
         )}
         report = agent.analyze(results, protocol=protocol)
         assert report.stats_tool == "llm_guided"
-        assert "broken" in report.conclusion.lower() or len(report.conclusion) > 0
+        assert report.conclusion == "Spatial attention is broken."
+        assert report.qualitative_findings == ["Entropy is unusually high"]
 
 
 # ══════════════════════════════════════════════════════════════════════════════

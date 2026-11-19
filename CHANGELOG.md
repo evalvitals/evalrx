@@ -59,6 +59,18 @@ held-out judge that gives no valid answer now records `verdict="not_judged"`
 with `judge_error`, not `not_testable`. Every fix-judge attempt is logged
 (`FixRecorder.judge_exchanges`).
 
+### Changed — M2 and case labeling ask for typed answers
+
+`StatsAnalysisAgent`'s written analysis is a typed answer (`conclusion`,
+`evidence_chain`, `qualitative`) instead of `CONCLUSION:`/`EVIDENCE_CHAIN:`
+sections, and its tool selection only accepts catalog names (the free-text
+scan for any tool name in the reply is gone). An analysis that is still
+invalid after one retry keeps the deterministic report, with the reason in
+`llm_fallback_reason` and the judge's last answer in `llm_raw`.
+`CaseDiscoveryAgent`'s judge label is typed (`PASS`/`FAIL`/`UNKNOWN`, any
+case); a judge with no valid label falls back to the expected-answer
+rubric, as an `UNKNOWN` label did, instead of keyword-scanning the reply.
+
 ### Changed — one way to run a CLI judge
 
 `ClaudeModel`, `CodexModel` and `AgyModel` run through the providers'

@@ -43,10 +43,12 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
+from pydantic import BaseModel, Field, create_model
+
+from evalrx.agent_runtime.judge_call import JudgeError, ask_judge
 from evalrx.analysis.analysis_module import AnalysisModule, AnalysisReport
 from evalrx.analysis.planner import AnalysisPlanItem, plan_stats_input
 from evalrx.analysis.prompts.stats_agent import _ANALYSIS_PROMPT, _TOOL_SELECT_PROMPT
@@ -83,97 +85,32 @@ def _select_tools_via_llm(
     inp: StatsInput,
     valid_names: set[str],
 ) -> set[str]:
-    """Ask the judge to choose tool names from the catalog. Returns a name set.
+    """Ask the judge to choose tool names from the catalog.
 
-    Raises on any failure so the caller can fall back to the deterministic plan.
+    Only catalog names validate. Raises ``JudgeError`` when the judge gives
+    no valid choice, so the caller can fall back to the deterministic plan.
     """
-    import inspect
-
     catalog = "\n".join(f"  - {name}: {desc}" for name, desc in STATS_TOOL_CATALOG.items())
     prompt = _TOOL_SELECT_PROMPT.format(
         protocol_text=protocol.prompt_text(),
         tool_catalog=catalog,
         data_shape=json.dumps(describe_data(inp), indent=2),
     )
-    sig = inspect.signature(judge.generate)
-    if "temperature" in sig.parameters:
-        raw = judge.generate(prompt, temperature=0)
-    else:
-        raw = judge.generate(prompt)
-
-    cleaned = re.sub(r"<think>.*?</think>", "", str(raw), flags=re.DOTALL).strip()
-    match = re.search(r"\{[^{}]*\}", cleaned)
-    if match:
-        data = json.loads(match.group())
-        names = {n.lower() for n in data.get("tools", []) if n.lower() in valid_names}
-        if names:
-            return names
-    # soft fallback: scan for any known tool name
-    low = cleaned.lower()
-    return {n for n in valid_names if n in low}
+    choice = create_model(
+        "ToolChoice",
+        tools=(list[Literal[tuple(sorted(valid_names))]], Field(min_length=1)),  # type: ignore[valid-type,misc]
+        rationale=(str, ""),
+    )
+    reply = ask_judge(judge, prompt, choice, role="stats_tool_selection")
+    return set(reply.output.tools)  # type: ignore[attr-defined]
 
 
-#: A section label as an LLM actually writes it. The original matcher required
-#: a literal "CONCLUSION:" at line start; a judge that wrote the markdown
-#: heading "## CONCLUSION" entered no section at all, so a 4,158-character
-#: analysis fell through to the base narrative's first line
-#: ("Model: EndpointModel(qwen3.5-2b)") and M3 had nothing to hypothesise from —
-#: the run then reported stopped_by=no_hypotheses as if that were a finding.
-#: Earlier runs parsed only because the judge happened to use the colon form.
-_SECTION_HEADER = re.compile(
-    r"^[#*\s]*(CONCLUSION|EVIDENCE_CHAIN|QUALITATIVE)\s*[:：]?[*#\s]*(.*)$",
-    re.IGNORECASE,
-)
+class _Analysis(BaseModel):
+    """The M2 judge's written analysis."""
 
-
-def _parse_llm_analysis(
-    raw: str,
-    base: AnalysisReport,
-) -> tuple[str, list[str], list[str]]:
-    """Parse LLM output into (conclusion, evidence_chain, qualitative_findings).
-
-    Returns "" for conclusion when the judge's response didn't contain a
-    parseable CONCLUSION: section (empty/error response, quota message,
-    wrong format, ...) -- NOT a synthesized fallback string. The only caller
-    (_analyze_llm_guided) already built a real, statistically-grounded
-    conclusion via _build_conclusion() before this parse ever runs and only
-    overwrites it `if conclusion:` — inventing a fallback here (this used to
-    return base.narrative's first line, which is just "Model: <repr>") meant
-    a failed/malformed judge call silently threw away the good deterministic
-    conclusion and replaced it with a useless one, with no error anywhere.
-    Measured live: a judge call that hit its account's spend limit returned
-    the CLI's plain-text quota message as `raw`, which parses to nothing
-    here — before this fix, that overwrote a real "statistically supported:
-    signal X flips on FAIL, effect +0.83" conclusion with "Model: <object
-    repr>", and M3 saw the latter.
-    """
-    conclusion = ""
-    evidence: list[str] = []
-    qualitative: list[str] = []
-    section: str | None = None
-
-    for line in raw.splitlines():
-        s = line.strip()
-        upper = s.upper()
-        header = _SECTION_HEADER.match(s)
-        if header:
-            section = header.group(1).upper()
-            section = {"CONCLUSION": "conclusion",
-                       "EVIDENCE_CHAIN": "evidence",
-                       "QUALITATIVE": "qualitative"}[section]
-            rest = header.group(2).strip()
-            if section == "conclusion" and rest:
-                conclusion = rest
-        elif s.startswith("- "):
-            content = s[2:].strip()
-            if section == "evidence":
-                evidence.append(content)
-            elif section == "qualitative":
-                qualitative.append(content)
-        elif section == "conclusion" and s and not upper.startswith(("EVIDENCE", "QUALITATIVE")):
-            conclusion = (conclusion + " " + s).strip()
-
-    return conclusion, evidence, qualitative
+    conclusion: str = Field(min_length=1)
+    evidence_chain: list[str] = Field(default_factory=list)
+    qualitative: list[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -418,6 +355,7 @@ class StatsAnalysisAgent:
 
         report: "StatsAnalysisReport | None" = None
         fallback_reason = ""
+        fallback_raw = ""
         if self._judge is not None and protocol is not None:
             try:
                 report = self._analyze_llm_guided(
@@ -432,12 +370,14 @@ class StatsAnalysisAgent:
                 # here reached neither the console nor the run log, so an
                 # OSError(E2BIG) on the prompt left no trace anywhere in the run.
                 fallback_reason = f"{type(exc).__name__}: {exc}"
+                fallback_raw = exc.raw if isinstance(exc, JudgeError) else ""
                 logger.warning("LLM-guided M2 analysis failed, falling back: %s", exc)
         if report is None:
             report = self._to_stats_report(
                 base, protocol, stats_results, stats_plan, corrected, figures,
             )
             report.llm_fallback_reason = fallback_reason
+            report.llm_raw = fallback_raw
         report.descriptive_only = not confirmatory
         return report
 
@@ -707,28 +647,26 @@ class StatsAnalysisAgent:
             narrative=base.narrative + stats_block,
             findings_json=findings_json,
         )
-        import inspect as _inspect
         from pathlib import Path as _Path
-        _sig = _inspect.signature(self._judge.generate)  # type: ignore[union-attr]
-        if "images" in _sig.parameters and figures:
-            _imgs = [_Path(f) for f in figures if _Path(f).exists()]
-            raw = self._judge.generate(prompt, images=_imgs or None)  # type: ignore[union-attr]
-        else:
-            raw = self._judge.generate(prompt)  # type: ignore[union-attr]
-        conclusion, evidence, qualitative = _parse_llm_analysis(str(raw), base)
+        # A judge with no valid answer raises JudgeError; the caller keeps the
+        # deterministic report and records why in llm_fallback_reason.
+        reply = ask_judge(
+            self._judge, prompt, _Analysis, role="stats_analysis",
+            images=[_Path(f) for f in figures if _Path(f).exists()],
+        )
+        analysis = reply.output
 
         report = self._to_stats_report(
             base, protocol, stats_results, stats_plan, corrected, figures,
         )
-        if conclusion:
-            report.conclusion = conclusion
-        if evidence:
-            report.evidence_chain = evidence
-        if qualitative:
-            report.qualitative_findings = qualitative
+        report.conclusion = analysis.conclusion
+        if analysis.evidence_chain:
+            report.evidence_chain = analysis.evidence_chain
+        if analysis.qualitative:
+            report.qualitative_findings = analysis.qualitative
         report.stats_tool = "llm_guided"
         report.llm_prompt = prompt
-        report.llm_raw = str(raw)
+        report.llm_raw = reply.raw
         return report
 
 

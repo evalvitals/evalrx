@@ -58,68 +58,52 @@ def test_stats_analysis_agent_tests_more_than_four_signals_by_default():
     assert report.corrected_rejections["families"]["bh"]["n_tested"] >= 6
 
 
-# ── the M2 section parser must survive how judges actually write ─────────────
-def _base_report():
-    from evalrx.analysis.analysis_module import AnalysisReport
-    return AnalysisReport(model_name="m",
-                          narrative="Model: EndpointModel(qwen3.5-2b)\nrest")
+# ── the M2 judge's analysis is a typed answer ────────────────────────────────
+def _analyze_with(reply: str):
+    from evalrx.analysis import StatsAnalysisAgent
+    from evalrx.core.result import Result
+    from evalrx.eval_agent.stages.protocol import ExperimentProtocol
+
+    class Judge:
+        def __init__(self):
+            self.prompts: list[str] = []
+
+        def generate(self, prompt, **kwargs):
+            self.prompts.append(prompt)
+            return reply
+
+    judge = Judge()
+    res = {"a": Result(analyzer="a", model="m", findings={"x": 1.0})}
+    report = StatsAnalysisAgent(judge=judge).analyze(
+        res, model_name="m", protocol=ExperimentProtocol(description="d"))
+    return report, judge
 
 
-def test_markdown_headings_are_parsed_not_dropped():
-    """A judge wrote '## CONCLUSION'; the matcher demanded 'CONCLUSION:'.
-
-    No section was ever entered, so 4,158 characters of analysis fell through to
-    the base narrative's first line and M3 received nothing to hypothesise from.
-    The run then reported stopped_by=no_hypotheses as though that were a
-    finding. Earlier runs parsed only because the judge happened to use a colon.
-    """
-    from evalrx.analysis.stats_agent import _parse_llm_analysis
-
-    raw = (
-        "## CONCLUSION\n\n"
-        "The failures are a capability defect in list-state maintenance.\n\n"
-        "## EVIDENCE_CHAIN\n\n"
-        "- Step 1 - kendall tau 0.92 with edit distance 7.82\n"
-        "- Step 2 - 66% token loss\n\n"
-        "## QUALITATIVE\n\n"
-        "- probe1 has an internally incoherent signature on ~45% of fails\n"
+def test_an_analysis_in_markdown_around_json_is_read():
+    """Judges decorate their answers; '## CONCLUSION' once lost a whole analysis."""
+    reply = (
+        "## Analysis\n```json\n"
+        '{"conclusion": "The failures are a capability defect in list-state maintenance.",'
+        ' "evidence_chain": ["kendall tau 0.92 with edit distance 7.82", "66% token loss"],'
+        ' "qualitative": ["probe1 is incoherent on ~45% of fails"]}\n```'
     )
-    conclusion, evidence, qualitative = _parse_llm_analysis(raw, _base_report())
-    assert "capability defect" in conclusion
-    assert len(evidence) == 2 and "kendall tau" in evidence[0]
-    assert len(qualitative) == 1
+    report, judge = _analyze_with(reply)
+    assert len(judge.prompts) == 1
+    assert "capability defect" in report.conclusion
+    assert report.evidence_chain[0].startswith("kendall tau") and len(report.evidence_chain) == 2
+    assert report.qualitative_findings == ["probe1 is incoherent on ~45% of fails"]
 
 
-def test_the_original_colon_contract_still_parses():
-    from evalrx.analysis.stats_agent import _parse_llm_analysis
-
-    raw = ("CONCLUSION: it broke\n"
-           "EVIDENCE_CHAIN:\n- step one\n- step two\n"
-           "QUALITATIVE:\n- note")
-    conclusion, evidence, qualitative = _parse_llm_analysis(raw, _base_report())
-    assert conclusion == "it broke"
-    assert evidence == ["step one", "step two"]
-    assert qualitative == ["note"]
-
-
-def test_bold_headings_parse_too():
-    from evalrx.analysis.stats_agent import _parse_llm_analysis
-
-    raw = "**CONCLUSION**\nthe thing happened\n**EVIDENCE_CHAIN**\n- because\n"
-    conclusion, evidence, _ = _parse_llm_analysis(raw, _base_report())
-    assert conclusion == "the thing happened"
-    assert evidence == ["because"]
-
-
-def test_prose_without_sections_yields_no_conclusion_not_a_synthesized_one():
-    """No section => "" — so the caller keeps the deterministic conclusion it
-    already built. Returning base.narrative's first line here ("Model: <repr>")
-    was how a quota message from the CLI silently replaced a real M2 verdict.
-    """
-    from evalrx.analysis.stats_agent import _parse_llm_analysis
-
-    conclusion, _, _ = _parse_llm_analysis("just prose", _base_report())
-    assert conclusion == ""
+def test_prose_keeps_the_deterministic_conclusion_and_says_why():
+    """No valid analysis after one retry: the deterministic conclusion stays,
+    and the report says the judge gave no usable answer (a quota message read
+    as an analysis once replaced a real M2 verdict with "Model: <repr>")."""
+    report, judge = _analyze_with("just prose")
+    assert len(judge.prompts) == 2
+    assert report.stats_tool != "llm_guided"
+    assert "JudgeOutputError" in report.llm_fallback_reason
+    assert report.llm_raw == "just prose"
+    assert report.conclusion and "just prose" not in report.conclusion
 
 
 # ── what the judge is shown about multiplicity ───────────────────────────────
@@ -210,7 +194,7 @@ def test_a_judge_that_answered_leaves_no_fallback_reason():
 
     class LiveJudge:
         def generate(self, prompt, **kwargs):
-            return "CONCLUSION: it worked\nEVIDENCE_CHAIN:\n- because"
+            return '{"conclusion": "it worked", "evidence_chain": ["because"]}'
 
     res = {"a": Result(analyzer="a", model="m", findings={"x": 1.0})}
     report = StatsAnalysisAgent(judge=LiveJudge()).analyze(

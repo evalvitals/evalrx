@@ -18,8 +18,7 @@ Expected answer or rubric:
 Observed model answer:
 {observed}
 
-Return a JSON object:
-{{"label": "PASS|FAIL|UNKNOWN", "reason": "one concise sentence"}}
+Give a label (PASS, FAIL or UNKNOWN) and a one-sentence reason.
 
 Use PASS only when the observed answer satisfies the expected answer/rubric under
 the success criteria."""
