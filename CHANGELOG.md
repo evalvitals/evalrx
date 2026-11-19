@@ -67,6 +67,15 @@ processes outlived a plain `subprocess.run` timeout), Claude runs in a
 throwaway directory instead of the caller's, and a limit notice printed as an
 answer raises for every provider, not only Claude.
 
+### Changed — one diagnosis loop; the judge-decided mode is a policy
+
+`AgenticDiagnoseLoop` is gone. Pass `policy=JudgePolicy(judge, max_actions=...,
+time_budget_sec=..., registry_factory=...)` to `VLDiagnoseLoop` for the same
+judge-decided run; the loop's own `explorer` becomes the `explore_data` tool.
+`run_start` records the loop as `JudgePolicy`. A custom `registry_factory`
+still receives `(loop, run_state)`; the decision judge is `run_state.judge`
+(was `loop.judge`).
+
 ### Removed
 
 - `create_sandbox`, `SandboxFactoryConfig`, `SandboxConfig`

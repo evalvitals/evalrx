@@ -160,7 +160,7 @@ exemplars instead of the deterministic top-terms naming. `report.method` tells
 you which clustering backend actually ran (`"hdbscan"` / `"agglomerative"` /
 `"cosine_greedy"` / `"single_cluster"`); `report.as_hypothesis_context()`
 renders a compact section for feeding into M3 hypothesis generation — this is
-exactly what `AgenticDiagnoseLoop`'s `cluster_failures` tool does
+exactly what the `JudgePolicy` `cluster_failures` tool does
 automatically (see [quickstart](quickstart.md#agentic-diagnosis-loop)).
 
 ### Failure-aware embedding and boundary-aware naming (opt-in)
@@ -223,8 +223,8 @@ default; supply your own `generate_macro`/`generate_micro` callables to
 
 `result.failure_cases` is a plain `CaseBatch` — feed it straight into
 `cluster_failures` above for failure-mode synthesis. Inside
-`AgenticDiagnoseLoop`, the same capability is exposed as the `search_probes`
-tool (host-capped via `max_calls`), reusing the loop's own decision judge and
+a `JudgePolicy` run, the same capability is exposed as the `search_probes`
+tool (host-capped via `max_calls`), reusing the policy's decision judge and the loop's
 target model.
 
 ## Backend notes

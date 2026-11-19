@@ -13,10 +13,9 @@ M5 (SurgeryAgent) runs separately via ``VLDiagnoseLoop.run_m5()`` once the
 loop stops — propose a fix for the best verified hypothesis (Plan A), or
 propose + execute a fix (Plan B).
 
-See also:
-  - :class:`~evalrx.eval_agent.agentic.AgenticDiagnoseLoop` — the same
-    M1-M4 stages driven by a judge-decided action loop instead of a fixed
-    cycle.
+``VLDiagnoseLoop(..., policy=JudgePolicy(judge))`` drives the same stages
+by a judge-decided action loop instead of the fixed cycle; see
+:class:`~evalrx.eval_agent.agentic.JudgePolicy`.
 
 Usage::
 
@@ -300,6 +299,7 @@ class VLDiagnoseLoop:
         explore_question: str = "",
         verbose: bool = False,
         diagnosis_retries: int = 1,
+        policy: "Any | None" = None,
     ) -> None:
         from evalrx.analysis.stats_agent import StatsAnalysisAgent
         from evalrx.eval_agent.stages.fix.agent import FixAgent
@@ -375,10 +375,12 @@ class VLDiagnoseLoop:
         # In-cycle explore step (off by default): a free-form EDA pass over the
         # M1 per-case table, run between M1 and M2. Same standing as a Step-1
         # explore_report — descriptive notes for M3 + files for the report.
-        # AgenticDiagnoseLoop overrides `self.explorer` after this constructor
-        # and drives it through its own judge-decided `explore_data` tool
-        # instead of the fixed in-cycle call (see run()/run_analysis()).
+        # Under a JudgePolicy it is the judge-decided `explore_data` tool
+        # instead of the fixed in-cycle call.
         self.explorer = explorer
+        # Who picks the next stage: None = the fixed M1→M4 cycle; a policy
+        # object (e.g. agentic.JudgePolicy) takes over :meth:`run`.
+        self.policy = policy
         self._explore_dir = Path(explore_dir) if explore_dir is not None else None
         self._explore_question = str(explore_question or "")
         self._tokens_used: int = 0
@@ -1045,6 +1047,8 @@ class VLDiagnoseLoop:
             :class:`AutoDiagnoseReport` with the final state.
             Call :meth:`run_m5` on this to get a fix proposal (Plan A).
         """
+        if self.policy is not None:
+            return self.policy.run(self, data)
         self._tokens_used = 0
         # Per-stage wall-clock totals (seconds) for the loop_end cost profile.
         timings: dict[str, float] = {}

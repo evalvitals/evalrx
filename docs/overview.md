@@ -93,8 +93,8 @@ to investigate), which drives analyzer prioritization in M1 and protocol-consist
 checking in M4.  `StatsAnalysisAgent` (M2) generates an LLM-written evidence chain
 alongside the threshold-based findings.  `HypothesisTester` (M4) applies a
 statistical fail-rate test and verifies protocol consistency; the loop stops as soon
-as a supported, consistent hypothesis is found. **`AgenticDiagnoseLoop`** drives
-the same stages from a judge-decided action loop instead of a fixed cycle.
+as a supported, consistent hypothesis is found. With **`policy=JudgePolicy(judge)`**
+the same loop is driven by a judge-decided action loop instead of a fixed cycle.
 
 Shared infrastructure: a durable `JsonlStore`, the multi-phase `ExperimentWriter`
 (blueprint → sequential → hard-validate → exec-fix → tree-search → review) behind

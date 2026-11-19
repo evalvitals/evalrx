@@ -124,7 +124,7 @@ _EVENTS: dict[str, dict[str, Any]] = {
             "label_distribution": {"type": "object"},
             "n_cases": {"type": "integer"},
             "model": {"type": "string"},
-            # AgenticDiagnoseLoop only: the decision judge (distinct from the M3
+            # JudgePolicy runs only: the decision judge (distinct from the M3
             # stage judge already covered by "judge") and its action-turn budget.
             "decision_judge": {"type": "string"},
             "max_actions": {"type": "integer"},

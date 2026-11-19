@@ -729,16 +729,14 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
 
     coder_cfg = CliAgentConfig(provider=coder_provider, model=coder_model, timeout_sec=900,
                                extra_args=coder_extra)
-    loop_class: type[VLDiagnoseLoop] = VLDiagnoseLoop
-    loop_kwargs = {}
+    policy = None
     if _is_agentic(args):
-        from evalrx.eval_agent.agentic import AgenticDiagnoseLoop
+        from evalrx.eval_agent.agentic import JudgePolicy
 
-        loop_class = AgenticDiagnoseLoop
-        loop_kwargs = dict(judge=judge, max_actions=args.max_actions,
-                           registry_factory=_benchmark_agentic_registry)
-    loop = loop_class(
-        **loop_kwargs,
+        policy = JudgePolicy(judge, max_actions=args.max_actions,
+                             registry_factory=_benchmark_agentic_registry)
+    loop = VLDiagnoseLoop(
+        policy=policy,
         diagnosis_retries=1,
         model=model, protocol=protocol,
         probe_agent=_probe_agent(args, task, resolved, model, judge, coder_cfg, ctx.config),
@@ -766,7 +764,8 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         # the stages' logger.info() stream over the aligned narration.
         verbose=False,
     )
-    print(f"\n{'=' * 64}\n{loop_class.__name__}  model={args.model}  max_cycles={args.max_cycles}\n{'=' * 64}")
+    mode = "VLDiagnoseLoop + JudgePolicy" if policy is not None else "VLDiagnoseLoop"
+    print(f"\n{'=' * 64}\n{mode}  model={args.model}  max_cycles={args.max_cycles}\n{'=' * 64}")
     report = loop.run(cases)
     discovery_rows = [{
         "id": c.id, "prompt": c.inputs.prompt, "expected": c.expected,

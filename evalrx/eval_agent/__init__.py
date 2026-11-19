@@ -5,7 +5,7 @@ Two loops are available:
   VLDiagnoseLoop       M1 → M2 → M3 → M4 inner loop, M5 called post-loop (Plan A)
                        Stops when M4 finds a statistically supported,
                        protocol-consistent hypothesis.
-  AgenticDiagnoseLoop  the same stages, driven by a judge-decided action loop.
+  JudgePolicy          pass as VLDiagnoseLoop(policy=...): a judge picks each next stage.
 
 Stage modules live in ``stages/``; shared infrastructure stays at the top level.
 The CLI-agent runtime (sandboxing, code generation, providers, judge models,
@@ -119,7 +119,7 @@ from evalrx.analysis.stats_tools import (
     run_stats_tool,
 )
 from evalrx.eval_agent.agentic import (
-    AgenticDiagnoseLoop,
+    JudgePolicy,
     ToolOutcome,
     ToolRegistry,
     ToolSpec,
@@ -224,7 +224,7 @@ __all__ = [
     "AutoDiagnoseReport",
     "VLDiagnoseLoop",
     # Agentic loop (judge-decided M1-M4, alternative to VLDiagnoseLoop's fixed cycle)
-    "AgenticDiagnoseLoop",
+    "JudgePolicy",
     "ToolSpec",
     "ToolOutcome",
     "ToolRegistry",

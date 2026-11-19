@@ -70,7 +70,7 @@ stage content:
 | `manifest`         | final config and a compact file index |
 | `loop_end`         | one entry per loop summary |
 | `run_end`          | written by `close()`: the run is finished |
-| `agent_decisions`  | `AgenticDiagnoseLoop`'s dispatch-judge turns |
+| `agent_decisions`  | `JudgePolicy`'s dispatch-judge turns |
 | `agent_tool_calls` | the dispatch layer's accept / reject outcome per tool call |
 | `unrouted`         | events whose stage could not be resolved (see Routing) |
 

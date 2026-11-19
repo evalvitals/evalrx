@@ -129,6 +129,7 @@ class _RunState:
 
     original_data: Any
     data: Any
+    judge: Any = None  # the policy's decision judge (also drives probe search)
     cycle: int = 0
     timings: dict[str, float] = field(default_factory=dict)
     all_hypotheses: list[Any] = field(default_factory=list)
@@ -285,7 +286,7 @@ def _search_probes(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dic
             return ToolOutcome(False, "no seed cases available to probe", error="empty")
         budget = int(params.get("budget", 10))
         agent = ProbeSearchAgent(
-            judge=loop.judge, protocol=loop.protocol, budget=budget,
+            judge=state.judge, protocol=loop.protocol, budget=budget,
             run_logger=getattr(loop, "run_logger", None),
         )
         result = agent.run(loop.model, seed_pool)
@@ -420,7 +421,7 @@ def _stop(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dict], ToolO
 
 
 def build_default_registry(loop: Any, state: _RunState) -> ToolRegistry:
-    """Build the default M1-M4 tool registry for one :class:`AgenticDiagnoseLoop` run."""
+    """Build the default M1-M4 tool registry for one :class:`JudgePolicy` run."""
     registry = ToolRegistry()
     registry.register(ToolSpec(
         name="run_probe",

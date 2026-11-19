@@ -1,7 +1,7 @@
 """Report dataclasses returned by the diagnosis loops.
 
 Split out of ``loop.py`` so the loops (``loop.VLDiagnoseLoop`` and
-``agentic.AgenticDiagnoseLoop``) can share them without a circular import.
+``agentic.JudgePolicy``) can share them without a circular import.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 class AutoDiagnoseReport:
     """Summary returned by every diagnosis loop:
     :class:`~evalrx.eval_agent.loop.VLDiagnoseLoop.run` and
-    :class:`~evalrx.eval_agent.agentic.AgenticDiagnoseLoop.run` both return
+    :meth:`~evalrx.eval_agent.agentic.JudgePolicy.run` both return
     this one class. Every field below is populated by both loops except
     where noted "M4-only", which stay at their default (``None`` / empty)
     when the producing loop has no equivalent concept.

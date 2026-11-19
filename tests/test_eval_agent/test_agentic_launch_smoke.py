@@ -1,4 +1,4 @@
-"""End-to-end smoke test for AgenticDiagnoseLoop — the judge-decided mode.
+"""End-to-end smoke test for VLDiagnoseLoop under a JudgePolicy — the judge-decided mode.
 
 Mirrors test_agent_launch_smoke.py's fixtures (a synthetic attention signal
 that discriminates FAIL/PASS perfectly), but drives the loop via a scripted
@@ -14,7 +14,7 @@ import json
 from evalrx.core.capability import Capability
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.core.result import Result
-from evalrx.eval_agent import AgenticDiagnoseLoop, DiagnosisAgent, HypothesisTester
+from evalrx.eval_agent import DiagnosisAgent, HypothesisTester, JudgePolicy, VLDiagnoseLoop
 from evalrx.eval_agent.log_schema import validate_event
 from evalrx.eval_agent.run_context import RunContext
 from evalrx.eval_agent.stages.probe_agent import ProbeAgent
@@ -109,16 +109,15 @@ def _protocol() -> ExperimentProtocol:
 
 def _build_loop(tmp_path, action_judge, *, max_actions=10):
     ctx = RunContext(tmp_path / "run", verbose=False)
-    loop = AgenticDiagnoseLoop(
+    loop = VLDiagnoseLoop(
         model=FakeModel(
             capabilities={Capability.GENERATE, Capability.ATTENTION}, modalities={"text"},
         ),
         protocol=_protocol(),
-        judge=action_judge,
+        policy=JudgePolicy(action_judge, max_actions=max_actions),
         probe_agent=_SignalProbe(max_analyzers=1),
         diagnosis_agent=DiagnosisAgent(judge=_ScriptedM3Judge()),
         hypothesis_tester=HypothesisTester(min_effect=0.05),
-        max_actions=max_actions,
         run_logger=ctx.logger,
     )
     return ctx, loop
@@ -174,14 +173,13 @@ def test_agentic_loop_wires_cluster_failures_into_the_m3_prompt(tmp_path):
     action_judge = _ScriptedActionJudge(sequence)
     m3_judge = _ScriptedM3Judge()
     ctx = RunContext(tmp_path / "run", verbose=False)
-    loop = AgenticDiagnoseLoop(
+    loop = VLDiagnoseLoop(
         model=FakeModel(capabilities={Capability.GENERATE, Capability.ATTENTION}, modalities={"text"}),
         protocol=_protocol(),
-        judge=action_judge,
+        policy=JudgePolicy(action_judge, max_actions=10),
         probe_agent=_SignalProbe(max_analyzers=1),
         diagnosis_agent=DiagnosisAgent(judge=m3_judge),
         hypothesis_tester=HypothesisTester(min_effect=0.05),
-        max_actions=10,
         run_logger=ctx.logger,
     )
 
@@ -223,7 +221,7 @@ def test_benchmark_controller_cannot_open_confirmation_or_repair(tmp_path):
         '{"tool":"stop","params":{"resolved":false,"reason":"done"},"rationale":"done"}',
     ])
     ctx, loop = _build_loop(tmp_path, judge)
-    loop._registry_factory = _benchmark_agentic_registry
+    loop.policy.registry_factory = _benchmark_agentic_registry
     loop.confirm_split = 0.5
     report = loop.run(_cases())
     assert report.stopped_by == "agent_stop"

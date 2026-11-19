@@ -16,7 +16,7 @@ from evalrx.benchmark.models import resolve
 from evalrx.benchmark.run import build_parser
 from evalrx.benchmark.tasks import get
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalrx.eval_agent import AgenticDiagnoseLoop, CaseDiscoveryAgent, VLDiagnoseLoop
+from evalrx.eval_agent import CaseDiscoveryAgent, VLDiagnoseLoop
 from evalrx.eval_agent.loop_reports import AutoDiagnoseReport
 from evalrx.eval_agent.stages.fix.tiers import FixTier
 from evalrx.eval_agent.stages.fix.types import FixCandidate, FixOutcome, FixValidation
@@ -82,7 +82,8 @@ class Cell:
                                    n_unknown=0, has_m4_groups=cell.has_m4_groups)
 
         def loop_run(loop, data):
-            cell.calls.append(f"loop.run:{type(loop).__name__}:{len(data)}")
+            mode = type(loop.policy).__name__ if loop.policy is not None else "fixed"
+            cell.calls.append(f"loop.run:{mode}:{len(data)}")
             cell.loop = loop
             return cell.report
 
@@ -104,7 +105,6 @@ class Cell:
         patch(runner, "build_judge", build_judge)
         patch(runner, "load_model", load_model)
         patch(CaseDiscoveryAgent, "discover", discover)
-        patch(AgenticDiagnoseLoop, "run", loop_run)
         patch(VLDiagnoseLoop, "run", loop_run)
         patch(VLDiagnoseLoop, "run_m5", run_m5)
         patch(VLDiagnoseLoop, "run_fix", run_fix)
@@ -129,7 +129,7 @@ def cell(monkeypatch, tmp_path):
 def test_a_full_cell_runs_discovery_diagnosis_m5_and_the_fix_then_closes_the_log(cell, capsys):
     assert cell.run() == 0
 
-    assert cell.calls == ["judge", "load_model", "discover:8", "loop.run:AgenticDiagnoseLoop:8",
+    assert cell.calls == ["judge", "load_model", "discover:8", "loop.run:JudgePolicy:8",
                           "run_m5:allow_unverified=True", "run_fix"]
     # The gemini backend exposes no internals, so the default L3b ladder stops at L2.
     assert cell.fix_kwargs == {"max_tier": "L2", "auto_escalate": cell.fix_kwargs["auto_escalate"],
@@ -169,7 +169,7 @@ def test_the_loop_is_wired_from_the_arguments(cell):
     cell.run("--max-actions", "5", "--confirm-split", "0.25")
 
     loop = cell.loop
-    assert (loop.max_actions, loop.max_cycles, loop.confirm_split, loop.m4_holdout) == (5, 1, 0.25, False)
+    assert (loop.policy.max_actions, loop.max_cycles, loop.confirm_split, loop.m4_holdout) == (5, 1, 0.25, False)
     assert loop.val_data is None and loop.explorer is not None
     assert loop.probe_agent.allow_codegen is True
     assert loop.fix_agent.proposer._floor_candidates == ()
@@ -183,7 +183,7 @@ def test_a_diagnosis_error_still_writes_the_summary_and_returns_2(cell):
     cell.report = AutoDiagnoseReport(cycles=2, stopped_by="diagnosis_error")
 
     assert cell.run("--skip-fix") == 2
-    assert cell.calls[-1] == "loop.run:AgenticDiagnoseLoop:8"
+    assert cell.calls[-1] == "loop.run:JudgePolicy:8"
     summary = cell.read("summary.json")
     assert (summary["diagnosis_status"], summary["fix"], summary["cycles"]) == ("error", None, 2)
     assert cell.events()[-1] == "run_end"
@@ -191,7 +191,7 @@ def test_a_diagnosis_error_still_writes_the_summary_and_returns_2(cell):
 
 def test_skip_m5_goes_straight_to_the_fix(cell, capsys):
     assert cell.run("--skip-m5") == 0
-    assert cell.calls[-2:] == ["loop.run:AgenticDiagnoseLoop:8", "run_fix"]
+    assert cell.calls[-2:] == ["loop.run:JudgePolicy:8", "run_fix"]
     assert "M5: skipped by --skip-m5" in capsys.readouterr().out
 
 
@@ -235,7 +235,7 @@ def test_a_one_sided_baseline_cannot_be_diagnosed(cell):
 def test_held_out_labels_a_separate_validation_set_for_the_fixed_loop(cell, capsys):
     assert cell.run("--diagnosis-mode", "fixed", "--held-out", "--skip-fix") == 0
 
-    assert cell.calls == ["judge", "load_model", "discover:8", "discover:4", "loop.run:VLDiagnoseLoop:8"]
+    assert cell.calls == ["judge", "load_model", "discover:8", "discover:4", "loop.run:fixed:8"]
     assert cell.loop.m4_holdout is True and [c.id for c in cell.loop.val_data] == ["v0", "v1", "v2", "v3"]
     val = cell.read("baseline_val.json")
     assert (val["role"], val["n"], val["n_pass"], val["accuracy"]) == ("validation", 4, 2, 0.5)

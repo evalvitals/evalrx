@@ -895,7 +895,7 @@ class RunLogger:
         trace_fix(self.tracer, d, best)
 
     # ------------------------------------------------------------------
-    # AgenticDiagnoseLoop dispatch layer — run-level, not stage content
+    # JudgePolicy dispatch layer — run-level, not stage content
     # ------------------------------------------------------------------
 
     def log_agent_decision(
