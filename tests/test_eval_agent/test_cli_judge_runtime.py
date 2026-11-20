@@ -88,3 +88,17 @@ def test_a_coding_agent_that_wrote_files_is_not_read_as_limited(tmp_path):
     body = "echo 'x = 1' > main.py; echo 'Note: your usage limit resets on Monday.'"
     result = _ScriptAgent(_binary(tmp_path, "cli", body)).run("write it", workdir=tmp_path / "w")
     assert result.error is None and "main.py" in result.files
+
+
+def test_claude_code_limit_notice_in_its_stream_is_reported(tmp_path):
+    from evalrx.agent_runtime.providers.claude_code import ClaudeCodeAgent
+
+    stream = [
+        '{"type":"system","subtype":"init","model":"m","tools":["Bash"]}',
+        '{"type":"assistant","message":{"content":[{"type":"text","text":"You\'ve hit your usage limit · resets 5pm"}]}}',
+        '{"type":"result","subtype":"success","result":"You\'ve hit your usage limit · resets 5pm",'
+        '"num_turns":1,"duration_ms":900,"total_cost_usd":0,"usage":{"input_tokens":3,"output_tokens":9}}',
+    ]
+    body = "cat <<'EOF'\n" + "\n".join(stream) + "\nEOF"
+    result = ClaudeCodeAgent(_binary(tmp_path, "claude", body)).run("write it", workdir=tmp_path / "w")
+    assert result.error and "account limit reached" in result.error

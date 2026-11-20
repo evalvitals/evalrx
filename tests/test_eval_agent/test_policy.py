@@ -72,3 +72,33 @@ def test_a_run_that_stopped_on_m3_shows_m3_as_failed_in_the_report(tmp_path):
     m3 = next(s for s in report["stages"] if s["id"] == "m3")
     assert m3["status"] == "failed"
     assert "could not be read" in report["stage_detail"]["m3"]["error"]
+
+
+def test_a_later_m3_failure_keeps_the_earlier_hypotheses_in_the_report(tmp_path):
+    from evalrx.eval_agent import DiagnosisResult, Hypothesis
+    from evalrx.reporting.dynamic import build_report_data
+
+    class FailsSecond:
+        calls = 0
+
+        def diagnose(self, analysis, **kwargs):
+            FailsSecond.calls += 1
+            if FailsSecond.calls > 1:
+                raise RuntimeError("the judge's answer could not be read")
+            h = Hypothesis(statement="The model guesses without looking.", target_model="m",
+                           predicted_failure_mode="no_such_signal")
+            return DiagnosisResult(model_name="m", hypotheses=[h], raw_judge_output="{}")
+
+    ctx, loop = _loop(tmp_path, diagnosis_agent=FailsSecond(), max_cycles=2)
+    data = CaseBatch([
+        FailureCase(inputs=Inputs(prompt=f"q{i}"), label=Label.FAIL if i % 2 else Label.PASS)
+        for i in range(4)
+    ])
+    report = loop.run(data)
+    assert report.stopped_by == "diagnosis_error" and len(report.final_hypotheses) == 1
+    ctx.finalize()
+
+    data = build_report_data(ctx.root)
+    assert next(s for s in data["stages"] if s["id"] == "m3")["status"] == "failed"
+    detail = data["stage_detail"]["m3"]
+    assert detail["error"] and len(detail["hypotheses"]) == 1

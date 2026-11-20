@@ -37,9 +37,16 @@ export function M3Detail({ data, report }: { data: Partial<M3StageDetail>; repor
         <div className="parser-warning">
           <AlertTriangle />
           <div>
-            <b>This step failed, and the run stopped here.</b>
+            <b>
+              {hypotheses.length
+                ? "The last attempt at this step failed, and the run stopped there."
+                : "This step failed, and the run stopped here."}
+            </b>
             <p>
-              The judge gave no usable answer after its retries, so no explanation was put forward.
+              The judge gave no usable answer after its retries
+              {hypotheses.length
+                ? "; the explanations below come from an earlier cycle."
+                : ", so no explanation was put forward."}{" "}
               The run log has every exchange. Reason: {data.error}
             </p>
           </div>
@@ -184,7 +191,7 @@ export function M3Detail({ data, report }: { data: Partial<M3StageDetail>; repor
 
 // ── M3 brief (L2) ──────────────────────────────────────────────────────────
 export function briefM3(report: ReportData, detail: Partial<M3StageDetail>): Brief {
-  if (detail.error) {
+  if (detail.error && !(detail.hypotheses || []).length) {
     return {
       verdict: "This step failed, and the run stopped here.",
       lead:
@@ -235,6 +242,12 @@ export function briefM3(report: ReportData, detail: Partial<M3StageDetail>): Bri
   });
 
   const caveatParts: string[] = [];
+  if (detail.error) {
+    caveatParts.push(
+      "The last attempt at this step failed and the run stopped there; these " +
+        `explanations come from an earlier cycle. Reason: ${detail.error}`,
+    );
+  }
   if (untestable.length) {
     caveatParts.push(
       `${plural(untestable.length, "proposal")} name${untestable.length === 1 ? "s" : ""} ` +
