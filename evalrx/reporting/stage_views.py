@@ -33,6 +33,8 @@ def _stages(raw: Mapping[str, Any], m5_detail: Mapping[str, Any] | None = None) 
         evidence = stage.get(evidence_key) or []
         ran = bool(stage.get("ran")) if "ran" in stage else bool(evidence or stage.get("duration"))
         status = "completed" if ran else "not-run"
+        if code == "M3" and stage.get("error"):
+            status = "failed"
         if code == "M5" and m5_detail and m5_detail.get("skipped"):
             status = "skipped"
         if code == "M5" and ran:
@@ -172,7 +174,7 @@ def _m3_detail(
     m3 = dict(raw.get("m3") or {})
     hypotheses = list(m3.get("hypotheses") or explore.get("hypotheses") or [])
     return {
-        "mode": "proposal", "hypotheses": hypotheses,
+        "mode": "proposal", "hypotheses": hypotheses, "error": m3.get("error"),
         "candidate_signals": list(explore.get("candidate_signals") or []),
         "recommended_tests": list(explore.get("recommended_confirmatory_tests") or []),
         "evidence_figures": figures[:3], "evidence_stats": stats[:6],

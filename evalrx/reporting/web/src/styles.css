@@ -546,6 +546,9 @@ h1 span {
   opacity: 0.45;
   border-style: dashed;
 }
+.stage-failed {
+  border-color: var(--c-755449);
+}
 .stage-no-improvement {
   border-color: var(--c-755449);
 }
@@ -4537,6 +4540,10 @@ footer small {
 .lf-status-improved {
   color: var(--green);
   border-color: rgba(107, 216, 173, 0.3);
+}
+.lf-status-failed {
+  color: var(--c-f4ca72, #f4ca72);
+  border-color: var(--c-6a5932);
 }
 .lf-status-no-improvement {
   color: var(--c-f4ca72, #f4ca72);

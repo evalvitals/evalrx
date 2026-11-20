@@ -33,6 +33,18 @@ export function M3Detail({ data, report }: { data: Partial<M3StageDetail>; repor
     : [];
   return (
     <>
+      {data.error && (
+        <div className="parser-warning">
+          <AlertTriangle />
+          <div>
+            <b>This step failed, and the run stopped here.</b>
+            <p>
+              The judge gave no usable answer after its retries, so no explanation was put forward.
+              The run log has every exchange. Reason: {data.error}
+            </p>
+          </div>
+        </div>
+      )}
       <StageBanner kind="PROPOSAL ONLY" title="Falsifiable mechanisms">
         M3 turns M2 leads into explanations that could be proven wrong. These cards are proposals;
         validation status belongs exclusively to M4.
@@ -172,6 +184,17 @@ export function M3Detail({ data, report }: { data: Partial<M3StageDetail>; repor
 
 // ── M3 brief (L2) ──────────────────────────────────────────────────────────
 export function briefM3(report: ReportData, detail: Partial<M3StageDetail>): Brief {
+  if (detail.error) {
+    return {
+      verdict: "This step failed, and the run stopped here.",
+      lead:
+        "The judge gave no usable answer after its retries, so no explanation was put " +
+        "forward. The patterns from the previous step still stand. Reason: " +
+        detail.error,
+      kpis: [],
+      points: [],
+    };
+  }
   const list: Proposal[] = detail.hypotheses || [];
   const m3 = findContract<DiagnosisOutput>(report, "m3");
   const untestable = (m3?.hypotheses || []).filter((h) => !h.test_design?.trim());

@@ -1,4 +1,7 @@
-"""The loop owns the run bracket; a policy only decides the order of the stages."""
+"""The loop owns the run bracket; a policy only decides the order of the stages.
+
+Also: a run that a policy stopped on M3 shows M3 as failed in the report.
+"""
 
 from __future__ import annotations
 
@@ -48,3 +51,24 @@ def test_a_custom_policy_gets_the_loop_and_the_run_bracket(tmp_path):
     ctx.finalize()
     (end,) = [e for e in read_run_events(ctx.root) if e["event"] == "loop_end"]
     assert end["stopped_by"] == "custom"
+
+
+def test_a_run_that_stopped_on_m3_shows_m3_as_failed_in_the_report(tmp_path):
+    from evalrx.reporting.dynamic import build_report_data
+
+    class Unreadable:
+        def diagnose(self, analysis, **kwargs):
+            raise RuntimeError("the judge's answer could not be read")
+
+    ctx, loop = _loop(tmp_path, diagnosis_agent=Unreadable())
+    data = CaseBatch([
+        FailureCase(inputs=Inputs(prompt=f"q{i}"), label=Label.FAIL if i % 2 else Label.PASS)
+        for i in range(4)
+    ])
+    assert loop.run(data).stopped_by == "diagnosis_error"
+    ctx.finalize()
+
+    report = build_report_data(ctx.root)
+    m3 = next(s for s in report["stages"] if s["id"] == "m3")
+    assert m3["status"] == "failed"
+    assert "could not be read" in report["stage_detail"]["m3"]["error"]

@@ -44,7 +44,8 @@ problem found" (was `NO_ISSUE`).
 
 A proposal that is still invalid after its retry now raises `JudgeOutputError`
 instead of being replaced by template hypotheses; the loop logs every
-exchange and retries M3 or stops. A critic with no usable answer keeps the
+exchange and retries M3 or stops. The report marks such a run's M3 stage `failed`, with
+the reason (`stage_detail.m3.error`), on the loop figure and the M3 page. A critic with no usable answer keeps the
 hypotheses with `review_unavailable`, as a failed critic call did before.
 All proposer attempts are logged as role `diagnosis_judge`; the
 `diagnosis_format_repair` and `diagnosis_plain_language_repair` roles are gone.

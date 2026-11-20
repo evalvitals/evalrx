@@ -370,6 +370,14 @@ def _mark_explore_output(data: dict[str, Any], report: dict[str, Any]) -> None:
     )
 
 
+def _m3_error(events: list[dict[str, Any]]) -> str:
+    """The last M3 failure the loop logged (``role="diagnosis"``)."""
+    return next((
+        str(e["error"]) for e in reversed(events)
+        if e.get("event") == "model_call" and e.get("role") == "diagnosis" and e.get("error")
+    ), "M3 gave no usable answer.")
+
+
 def extract_run_data(run_dir: Path) -> dict[str, Any]:
     """Read a run's log, or an explore output's report, into one dictionary."""
     logs_dir, explore_dir = resolve_run_dirs(run_dir)
@@ -413,6 +421,9 @@ def extract_run_data(run_dir: Path) -> dict[str, Any]:
         "m3": {
             "hypotheses": diagnosis.get("hypotheses") or [],
             "duration": diagnosis.get("duration_sec"),
+            # Why M3 gave nothing when the run stopped on it (judge unreadable,
+            # unavailable or out of quota after its retries).
+            "error": _m3_error(events) if run["stopped_by"] == "diagnosis_error" else None,
         },
         "m4": {
             "ran": bool(m4_surgeries or m4_results),

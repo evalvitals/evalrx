@@ -436,6 +436,7 @@ export interface M2StageDetail {
 export interface M3StageDetail {
   mode: string;
   hypotheses: (HypothesisView)[];
+  error?: string | null;
   candidate_signals: (CandidateSignalView)[];
   recommended_tests: (unknown)[];
   evidence_figures: (FigureView)[];

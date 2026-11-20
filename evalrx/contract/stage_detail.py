@@ -240,6 +240,8 @@ class HypothesisView(OpenWireModel):
 class M3StageDetail(WireModel):
     mode: str
     hypotheses: list[HypothesisView]
+    #: Why M3 gave nothing, when the run stopped on it; ``None`` otherwise.
+    error: str | None = None
     candidate_signals: list[CandidateSignalView]
     recommended_tests: list[Any]
     evidence_figures: list[FigureView]

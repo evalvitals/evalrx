@@ -424,6 +424,18 @@
           "title": "Hypotheses",
           "type": "array"
         },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
         "candidate_signals": {
           "items": {
             "$ref": "#/$defs/CandidateSignalView"

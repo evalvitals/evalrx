@@ -23,6 +23,7 @@ const STATUS_WORD: Record<string, string> = {
   skipped: "skipped",
   improved: "improved",
   "no-improvement": "no improvement",
+  failed: "failed",
 };
 
 /** One hover tooltip: what entered the stage and what left it. */
