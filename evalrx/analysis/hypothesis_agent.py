@@ -20,11 +20,12 @@ for that, a separate, currently out-of-scope system).
 from __future__ import annotations
 
 import logging
-import tempfile
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from pydantic import BaseModel, Field
+
+from evalrx.agent_runtime.judge_call import JudgeError, ask_judge
 from evalrx.analysis.plain_language import jargon_violation
 from evalrx.analysis.prompts.hypothesis_agent import (
     AGENT_COLUMN_MARKERS as _AGENT_COLUMN_MARKERS,
@@ -32,7 +33,6 @@ from evalrx.analysis.prompts.hypothesis_agent import (
 from evalrx.analysis.prompts.hypothesis_agent import (
     AGENT_TRAJECTORY_HINT as _AGENT_TRAJECTORY_HINT,
 )
-from evalrx.analysis.prompts.hypothesis_agent import PLAIN_REPAIR_PROMPT as _PLAIN_REPAIR_PROMPT
 from evalrx.analysis.prompts.hypothesis_agent import PROPOSE_PROMPT as _PROPOSE_PROMPT
 
 
@@ -106,15 +106,14 @@ class HypothesisAgent:
 
     @property
     def available(self) -> bool:
-        return self._judge is not None or (
-            self._cli_config is not None and self._cli_config.provider != "llm"
-        )
+        return self._backend() is not None
 
     def propose(self, report: dict[str, Any], *, max_items: int = 8) -> list[Hypothesis]:
         """Read *report* (an ``ExploratoryAnalysisReport.to_dict()``-shaped
         dict) and return 0-3 proposed hypotheses. Never raises — a backend
-        failure just yields no hypotheses."""
-        if not self.available:
+        failure, or no valid answer after one retry, yields no hypotheses."""
+        judge = self._backend()
+        if judge is None:
             return []
 
         takeaways = [t for t in report.get("takeaways") or [] if isinstance(t, dict)][:max_items]
@@ -140,91 +139,49 @@ class HypothesisAgent:
         if _is_agent_report(report):
             prompt += "\n\n" + _AGENT_TRAJECTORY_HINT
         try:
-            raw = self._generate(prompt)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("HypothesisAgent: generation failed: %s", exc)
+            reply = ask_judge(judge, prompt, _Proposal, role="explore_hypotheses",
+                              check=_plain_language_problems)
+        except JudgeError as exc:
+            logger.warning("HypothesisAgent: no hypotheses: %s", exc)
             return []
-        hypotheses = _parse_hypotheses(raw)
-        return self._repair_plain_language(raw, hypotheses)
-
-    def _repair_plain_language(self, raw: str, hypotheses: list[Hypothesis]) -> list[Hypothesis]:
-        """One bounded retry: if any PLAIN line is missing or still jargon-y,
-        ask the backend to rewrite just those lines. Never raises — a repair
-        failure just keeps the original (possibly jargon-y) hypotheses."""
-        if not hypotheses:
-            return hypotheses
-        violations = [
-            f"hypothesis {i}'s PLAIN line {reason}: {h.plain_statement!r}"
-            for i, h in enumerate(hypotheses, start=1)
-            for reason in [jargon_violation(h.plain_statement, h.statement)]
-            if reason
+        return [
+            Hypothesis(statement=d.hypothesis, plain_statement=d.plain_statement,
+                       basis=d.basis, test_design=d.test)
+            for d in reply.output.hypotheses
         ]
-        if not violations:
-            return hypotheses
-        try:
-            repaired_raw = self._generate(
-                _PLAIN_REPAIR_PROMPT.format(raw=raw, violations="\n".join(f"- {v}" for v in violations))
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("HypothesisAgent: plain-language repair failed: %s", exc)
-            return hypotheses
-        repaired = _parse_hypotheses(repaired_raw)
-        return repaired or hypotheses
 
-    def _generate(self, prompt: str) -> str:
+    def _backend(self) -> "Any | None":
         if self._cli_config is not None and self._cli_config.provider != "llm":
-            from evalrx.agent_runtime.codegen import CodegenRunner
+            from evalrx.agent_runtime.judges.cli_agent import CliAgentJudge
 
-            with tempfile.TemporaryDirectory(prefix="evalrx_m3_") as tmp:
-                res = CodegenRunner(self._cli_config).run(
-                    prompt,
-                    workdir=Path(tmp),
-                    timeout_sec=self._timeout_sec,
-                )
-                return res.raw_output or ""
-        return str(self._judge.generate(prompt))  # type: ignore[union-attr]
+            return CliAgentJudge(self._cli_config, timeout_sec=self._timeout_sec)
+        return self._judge
 
 
-def _parse_hypotheses(raw: str) -> list[Hypothesis]:
-    """Parse ``HYPOTHESIS:``/``PLAIN:``/``BASIS:``/``TEST:`` blocks out of
-    *raw*. ``PLAIN:`` is optional (older/repaired responses may omit it),
-    in which case ``plain_statement`` stays "".
+class _Draft(BaseModel):
+    hypothesis: str = Field(min_length=10, description="one falsifiable technical sentence")
+    plain_statement: str = Field("", description="the same claim in one everyday sentence")
+    basis: str = Field("", description="the takeaways or signals it rests on")
+    test: str = Field("", description="the evidence that would confirm or refute it")
 
-    For the CLI-agent backend, *raw* is the full rendered tool-call
-    trajectory, not just a final answer (``CliAgentResult.raw_output``'s
-    docstring: "assistant text, every Bash/Edit/Write/Read tool call +
-    result") — an agent that narrates its plan before giving a final answer
-    can restate the same hypothesis twice in one trajectory. Dedupe by
-    statement (case-insensitive), keeping the order hypotheses first
-    appeared but the most recent basis/test for a repeated statement, since
-    later restatements tend to be the more refined ones.
-    """
-    if "HYPOTHESIS:" not in raw.upper():
-        return []
-    by_statement: dict[str, dict[str, str]] = {}
-    order: list[str] = []
-    cur: dict[str, str] | None = None
-    cur_key: str = ""
 
-    def _flush() -> None:
-        if cur and cur.get("statement"):
-            if cur_key not in by_statement:
-                order.append(cur_key)
-            by_statement[cur_key] = cur
+class _Proposal(BaseModel):
+    hypotheses: list[_Draft] = Field(max_length=3)
 
-    for line in raw.splitlines():
-        line = line.strip()
-        upper = line.upper()
-        if upper.startswith("HYPOTHESIS:"):
-            _flush()
-            statement = line.split(":", 1)[1].strip()
-            cur = {"statement": statement, "plain_statement": "", "basis": "", "test_design": ""}
-            cur_key = statement.lower()
-        elif upper.startswith("PLAIN:") and cur is not None:
-            cur["plain_statement"] = line.split(":", 1)[1].strip()
-        elif upper.startswith("BASIS:") and cur is not None:
-            cur["basis"] = line.split(":", 1)[1].strip()
-        elif upper.startswith("TEST:") and cur is not None:
-            cur["test_design"] = line.split(":", 1)[1].strip()
-    _flush()
-    return [Hypothesis(**by_statement[key]) for key in order]
+
+def _plain_language_problems(proposal: _Proposal) -> str | None:
+    """Feedback for plain statements that fail the jargon check, or ``None``."""
+    problems = [
+        f"- hypothesis {i}'s plain_statement {reason}: {d.plain_statement!r}"
+        for i, d in enumerate(proposal.hypotheses, start=1)
+        for reason in [jargon_violation(d.plain_statement, d.hypothesis)]
+        if reason
+    ]
+    if not problems:
+        return None
+    return (
+        "Some plain_statement fields fail the plain-language check: each must be a "
+        "jargon-free, one-sentence, everyday paraphrase of its hypothesis, with no "
+        "statistics terms, acronyms or symbols. Rewrite only those and keep every "
+        "other field as it was.\n" + "\n".join(problems)
+    )

@@ -71,6 +71,18 @@ invalid after one retry keeps the deterministic report, with the reason in
 case); a judge with no valid label falls back to the expected-answer
 rubric, as an `UNKNOWN` label did, instead of keyword-scanning the reply.
 
+### Changed — `evalrx explore` hypotheses are a typed answer
+
+`HypothesisAgent` (the hypotheses after `explore()`) asks through `ask_judge`
+for `hypotheses` (`hypothesis`, `plain_statement`, `basis`, `test`); the
+`HYPOTHESIS:`/`PLAIN:` parser, its trajectory de-duplication and
+`PLAIN_REPAIR_PROMPT` are gone, and a jargon-laden plain statement goes back
+once through the same retry. With a CLI coding agent as the backend, the
+agent now writes its answer to `answer.json` (new
+`evalrx.agent_runtime.judges.cli_agent.CliAgentJudge`) instead of the
+hypotheses being scraped from its whole tool-call trajectory, where a draft
+could be read as the answer.
+
 ### Changed — one way to run a CLI judge
 
 `ClaudeModel`, `CodexModel` and `AgyModel` run through the providers'

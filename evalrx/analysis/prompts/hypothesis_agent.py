@@ -28,7 +28,7 @@ Extra guidance for this data:
   measure stability, not capability; failure_mode is a judge-assigned label —
   itself a hypothesis to verify, never ground truth; total_*_tokens and
   *_latency_ms are cost.
-- A TEST line may propose re-running the agent with a changed prompt, tool
+- A test may propose re-running the agent with a changed prompt, tool
   description, or tool subset on held-out cases — interventions are directly
   testable here, not just observational splits."""
 
@@ -51,28 +51,16 @@ Observations:
 Candidate signals already noted:
 {signals_text}
 
-Propose 1-3 hypotheses. For each write exactly four lines:
-HYPOTHESIS: <one-sentence falsifiable claim explaining a pattern above; precise language and technical terms are fine here>
-PLAIN: <the SAME claim restated in ONE everyday sentence a non-technical reader can understand at a glance — NO acronyms (AUC, CI...), NO statistics jargon (collinear, logistic, coefficient, p-value, latent, mediator...), NO symbols. Numbers/percentages are fine and encouraged>
-BASIS: <which takeaway(s)/signal(s) above this is grounded in>
-TEST: <what evidence/analysis would confirm or refute this claim>
+Propose 1-3 hypotheses. For each give:
+- hypothesis: one falsifiable sentence explaining a pattern above; precise
+  language and technical terms are fine here.
+- plain_statement: the SAME claim in ONE everyday sentence a non-technical
+  reader understands at a glance: no acronyms (AUC, CI...), no statistics
+  jargon (collinear, logistic, coefficient, p-value, latent, mediator...), no
+  symbols. Numbers and percentages are fine and encouraged.
+- basis: which takeaway(s) or signal(s) above it is grounded in.
+- test: what evidence or analysis would confirm or refute it.
 
-Do not repeat a takeaway verbatim — propose a CAUSE or MECHANISM behind what
+Do not repeat a takeaway verbatim; propose a CAUSE or MECHANISM behind what
 was observed. If the findings are too thin to support any falsifiable
-hypothesis, respond with exactly: NO_HYPOTHESIS"""
-
-PLAIN_REPAIR_PROMPT = """\
-Your previous answer below proposed hypotheses correctly, but some PLAIN
-lines fail a plain-language check: PLAIN must be a jargon-free, one-sentence,
-everyday paraphrase of the matching HYPOTHESIS line — no statistics terms,
-acronyms, or symbols. Numbers/percentages are fine.
-
-Previous answer:
-{raw}
-
-Problems found:
-{violations}
-
-Rewrite the FULL set of hypotheses in the exact same
-HYPOTHESIS/PLAIN/BASIS/TEST format, fixing only the flagged PLAIN lines. Do
-not change the HYPOTHESIS, BASIS, or TEST lines."""
+hypothesis, give an empty list."""
