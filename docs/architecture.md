@@ -218,7 +218,9 @@ the full field table.
 ```text
 eval_agent/
 ├── loop/                 the diagnosis loop and who picks its next step
-│   ├── diagnose.py       VLDiagnoseLoop — stages, confirm split, run phases
+│   ├── diagnose.py       VLDiagnoseLoop — configuration and the run phases
+│   ├── stages.py         Stages — runs and records M1, explore, M2, M3, M4 (no loop reference)
+│   ├── partition.py      split_cases — the EXPLORE / CONFIRM / TEST partition
 │   ├── state.py          Policy (next-step contract), RunState (what a run carries)
 │   ├── fixed.py          FixedOrderPolicy — M1→M4 cycles, the default
 │   ├── judge/            JudgePolicy — judge-decided M1-M4 (see below)

@@ -36,8 +36,6 @@ Usage::
 from __future__ import annotations
 
 import logging
-import random
-import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -54,10 +52,9 @@ from evalrx.eval_agent.loop.fixed import FixedOrderPolicy
 from evalrx.eval_agent.loop.metadata import (
     _attach_run_logger,
     _coerce_explore_context,
-    _log_generated_tools,
-    _make_intervention_result_from_test,
     _run_config,
 )
+from evalrx.eval_agent.loop.partition import split_cases
 from evalrx.eval_agent.loop.report import (
     STOPPED_BY_ANALYSIS,
     STOPPED_BY_CRITERIA,
@@ -67,11 +64,11 @@ from evalrx.eval_agent.loop.report import (
     STOPPED_BY_NO_PROBE,
     AutoDiagnoseReport,
 )
+from evalrx.eval_agent.loop.stages import StageMemory, Stages, finalize_confirmatory_stats
 from evalrx.eval_agent.loop.state import Policy
 from evalrx.eval_agent.store import InMemoryStore, Store
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
 
     from evalrx.analysis.stats_agent import StatsAnalysisAgent
     from evalrx.core.case import CaseBatch
@@ -80,47 +77,6 @@ if TYPE_CHECKING:
     from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
 logger = logging.getLogger(__name__)
-
-def _exact_size(picked: "list", pool: "list", n: int, seed: int) -> "list":
-    """Top a stratified draw up to exactly *n* items, deterministically.
-
-    :func:`~evalrx.stats.subset_sampling.stratified_subset` returns at most
-    *n* items but per-stratum rounding can under-allocate by one or two; the
-    train/val/test split promises exact 1:1:1 counts, so the shortfall is
-    filled from a seeded shuffle of the untaken remainder of *pool*.
-    """
-    if len(picked) >= n:
-        return picked[:n]
-    picked_ids = {id(c) for c in picked}
-    leftover = [c for c in pool if id(c) not in picked_ids]
-    random.Random(seed + 7919).shuffle(leftover)
-    return picked + leftover[: n - len(picked)]
-
-
-def _diagnose_with_optional_context(
-    diag_agent: "Any", stats_report: "Any", prior_cycles: "Any", explore_context: "Any | None",
-    failure_modes: "Any | None" = None, cases: "Any | None" = None,
-) -> "Any":
-    """Call ``diag_agent.diagnose`` passing ``explore_context``/``failure_modes``/
-    ``cases`` only when the agent accepts them, so custom/legacy diagnosis
-    agents keep working unchanged. ``cases`` (the explore-split batch M1/M2
-    ran on) only feeds the critic's label summary -- never the proposer."""
-    import inspect as _inspect
-
-    kwargs: dict[str, Any] = {"prior_cycles": prior_cycles or None}
-    optional = {"explore_context": explore_context, "failure_modes": failure_modes,
-                "cases": cases}
-    if any(v is not None for v in optional.values()):
-        params: "Mapping[str, _inspect.Parameter]"
-        try:
-            params = _inspect.signature(diag_agent.diagnose).parameters
-        except (TypeError, ValueError):
-            params = {}
-        for name, value in optional.items():
-            if value is not None and name in params:
-                kwargs[name] = value
-    return diag_agent.diagnose(stats_report, **kwargs)
-
 
 class VLDiagnoseLoop:
     """M1→M2→M3→M4 failure-analysis loop for VL tasks (Plan A architecture).
@@ -345,7 +301,7 @@ class VLDiagnoseLoop:
         # UNCONFIRMED: passed to M3's hypothesis-proposal prompt ONLY — never to the
         # M2 confirmatory family, M4 testing, or the fix gate. Accepts an
         # ExploreContext, a report dict (fused_report.json), or None.
-        self._explore_context = _coerce_explore_context(explore_report)
+        self._memory = StageMemory(explore_context=_coerce_explore_context(explore_report))
         # In-cycle explore step (off by default): a free-form EDA pass over the
         # M1 per-case table, run between M1 and M2. Same standing as a Step-1
         # explore_report — descriptive notes for M3 + files for the report.
@@ -356,7 +312,6 @@ class VLDiagnoseLoop:
         self.policy: Policy = policy if policy is not None else FixedOrderPolicy()
         self._explore_dir = Path(explore_dir) if explore_dir is not None else None
         self._explore_question = str(explore_question or "")
-        self._tokens_used: int = 0
         self._run_id: str = ""
         self._emitter: "Any | None" = None
 
@@ -418,65 +373,16 @@ class VLDiagnoseLoop:
         if self.run_logger is None:
             raise RuntimeError("publish_report needs a run_logger with a durable run directory")
         if model is None:
-            model = getattr(self.diagnosis_agent, "judge", None)
+            model = getattr(self.diagnosis_agent or self._memory.diagnosis_agent, "judge", None)
         from evalrx.reporting.dynamic import publish_report
 
         return publish_report(self.run_logger.run_dir, model=model, run_logger=self.run_logger)
 
-    @staticmethod
-    def _strat_key(case: "Any") -> "tuple":
-        """Stratify the explore/confirm split by label + probe_type when present
-        (keeps the no-free-lunch control mix, e.g. present-detections, in both
-        partitions). Falls back to label alone for generic batches."""
-        label = getattr(getattr(case, "label", None), "value", "?")
-        probe = (getattr(case, "metadata", {}) or {}).get("probe_type")
-        return (label, probe)
-
     def _split_partitions(self, data: "CaseBatch"):
-        """Deterministic, stratified (explore, confirm, test) partition.
-
-        The single source of truth for how a batch is divided; every stage
-        re-derives the identical partition from the same input batch. When
-        ``confirm_split <= 0`` (or the batch is too small to split), returns
-        ``(data, None, None)`` — a no-op, so existing runs are byte-for-byte
-        unchanged. When ``test_split <= 0`` the third element is ``None`` (the
-        two-way explore/confirm behaviour). With both fractions set, CONFIRM is
-        drawn first (same seed as the two-way split), then TEST from the
-        remainder (seed+1); EXPLORE is what is left.
-        """
-        from evalrx.core.case import CaseBatch
-        from evalrx.stats.subset_sampling import stratified_subset
-
-        cases = list(data)
-        frac = self.confirm_split
-        if frac <= 0.0 or len(cases) < 4:
-            return data, None, None
-        n_confirm = round(len(cases) * frac)
-        if n_confirm <= 0 or n_confirm >= len(cases):
-            return data, None, None
-        three_way = self.test_split > 0.0
-        confirm = stratified_subset(cases, self._strat_key, n_confirm,
-                                    seed=self.confirm_split_seed)
-        if three_way:
-            # ``stratified_subset`` guarantees at MOST n (per-stratum rounding
-            # can under-allocate by one or two); the train/val/test mode
-            # promises exact counts, so top the draw up deterministically.
-            # The two-way path is left untouched — byte-for-byte reproducible.
-            confirm = _exact_size(confirm, cases, n_confirm,
-                                  self.confirm_split_seed)
-        confirm_ids = {id(c) for c in confirm}
-        rest = [c for c in cases if id(c) not in confirm_ids]
-        if not three_way:
-            return CaseBatch(rest), CaseBatch(confirm), None
-        n_test = round(len(cases) * self.test_split)
-        if n_test <= 0 or n_test >= len(rest):
-            return CaseBatch(rest), CaseBatch(confirm), None
-        test = stratified_subset(rest, self._strat_key, n_test,
-                                 seed=self.confirm_split_seed + 1)
-        test = _exact_size(test, rest, n_test, self.confirm_split_seed + 1)
-        test_ids = {id(c) for c in test}
-        explore = [c for c in rest if id(c) not in test_ids]
-        return CaseBatch(explore), CaseBatch(confirm), CaseBatch(test)
+        """This loop's (explore, confirm, test) partition of *data*
+        (see :func:`~evalrx.eval_agent.loop.partition.split_cases`)."""
+        return split_cases(data, confirm_split=self.confirm_split,
+                           test_split=self.test_split, seed=self.confirm_split_seed)
 
     def _split_explore_confirm(self, data: "CaseBatch"):
         """The (explore, confirm) view of :meth:`_split_partitions`.
@@ -489,536 +395,27 @@ class VLDiagnoseLoop:
         explore, confirm, _test = self._split_partitions(data)
         return explore, confirm
 
-    def _bridge_signals(self, probe_results: "dict[str, Any]", data: "Any | None") -> None:
-        """Compile pre-registered signal recipes into a synthetic analyzer Result
-        and inject it into *probe_results* so M2/M3/M4 see the bridged composite
-        signals through the standard findings["per_case"] contract. No-op when no
-        recipes are configured. Never raises into the loop."""
-        if not self._signal_recipes:
-            return
-        # Never silently overwrite a real analyzer that already used this key.
-        name = self._bridge_analyzer_name
-        if name in probe_results:
-            base, n = name, 1
-            while name in probe_results:
-                name, n = f"{base}_bridge{n}", n + 1
-            logger.warning(
-                "bridge analyzer name %r collides with a real analyzer; "
-                "injecting under %r instead", base, name,
-            )
-        try:
-            from evalrx.analysis.operationalize import bridge_recipes_to_result
-
-            synth = bridge_recipes_to_result(
-                self._signal_recipes, probe_results, data,
-                model_repr=repr(self.model),
-                analyzer_name=name,
-            )
-        except Exception as exc:  # bridging must never sink the loop
-            logger.warning("signal bridge failed: %s", exc)
-            return
-        if synth is None:
-            return
-        probe_results[name] = synth
-        self.store.add_result(synth)
-        # The bridged signals ARE the discovered candidates — they must be tested,
-        # not optional. The plan caps at the stats agent's max_signal_tools and
-        # appends bridged signals LAST, so a low cap silently drops them. Raise the
-        # cap to cover the expanded family (more multiplicity = more conservative,
-        # never less — e-BH still controls FDR over whatever is tested).
-        agent = getattr(self, "stats_agent", None)
-        if agent is not None and hasattr(agent, "_max_signal_tools"):
-            try:
-                from evalrx.analysis.stats_tools import build_stats_input
-
-                n_signals = len(build_stats_input(probe_results, data).per_case)
-                current = getattr(agent, "_max_signal_tools", None)
-                if current is not None:
-                    agent._max_signal_tools = max(int(current), n_signals)
-            except Exception as exc:  # never let the cap-bump break the loop
-                logger.debug("bridge: could not raise stats signal cap: %s", exc)
-        logger.info(
-            "bridged %d signal row(s) into M2 as analyzer %r",
-            len(synth.findings.get("per_case", [])), name,
-        )
-
-    # ──────────────────────────────────────────────────────────────────
-    # Stage helpers (shared by run / run_analysis / run_confirm)
-    # ──────────────────────────────────────────────────────────────────
-
-    def _get_diagnosis_agent(self) -> "Any":
-        """Resolve M3 lazily: a DiagnosisAgent() built eagerly would raise if
-        GEMINI_API_KEY is absent even when the caller passed diagnosis_agent=None."""
-        if self.diagnosis_agent is not None:
-            return self.diagnosis_agent
-        from evalrx.eval_agent.stages.diagnosis import DiagnosisAgent
-        return DiagnosisAgent()
-
-    def _do_m1(
-        self, cycle: int, data: "Any", all_hypotheses: "list[Any]",
-        timings: "dict[str, float]", *, log: bool = True,
-        analyzers: "list[str] | None" = None,
-        analyzer_params: "dict[str, dict[str, Any]] | None" = None,
-    ) -> "tuple[dict[str, Any], list]":
-        """M1: protocol-guided probing + signal bridge.
-
-        Returns ``(probe_results, artifact_pngs)``; ``probe_results`` is empty
-        when M1 produced nothing (caller decides whether to stop). When
-        ``log`` is False the probe events are not written — used by
-        :meth:`run_confirm` when it only needs to regenerate the stats the
-        tester reads (M1/M2 already belong to the analysis phase's log).
-
-        ``analyzers`` / ``analyzer_params`` name the probes and their arguments
-        explicitly, bypassing selection (see :meth:`ProbeAgent.probe`); the
-        agentic loop's ``run_probe`` tool passes them through."""
-        prior_modes = list(dict.fromkeys(
-            h.predicted_failure_mode for h in all_hypotheses
-            if getattr(h, "predicted_failure_mode", None)
-        ))
-        # Named calls run exactly what was named (no cap, no backfill).
-        named: dict[str, Any] = {"analyzers": analyzers, "exact": True} if analyzers is not None else {}
-        if analyzer_params:
-            named["analyzer_params"] = analyzer_params
-        _t0 = time.monotonic()
-        probe_results = self.probe_agent.probe(
-            self.model,
-            data,
-            protocol=self.protocol,
-            prior_hypotheses=all_hypotheses or None,
-            hint_failure_modes=prior_modes or None,
-            **named,
-        )
-        _dt = time.monotonic() - _t0
-        timings["m1"] = timings.get("m1", 0.0) + _dt
-        artifact_pngs: list = []
-        if log and self.run_logger:
-            artifact_pngs = self.run_logger.log_probe(
-                cycle, probe_results, schema=self.probe_agent.last_schema,
-                cases=data,
-                judge_prompt=getattr(self.probe_agent, "last_selection_prompt", ""),
-                judge_raw=getattr(self.probe_agent, "last_selection_raw", ""),
-                duration_sec=_dt,
-            ) or []
-            _log_generated_tools(self.run_logger, cycle, "m1_probe", self.probe_agent)
-        self._emit_m1(cycle, probe_results, data, _dt)
-        if not probe_results:
-            return {}, []
-        for r in probe_results.values():
-            self.store.add_result(r)
-        # Operationalization bridge: pre-registered recipes -> synthetic
-        # "explored" analyzer Result (no-op when none configured).
-        self._bridge_signals(probe_results, data)
-        return probe_results, artifact_pngs
-
-    def _emit_m1(self, cycle: int, probe_results: "dict[str, Any]", data: "Any",
-                 duration_sec: float) -> None:
-        """Emit M1's ProbeOutput, including how analyzer routing was decided.
-
-        The three modality sets are recorded separately because they can differ
-        and the difference is the diagnosis: an omni model on an audio benchmark
-        declares four modalities, fills one, and is routed on one.
-        """
-        if self.emitter is None:
-            return
-        from evalrx.contract.emit import from_probe_results
-        from evalrx.core.case import probed_modalities
-
-        selector = self.probe_agent.selector if hasattr(self.probe_agent, "selector") else None
-        declared = sorted(getattr(self.model, "modalities", frozenset({"text"})) or {"text"})
-        probed = sorted(probed_modalities(data))
-        routed = sorted(
-            selector.routed_slots(self.model, data) if selector is not None else probed
-        )
-        # Trajectories in the batch, not declared TOOL_CALLS: the api backend
-        # reports tool_calls for every chat model, which made a single-turn text
-        # run record itself as an agent run.
-        from evalrx.eval_agent.stages.probe import _carries_trajectories
-
-        is_agent = bool(data is not None and _carries_trajectories(data))
-        self._emit(f"c{cycle}.m1", lambda: from_probe_results(
-            probe_results,
-            trace_id=self.emitter.trace_id, cycle=cycle, model=self.model,
-            model_modalities=declared, probed_modalities=probed, routed_on=routed,
-            is_agent=is_agent,
-            selector="llm_judge" if getattr(self.probe_agent, "judge", None) else "static_strategy",
-            generated=list(getattr(self.probe_agent, "generated_probes", []) or []),
-            failed_analyzers=dict(getattr(self.probe_agent, "_failed_analyzers", {}) or {}),
-            duration_sec=duration_sec,
-        ))
-
-    def _explore_out_dir(self) -> "Path | None":
-        """Where the explore step persists its report/tables/figures.
-
-        Explicit ``explore_dir`` wins. Otherwise it is derived from the run
-        logger so the files land INSIDE the run, beside the log, where the
-        report reader looks (``reporting.run_data``: ``<logs>/explore``, else a
-        sibling ``explore/``):
-
-        - a :class:`~evalrx.eval_agent.runlog.context.RunContext`-backed logger
-          → ``ctx.explore_dir``, an ephemeral tree under ``ctx.runtime_root``
-          (captured into ``M2/log.json`` and deleted at ``finalize()``;
-          writing straight to ``<ctx.root>/explore`` would leak real files
-          outside the JSON-only run artifact);
-        - a standalone ``RunLogger("<run>/logs")`` / ``logs_confirm`` … →
-          ``<run>/explore`` (a sibling of the ``logs*/`` dir, the llm_benchmark
-          layout — under the log dir it would be two levels down for a
-          ``logs_confirm/`` carrier log and the report would miss it);
-        - any other standalone run dir → ``<run_dir>/explore``.
-
-        ``None`` (nothing persisted, context in memory only) without a logger."""
-        if self._explore_dir is not None:
-            return self._explore_dir
-        if self.run_logger is None:
-            return None
-        ctx = getattr(self.run_logger, "_context", None)
-        if ctx is not None and hasattr(ctx, "explore_dir"):
-            return ctx.explore_dir
-        run_dir = getattr(self.run_logger, "run_dir", None)
-        if run_dir is None:
-            return None
-        run_dir = Path(run_dir)
-        if run_dir.name.startswith("logs"):
-            return run_dir.parent / "explore"
-        return run_dir / "explore"
-
-    def _do_explore(
-        self, cycle: int, probe_results: "dict[str, Any]", data: "Any",
-        timings: "dict[str, float]", *, log: bool = True, question: str | None = None,
-    ) -> "Any | None":
-        """Optional in-cycle explore step: free-form EDA over M1's per-case table.
-
-        Runs between M1 and M2 when an ``explorer`` is configured. The explorer
-        sees exactly what M2 sees — ``build_stats_input`` → ``per_case_to_records``
-        (M1 analyzer per-case signals + PASS/FAIL labels) — writes tables and
-        chart specs, and the host renders the charts. The result feeds:
-
-        - M3, as an :class:`~evalrx.eval_agent.stages.diagnosis.ExploreContext`
-          (observations / rendered charts / caveats — descriptive, UNCONFIRMED,
-          used only to decide WHICH hypotheses to propose);
-        - the report, via ``exploratory_report.json`` + ``tables/`` +
-          ``figures/`` under :meth:`_explore_out_dir` (one directory, rewritten
-          each cycle — it always holds what the *latest* M3 was shown; the
-          per-cycle ``explore`` run-log events keep every cycle's counts and
-          observations).
-
-        It never touches M2's confirmatory family, M4, or the fix gate: the
-        explorer's candidate-signal verdicts are host-adjudicated IN-SAMPLE
-        (labelled so) and dropped from the M3 context by construction. Held-out
-        confirmation of explorer recipes is the fused pipeline's job, not this
-        step's. Best-effort: any failure logs a warning and returns ``None`` —
-        an explorer outage must not cost the M2/M3 that already have their data.
-
-        Returns the explorer report (or ``None``)."""
-        if self.explorer is None:
-            return None
-        from evalrx.analysis.operationalize import per_case_to_records
-        from evalrx.analysis.stats_tools import build_stats_input
-        from evalrx.eval_agent.stages.diagnosis import ExploreContext
-
-        _t0 = time.monotonic()
-        report: Any = None
-        out_dir = self._explore_out_dir()
-        try:
-            inp = build_stats_input(probe_results, data)
-            records = per_case_to_records(inp.per_case, inp.labels)
-            if not records:
-                logger.info("explore: M1 produced no per-case signals — skipping.")
-                return None
-            question = question or self._explore_question
-            if not question:
-                from evalrx.eval_agent.prompts.explore_step import default_explore_question
-
-                question = default_explore_question(self.protocol)
-            report = self.explorer.explore_records(
-                records, question=question, outcome_col="label",
-            )
-            # Host firewall: recompute every candidate verdict from sufficient
-            # statistics with the M2 core (in-sample here — labelled as such so
-            # nothing downstream mistakes it for a held-out result).
-            try:
-                from evalrx.analysis.adjudicate import adjudicate_report
-
-                adjudicate_report(report, split_label="in_sample")
-            except Exception as exc:  # adjudication is a verdict layer, not the data
-                logger.warning("explore: host adjudication failed: %s", exc)
-            if out_dir is not None:
-                from evalrx.analysis.explore_run import write_report_artifacts
-
-                # Renders chart specs from the copied tables/ CSVs, so the
-                # persisted report carries each chart's absolute figure_path —
-                # the PNGs M3 is shown and the report displays.
-                write_report_artifacts(report, out_dir)
-            ctx = ExploreContext.from_report(
-                report.to_dict() if hasattr(report, "to_dict") else None
-            )
-            if ctx is not None:
-                ctx.source = "loop_explorer"
-                self._explore_context = ctx
-            elif getattr(report, "ok", False):
-                logger.info("explore: report carried no observations/charts — "
-                            "M3 keeps its previous explore context.")
-        except Exception as exc:  # the explorer must never sink the loop
-            logger.warning(
-                "explore step failed at cycle %d (%s) — M2/M3 continue without "
-                "explorer notes.", cycle, exc,
-            )
-        _dt = time.monotonic() - _t0
-        timings["explore"] = timings.get("explore", 0.0) + _dt
-        if log and self.run_logger is not None:
-            try:
-                self.run_logger.log_explore(
-                    cycle, report, out_dir=out_dir, duration_sec=_dt,
-                )
-            except Exception as exc:  # logging must never break the run
-                logger.warning("explore: could not log the explore event: %s", exc)
-        return report
-
-    def _do_m2(
-        self, cycle: int, probe_results: "dict[str, Any]", data: "Any",
-        artifact_pngs: "list", timings: "dict[str, float]", *, log: bool = True,
-        confirmatory: bool = True,
-    ) -> "Any":
-        """M2: protocol-aware rigorous stats analysis (effect sizes + charts).
-
-        ``confirmatory=False`` defers the e-BH validity verdict (the analysis
-        phase shows distributions only); the confirm phase recomputes it."""
-        _t0 = time.monotonic()
-        stats_report = self.stats_agent.analyze(
-            probe_results,
-            model_name=repr(self.model),
-            protocol=self.protocol,
-            data=data,
-            extra_figures=artifact_pngs,
-            confirmatory=confirmatory,
-        )
-        _dt = time.monotonic() - _t0
-        timings["m2"] = timings.get("m2", 0.0) + _dt
-        if log and self.run_logger:
-            self.run_logger.log_analysis(cycle, stats_report, duration_sec=_dt)
-            _log_generated_tools(self.run_logger, cycle, "m2_stats", self.stats_agent)
-        if self.emitter is not None:
-            from evalrx.contract.emit import from_stats_report
-
-            self._emit(f"c{cycle}.m2", lambda: from_stats_report(
-                stats_report, trace_id=self.emitter.trace_id, cycle=cycle,
-                raw_results_ref=f"contract/c{cycle}.m1.json", duration_sec=_dt,
-            ))
-        return stats_report
-
-    def _do_m3(
-        self, cycle: int, stats_report: "Any", prior_cycles: "list[Any]",
-        timings: "dict[str, float]", *, log: bool = True,
-        failure_modes: "Any | None" = None, cases: "Any | None" = None,
-    ) -> "Any | None":
-        """M3: hypothesis generation. Returns the diagnosis result, or ``None``
-        when M3 could not run (judge unavailable / timeout / quota) — the caller
-        stops gracefully on ``None`` (regression guard: an M3 timeout must not
-        kill the whole run after M1+M2 succeeded). Also accrues token usage.
-
-        ``failure_modes`` (optional clustered ``FailureModeReport``) is passed
-        through to the diagnosis agent only when it accepts the parameter —
-        ``None`` (the default, always the case for ``VLDiagnoseLoop``) adds
-        nothing to the prompt and costs no extra call."""
-        _t0 = time.monotonic()
-        for attempt in range(self.diagnosis_retries + 1):
-            try:
-                diag_agent = self._get_diagnosis_agent()
-                self.diagnosis_agent = diag_agent
-                diag = _diagnose_with_optional_context(
-                    diag_agent, stats_report, prior_cycles, self._explore_context,
-                    failure_modes, cases=cases,
-                )
-                break
-            except Exception as exc:
-                retrying = attempt < self.diagnosis_retries
-                error = f"{type(exc).__name__}: {exc}"
-                logger.warning("M3 attempt %d failed (%s); retrying=%s",
-                               attempt + 1, error, retrying)
-                if self.run_logger is not None:
-                    # A JudgeError carries what the judge was asked and answered.
-                    for call in (e.record() for e in getattr(exc, "exchanges", ())):
-                        self.run_logger.log_model_exchange(
-                            "M3", cycle=cycle, role=call["role"], operation=call["operation"],
-                            inputs=call["inputs"], output=call["output"], error=call["error"],
-                            duration_sec=call["duration_sec"], metadata=call["metadata"],
-                        )
-                    self.run_logger.log_model_exchange(
-                        stage="M3", cycle=cycle, role="diagnosis", operation="diagnose",
-                        inputs=None, output=None, error=error,
-                        metadata={"attempt": attempt + 1, "retrying": retrying},
-                        duration_sec=time.monotonic() - _t0,
-                    )
-                if not retrying:
-                    timings["m3"] = timings.get("m3", 0.0) + time.monotonic() - _t0
-                    return None
-        _dt = time.monotonic() - _t0
-        timings["m3"] = timings.get("m3", 0.0) + _dt
-
-        _tok = getattr(diag, "tokens_used", None)
-        if _tok is None:
-            _tok = max(1, len(diag.raw_judge_output) // 4)
-        self._tokens_used += _tok
-
-        if log and self.run_logger:
-            # Log only the figures that actually existed (the same existence
-            # filter M3 applies) so the audit trail reflects what the judge saw.
-            _explore_figs = None
-            if self._explore_context is not None:
-                from pathlib import Path as _P
-
-                _explore_figs = [
-                    f for f in self._explore_context.figure_paths if _P(f).exists()
-                ]
-            self.run_logger.log_diagnosis(
-                cycle, diag, duration_sec=_dt, explore_figures=_explore_figs or None
-            )
-        if self.emitter is not None:
-            from evalrx.contract.emit import from_diagnosis
-
-            self._emit(f"c{cycle}.m3", lambda: from_diagnosis(
-                diag, trace_id=self.emitter.trace_id, cycle=cycle, duration_sec=_dt,
-            ))
-        return diag
-
-    @staticmethod
-    def _finalize_confirmatory_stats(stats_report: "Any") -> None:
-        """Promote a descriptive (analysis-phase) stats report to confirmatory.
-
-        The analysis phase runs M2 with the e-BH validity verdict DEFERRED
-        (``descriptive_only=True``). The confirm phase recomputes e-BH FDR
-        correction over the report's stats results so M4 and the report see
-        the family-level reject decision. No-op when already confirmatory."""
-        if stats_report is None:
-            return
-        corr = getattr(stats_report, "corrected_rejections", None) or {}
-        if getattr(stats_report, "descriptive_only", False) or corr.get("deferred"):
-            from evalrx.analysis.stats_tools import fdr_correct
-
-            stats_report.corrected_rejections = fdr_correct(
-                list(getattr(stats_report, "stats_results", None) or [])
-            )
-            stats_report.descriptive_only = False
-
-    def _do_m4(
-        self, cycle: int, hypotheses: "list[Any]", stats_report: "Any",
-        data: "Any", timings: "dict[str, float]", *, log: bool = True,
-        split_label: "str | None" = None,
-    ) -> "list[Any]":
-        """M4: statistical test + protocol consistency for each hypothesis,
-        writing the verdict back onto ``hypothesis.status``.
-
-        ``split_label`` tags each result's evidence with which data split the
-        test read (``"confirm_holdout"`` for the held-out pass) BEFORE the
-        result is logged, so the marker reaches the run log too."""
-        _t0 = time.monotonic()
-        test_results = self.hypothesis_tester.test(
-            hypotheses,
-            stats_report,
-            data,
-            protocol=self.protocol,
-        )
-        _dt = time.monotonic() - _t0
-        timings["m4"] = timings.get("m4", 0.0) + _dt
-        for tr in test_results:
-            tr.hypothesis.status = tr.status
-            if split_label and isinstance(getattr(tr, "evidence", None), dict):
-                tr.evidence["split"] = split_label
-        if log and self.run_logger:
-            # M4 results are logged through the surgery slot.
-            for tr in test_results:
-                _iv = _make_intervention_result_from_test(tr)
-                self.run_logger.log_surgery(
-                    cycle, tr.hypothesis, _iv, duration_sec=_dt,
-                    validation_cases=data,
-                    judge_prompt=getattr(tr, "judge_prompt", None) or None,
-                    judge_raw=getattr(tr, "judge_raw", None) or None,
-                )
-        if log and self.emitter is not None:
-            from evalrx.contract.emit import from_test_results
-
-            # M4 has no stage log of its own — it reuses the per-hypothesis
-            # surgery slot — so this is the first place the whole verdict set
-            # exists as one object a reader can load.
-            split = "confirm" if split_label == "confirm_holdout" else "explore"
-            self._emit(f"c{cycle}.m4", lambda: from_test_results(
-                test_results, trace_id=self.emitter.trace_id, cycle=cycle,
-                split=split, duration_sec=_dt,
-                stopping_criteria_met=bool(
-                    self.hypothesis_tester.stopping_criteria_met(test_results, self.protocol)
-                ),
-            ))
-        return test_results
-
-    def _m4_holdout_pass(
-        self,
-        hypotheses: "list[Any]",
-        confirm: "Any",
-        analyzer_names: "list[str]",
-        timings: "dict[str, float]",
-    ) -> "tuple[list[Any], str]":
-        """The M4 pass — on the held-out confirm split.
-
-        With a confirm split in play this is the ONLY hypothesis test: M3's
-        hypotheses are taken straight to data M1/M2/M3 never mined. The same
-        analyzers as the last explore cycle are re-run on the confirm split
-        (pinned via ``ProbeAgent.probe(analyzers=)`` — a fresh judge selection
-        could miss the designated signals); with no names to pin (a reloaded
-        run without a stats report) the probe agent selects normally.
-
-        Returns ``(test_results, status)`` with status ``"confirmed"`` (the
-        pass ran) or ``"failed"`` (the confirm re-probe produced nothing — no
-        hypothesis can be verified this run).
-        """
-        pinned = [n for n in analyzer_names if not n.startswith("generated:")]
-        logger.info(
-            "M4 (held-out): testing %d hypothesis(es) on the %d-case confirm "
-            "split (analyzers: %s)",
-            len(hypotheses), len(list(confirm)),
-            ", ".join(pinned) or "<probe agent's own selection>",
-        )
-        # Stamped BEFORE probe() (not just before log_probe below): ProbeAgent
-        # tags every model call it makes with whatever current_cycle reads AT
-        # CALL TIME, and probe() is where those calls happen. Setting this
-        # only right before log_probe(-1, ...) tagged this whole confirm-split
-        # re-probe's model calls with the previous explore cycle's number.
-        if self.run_logger:
-            self.run_logger.current_cycle = -1
-        _t0 = time.monotonic()
-        if pinned:
-            probe_results = self.probe_agent.probe(
-                self.model, confirm, protocol=self.protocol,
-                prior_hypotheses=hypotheses or None, analyzers=pinned,
-            )
-        else:
-            probe_results = self.probe_agent.probe(
-                self.model, confirm, protocol=self.protocol,
-                prior_hypotheses=hypotheses or None,
-            )
-        timings["m4_holdout_m1"] = timings.get("m4_holdout_m1", 0.0) + (
-            time.monotonic() - _t0)
-        if not probe_results:
-            logger.warning(
-                "M4 (held-out): the confirm-split re-probe produced no results "
-                "— no hypothesis can be verified this run."
-            )
-            return [], "failed"
-        self._bridge_signals(probe_results, confirm)
-        if self.run_logger:
-            self.run_logger.log_probe(
-                -1, probe_results,
-                schema=getattr(self.probe_agent, "last_schema", None),
-                cases=confirm,
-            )
-        stats_confirm = self._do_m2(
-            -1, probe_results, confirm, [], timings, confirmatory=True
-        )
-        results = self._do_m4(-1, hypotheses, stats_confirm, confirm, timings,
-                              split_label="confirm_holdout")
-        return results, "confirmed"
-
     # ──────────────────────────────────────────────────────────────────
     # Public API
     # ──────────────────────────────────────────────────────────────────
+
+    def stages(self) -> Stages:
+        """The stages bound to this loop's current configuration, for one run.
+
+        Built fresh each time so a setting changed after construction applies;
+        what outlives a run (explorer notes, the default M3 agent, the token
+        count) is in the loop's :class:`~evalrx.eval_agent.loop.stages.StageMemory`.
+        """
+        return Stages(
+            model=self.model, protocol=self.protocol, probe_agent=self.probe_agent,
+            stats_agent=self.stats_agent, hypothesis_tester=self.hypothesis_tester,
+            store=self.store, run_logger=self.run_logger, emitter=self.emitter,
+            memory=self._memory, diagnosis_agent=self.diagnosis_agent,
+            diagnosis_retries=self.diagnosis_retries, explorer=self.explorer,
+            explore_dir=self._explore_dir, explore_question=self._explore_question,
+            signal_recipes=self._signal_recipes,
+            bridge_analyzer_name=self._bridge_analyzer_name,
+        )
 
     def run(self, data: "CaseBatch") -> AutoDiagnoseReport:
         """Drive the M1→M2→M3→M4 loop to convergence.
@@ -1031,7 +428,7 @@ class VLDiagnoseLoop:
             :class:`AutoDiagnoseReport` with the final state.
             Call :meth:`run_m5` on this to get a fix proposal (Plan A).
         """
-        self._tokens_used = 0
+        self._memory.tokens_used = 0
         # Per-stage wall-clock totals (seconds) for the loop_end cost profile.
         timings: dict[str, float] = {}
         report = self.policy.run(self, data, timings)
@@ -1097,7 +494,7 @@ class VLDiagnoseLoop:
 
     def _end_run(self, report: AutoDiagnoseReport, timings: dict[str, float]) -> AutoDiagnoseReport:
         if self.run_logger:
-            self.run_logger.log_loop_end(report, tokens_used=self._tokens_used, timings=timings)
+            self.run_logger.log_loop_end(report, tokens_used=self._memory.tokens_used, timings=timings)
         return report
 
     def run_analysis(self, data: "CaseBatch") -> AutoDiagnoseReport:
@@ -1121,7 +518,7 @@ class VLDiagnoseLoop:
         Unlike :meth:`run`, there is no M4 stopping signal, so this is a single
         pass (one M1→M2→M3), not a multi-cycle loop; ``max_cycles`` is ignored.
         """
-        self._tokens_used = 0
+        self._memory.tokens_used = 0
         timings: dict[str, float] = {}
 
         # Same deterministic explore/confirm partition as run() / run_fix() —
@@ -1141,20 +538,21 @@ class VLDiagnoseLoop:
         final_stats_report = None
         stopped_by = STOPPED_BY_ANALYSIS
 
-        probe_results, artifact_pngs = self._do_m1(0, data, all_hypotheses, timings)
+        stages = self.stages()
+        probe_results, artifact_pngs = stages.probe(0, data, all_hypotheses, timings)
         if not probe_results:
             logger.info("M1 produced no probe results — stopping.")
             stopped_by = STOPPED_BY_NO_PROBE
         else:
             # Optional explore step (descriptive EDA → M3 notes + report files).
-            self._do_explore(0, probe_results, data, timings)
+            stages.explore(0, probe_results, data, timings)
             # Descriptive M2: effect sizes + charts, but DEFER the e-BH validity
             # verdict to run_confirm so the analysis report shows no
             # "supported/not-supported" claim (Q2: no validity before confirm).
-            final_stats_report = self._do_m2(
+            final_stats_report = stages.analyze(
                 0, probe_results, data, artifact_pngs, timings, confirmatory=False
             )
-            diag = self._do_m3(0, final_stats_report, [], timings, cases=data)
+            diag = stages.diagnose(0, final_stats_report, [], timings, cases=data)
             if diag is None or not diag.hypotheses:
                 # Stats + report are still valid; just no hypotheses to confirm.
                 if diag is not None:
@@ -1202,7 +600,7 @@ class VLDiagnoseLoop:
         ``verified_hypotheses`` populated. Feed it into :meth:`run_m5` /
         :meth:`run_fix` for the repair step.
         """
-        self._tokens_used = 0
+        self._memory.tokens_used = 0
         timings: dict[str, float] = {}
         hypotheses = list(hypotheses or [])
 
@@ -1229,7 +627,7 @@ class VLDiagnoseLoop:
         # from the descriptive analysis phase (e-BH deferred), compute e-BH now,
         # flip descriptive_only off, and log the confirmatory M2 so the report
         # surfaces the signal validity it withheld before confirmation.
-        self._finalize_confirmatory_stats(stats_report)
+        finalize_confirmatory_stats(stats_report)
         if self.run_logger and stats_report is not None:
             self.run_logger.log_analysis(0, stats_report)
 
@@ -1262,14 +660,15 @@ class VLDiagnoseLoop:
         analysis phase, and re-logging them would double up the report's
         analysis story.
         """
-        probe_results, artifact_pngs = self._do_m1(0, data, hypotheses, timings, log=False)
+        stages = self.stages()
+        probe_results, artifact_pngs = stages.probe(0, data, hypotheses, timings, log=False)
         if not probe_results:
             logger.warning(
                 "run_confirm: probe produced no results and no stats_report "
                 "was supplied — cannot confirm."
             )
             return None
-        return self._do_m2(0, probe_results, data, artifact_pngs, timings, log=False)
+        return stages.analyze(0, probe_results, data, artifact_pngs, timings, log=False)
 
     def _m4_verdicts(
         self, hypotheses: "list[Any]", stats_report: "Any", data: "CaseBatch",
@@ -1283,12 +682,12 @@ class VLDiagnoseLoop:
             self.store.add_hypothesis(h)
         holdout_target = self._holdout_target(confirm)
         if holdout_target is None:
-            return self._do_m4(0, hypotheses, stats_report, data, timings), None
+            return self.stages().test_hypotheses(0, hypotheses, stats_report, data, timings), None
         # The one M4 pass, on held-out data (never the explore stats the
         # hypotheses were mined from). The analyzer set to re-run there is
         # recovered from the supplied/regenerated stats report's signal keys;
         # with none recoverable the probe agent selects on the holdout itself.
-        return self._m4_holdout_pass(
+        return self.stages().test_on_holdout(
             hypotheses, holdout_target, _analyzer_names_from_stats(stats_report), timings,
         )
 
@@ -1460,7 +859,7 @@ class VLDiagnoseLoop:
         context = _fix_context_from_report(
             report,
             example_cases=explore if final_data is not None else None,
-            explore_context=self._explore_context,
+            explore_context=self._memory.explore_context,
             protocol=self.protocol,
             refuted=refuted_notes,
             refuted_ids=refuted_ids,

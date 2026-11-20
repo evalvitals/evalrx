@@ -73,7 +73,7 @@ def _setup(tmp_path, model=None, judge=None):
         run_logger=ctx.logger,
     )
     data = _cases()
-    state = RunState(original_data=data, data=data, judge=judge)
+    state = RunState(original_data=data, data=data, stages=loop.stages(), judge=judge)
     return loop, state, build_default_registry(loop, state), EvidenceBoard()
 
 

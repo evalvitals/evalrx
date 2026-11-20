@@ -29,6 +29,22 @@ deep imports move, with no aliases left behind:
 | `evalrx.eval_agent.model_instrumentation` | `evalrx.eval_agent.runlog.instrumentation` |
 | `evalrx/eval_agent/RUN_LOGGER.md` | `evalrx/eval_agent/runlog/README.md` |
 
+The stages leave the loop class. `evalrx.eval_agent.loop.stages.Stages` runs and
+records M1 probe, explore, M2, M3, M4 and the held-out M4 pass
+(`probe`, `explore`, `analyze`, `diagnose`, `test_hypotheses`, `test_on_holdout`,
+`bridge_signals`) and holds the stage dependencies, never the loop.
+`VLDiagnoseLoop.stages()` builds one from the loop's current settings for each
+run, and a policy reaches them through `RunState.stages` (a new required
+field). What outlives a run on the same loop — the explorer notes M3 and the fix
+stage read, the default M3 agent, the token count — is one `StageMemory`
+(was `loop._explore_context`, `loop._tokens_used`, and a `diagnosis_agent`
+assigned on first use). The explore/confirm/test partition is the pure function
+`evalrx.eval_agent.loop.partition.split_cases`. Removed from `VLDiagnoseLoop`:
+`_do_m1`, `_do_explore`, `_do_m2`, `_do_m3`, `_do_m4`, `_m4_holdout_pass`,
+`_bridge_signals`, `_explore_out_dir`, `_get_diagnosis_agent`, `_emit_m1`,
+`_finalize_confirmatory_stats` (now `loop.stages.finalize_confirmatory_stats`),
+`_strat_key`. The constructor is unchanged.
+
 ### Added — typed judge calls
 
 `evalrx.agent_runtime.judge_call.ask_judge(judge, prompt, OutputModel, role=...)`

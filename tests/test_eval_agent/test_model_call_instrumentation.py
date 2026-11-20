@@ -135,7 +135,7 @@ def test_probe_still_works_when_run_logger_is_absent(tmp_path):
 
 def test_log_probe_drains_calls_tagged_under_a_stale_cycle(tmp_path):
     """Regression pin for the bug the advisor's review caught live: a caller
-    (VLDiagnoseLoop._m4_holdout_pass, before it was fixed) can stamp
+    (Stages.test_on_holdout, before it was fixed) can stamp
     current_cycle AFTER probe() already ran, so every call this round made
     gets tagged under the PREVIOUS cycle's number — a different key than the
     one log_probe is about to be called with. log_probe must drain the whole

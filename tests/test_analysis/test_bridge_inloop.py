@@ -11,7 +11,7 @@ from evalrx.analysis.operationalize import (
     safe_ident,
 )
 from evalrx.analysis.stats_tools import build_stats_input
-from evalrx.eval_agent.loop.diagnose import VLDiagnoseLoop
+from evalrx.eval_agent.loop.stages import Stages
 
 
 class _FakeResult:
@@ -103,14 +103,14 @@ def test_bridge_returns_none_when_nothing_compiles():
 
 
 # ---------------------------------------------------------------------------
-# VLDiagnoseLoop._bridge_signals wiring (tested on a lightweight fake self)
+# Stages.bridge_signals wiring (tested on a lightweight fake self)
 # ---------------------------------------------------------------------------
 
 def _fake_loop_self(recipes):
     added = []
     return SimpleNamespace(
-        _signal_recipes=recipes,
-        _bridge_analyzer_name="explored",
+        signal_recipes=recipes,
+        bridge_analyzer_name="explored",
         model="m",
         store=SimpleNamespace(add_result=added.append),
         _added=added,
@@ -125,7 +125,7 @@ def test_loop_bridge_signals_injects_synthetic_analyzer():
     probe_results = _probe_results()
     me = _fake_loop_self([recipe])
 
-    VLDiagnoseLoop._bridge_signals(me, probe_results, None)
+    Stages.bridge_signals(me, probe_results, None)
 
     assert "explored" in probe_results
     assert len(me._added) == 1  # also recorded into the store
@@ -137,7 +137,7 @@ def test_loop_bridge_signals_is_noop_without_recipes():
     probe_results = _probe_results()
     me = _fake_loop_self([])
 
-    VLDiagnoseLoop._bridge_signals(me, probe_results, None)
+    Stages.bridge_signals(me, probe_results, None)
 
     assert "explored" not in probe_results
     assert me._added == []
@@ -154,7 +154,7 @@ def test_loop_bridge_raises_stats_signal_cap_so_bridged_signals_are_tested():
     me = _fake_loop_self([recipe])
     me.stats_agent = agent
 
-    VLDiagnoseLoop._bridge_signals(me, probe_results, None)
+    Stages.bridge_signals(me, probe_results, None)
 
     # 3 signals now in the family: saliency.obj_size, saliency.attention, explored.small
     assert agent._max_signal_tools >= 3

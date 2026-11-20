@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from evalrx.core.case import CaseBatch
     from evalrx.eval_agent.loop.diagnose import VLDiagnoseLoop
     from evalrx.eval_agent.loop.report import AutoDiagnoseReport
+    from evalrx.eval_agent.loop.stages import Stages
 
 
 class Policy(Protocol):
@@ -28,6 +29,8 @@ class RunState:
 
     original_data: Any
     data: Any
+    #: The stages this run calls (:meth:`VLDiagnoseLoop.stages`).
+    stages: "Stages"
     timings: dict[str, float] = field(default_factory=dict)
     cycle: int = 0
     all_hypotheses: list[Any] = field(default_factory=list)

@@ -902,10 +902,12 @@ class TestVLDiagnoseLoop:
     def test_no_diagnosis_agent_stops_early(self, monkeypatch):
         loop = VLDiagnoseLoop(model=_vlm(), protocol=_spatial_protocol(), max_cycles=3)
 
-        def unavailable():
+        from evalrx.eval_agent.loop.stages import Stages
+
+        def unavailable(self):
             raise RuntimeError("judge unavailable")
 
-        monkeypatch.setattr(loop, "_get_diagnosis_agent", unavailable)
+        monkeypatch.setattr(Stages, "diagnosis_agent_or_default", unavailable)
         report = loop.run(_labeled_batch())
         assert report.stopped_by == "diagnosis_error"
         assert report.cycles == 1
@@ -1256,9 +1258,9 @@ def test_m3_transient_error_retries_without_reprobing(tmp_path):
     agent = Transient()
     loop = VLDiagnoseLoop(model=_vlm(), protocol=_spatial_protocol(), diagnosis_agent=agent,
                           run_logger=RunLogger(tmp_path / "logs"))
-    result = loop._do_m3(0, None, [], {}, log=False)
+    result = loop.stages().diagnose(0, None, [], {}, log=False)
     assert result is not None and result.hypotheses == []
     assert agent.calls == 2
     # A valid empty answer is not retried.
-    loop._do_m3(0, None, [], {}, log=False)
+    loop.stages().diagnose(0, None, [], {}, log=False)
     assert agent.calls == 3

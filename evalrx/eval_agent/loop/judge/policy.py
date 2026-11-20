@@ -102,8 +102,8 @@ class JudgePolicy:
         )
         board.budget.start()
 
-        state = RunState(original_data=original_data, data=data, timings=timings,
-                         judge=self.judge)
+        state = RunState(original_data=original_data, data=data, stages=loop.stages(),
+                         timings=timings, judge=self.judge)
         registry: ToolRegistry = (
             self.registry_factory(loop, state)
             if self.registry_factory is not None

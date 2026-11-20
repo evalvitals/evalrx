@@ -57,7 +57,8 @@ class FixedOrderPolicy:
         holdout_target = loop._holdout_target(confirm)
         loop._start_run_log(data, "VLDiagnoseLoop", confirm=confirm, test=test, val=loop.val_data)
 
-        state = RunState(original_data=original_data, data=data, timings=timings)
+        state = RunState(original_data=original_data, data=data, stages=loop.stages(),
+                         timings=timings)
         stopped_by = STOPPED_BY_MAX
         cycles = 0
         for cycle in range(loop.max_cycles):
@@ -72,7 +73,7 @@ class FixedOrderPolicy:
         # applies to candidates. Without one, the in-cycle results stand.
         m4_holdout_status: "str | None" = None
         if holdout_target is not None and state.all_hypotheses:
-            state.all_test_results, m4_holdout_status = loop._m4_holdout_pass(
+            state.all_test_results, m4_holdout_status = state.stages.test_on_holdout(
                 state.all_hypotheses, holdout_target, state.analyzer_names, timings,
             )
         verified = loop.hypothesis_tester.best_hypotheses(state.all_test_results)
@@ -101,30 +102,31 @@ class FixedOrderPolicy:
         """
         data, timings = state.data, state.timings
         state.cycle = cycle
-        if loop.token_budget > 0 and loop._tokens_used >= loop.token_budget:
+        stages = state.stages
+        if loop.token_budget > 0 and stages.memory.tokens_used >= loop.token_budget:
             logger.warning("Token budget %d exhausted after %d cycles", loop.token_budget, cycle)
             return STOPPED_BY_BUDGET
         if loop.run_logger is not None:
             loop.run_logger.current_cycle = cycle
 
         # ── M1: protocol-guided probing (+ signal bridge) ─────────
-        probe_results, artifact_pngs = loop._do_m1(cycle, data, state.all_hypotheses, timings)
+        probe_results, artifact_pngs = stages.probe(cycle, data, state.all_hypotheses, timings)
         if not probe_results:
             logger.info("M1 produced no probe results — stopping.")
             return STOPPED_BY_NO_PROBE
         state.analyzer_names = list(probe_results)
 
         # ── explore (optional): free-form EDA on M1's table → M3 notes ──
-        loop._do_explore(cycle, probe_results, data, timings)
+        stages.explore(cycle, probe_results, data, timings)
 
         # ── M2: protocol-aware stats analysis ────────────────────
-        stats_report = loop._do_m2(cycle, probe_results, data, artifact_pngs, timings)
+        stats_report = stages.analyze(cycle, probe_results, data, artifact_pngs, timings)
         state.stats_report = stats_report
         if loop.analysis_only:
             return STOPPED_BY_NO_HYPS
 
         # ── M3: hypothesis generation ("AI scientist") ────────────
-        diag = loop._do_m3(cycle, stats_report, state.prior_cycles, timings, cases=data)
+        diag = stages.diagnose(cycle, stats_report, state.prior_cycles, timings, cases=data)
         if diag is None:
             state.diagnosis_failed = True
             return STOPPED_BY_DIAG_ERROR
@@ -137,7 +139,7 @@ class FixedOrderPolicy:
 
         # ── M4: hypothesis testing (stats + protocol consistency) ─
         if not holdout:
-            test_results = loop._do_m4(cycle, diag.hypotheses, stats_report, data, timings)
+            test_results = stages.test_hypotheses(cycle, diag.hypotheses, stats_report, data, timings)
             state.all_test_results.extend(test_results)
             if loop.hypothesis_tester.stopping_criteria_met(test_results, loop.protocol):
                 logger.info(
