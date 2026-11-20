@@ -796,7 +796,7 @@ class ProbeAgent:
         # in-process (non-Docker) analyzers — Docker-mode calls happen inside
         # a subprocess and are out of reach of this wrapper.
         if self.run_logger is not None:
-            from evalrx.eval_agent.model_instrumentation import InstrumentedModel
+            from evalrx.eval_agent.runlog.instrumentation import InstrumentedModel
 
             # Best-effort (prompt -> case_id) for THIS analyzer's batch, so a
             # call that reuses the case's own prompt unmodified can be tied

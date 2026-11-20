@@ -1,5 +1,5 @@
 """RunLogger conformance: every log_* method, exercised end to end, must
-produce the tidy M1..M5 layout described in RUN_LOGGER.md — few files,
+produce the tidy M1..M5 layout described in runlog/README.md — few files,
 same-type-in-one-json, one folder per stage, nothing but JSON except real
 binary media.
 
@@ -22,7 +22,7 @@ def _emit_every_method(run_dir) -> "RunLogger":  # noqa: F821
     from evalrx.core import CaseBatch, FailureCase
     from evalrx.core.result import Result
     from evalrx.eval_agent.hypothesis import Hypothesis, HypothesisStatus
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.eval_agent.stages.diagnosis import DiagnosisResult
     from evalrx.eval_agent.stages.surgery import InterventionResult
 
@@ -249,7 +249,7 @@ def test_unroutable_tag_with_no_alias_warns_and_lands_in_run_json(tmp_path):
     run.json["unrouted"] rather than silently dropped."""
     import pytest
 
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
 
     run_dir = tmp_path / "run1"
     logger = RunLogger(run_dir=run_dir)
@@ -287,7 +287,7 @@ def test_probe_artifacts_land_under_that_stages_artifacts_dir(tmp_path):
     import numpy as np
 
     from evalrx.core.result import Result
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
 
     run_dir = tmp_path / "run1"
     logger = RunLogger(run_dir=run_dir)
@@ -311,7 +311,7 @@ def test_model_calls_are_recorded_and_probe_events_stay_intact_alongside(tmp_pat
     """ProbeAgent + RunLogger together must capture every target-model call."""
     from evalrx.core.capability import Capability
     from evalrx.core.case import CaseBatch, FailureCase, Inputs
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.eval_agent.stages.probe_agent import ProbeAgent
     from tests.conftest import FakeModel
 
@@ -345,7 +345,7 @@ def test_atomic_write_leaves_a_valid_file_after_every_event(tmp_path):
 
 def test_close_ends_the_langfuse_trace(tmp_path):
     run_dir = tmp_path / "run1"
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
 
     logger = RunLogger(run_dir=run_dir)
     logger.log_run_start({"model": "fake"})
@@ -364,7 +364,7 @@ def test_full_loop_run_is_a_drop_in_replacement_for_run_logger(tmp_path):
     from evalrx.core.capability import Capability
     from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
     from evalrx.eval_agent import DiagnosisAgent, VLDiagnoseLoop
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.eval_agent.stages.protocol import ExperimentProtocol
     from tests.conftest import FakeModel
     from tests.test_eval_agent.test_vl_diagnose import ScriptedModel
@@ -408,7 +408,7 @@ def test_run_context_v2_keeps_only_json_and_media_and_inlines_reports(tmp_path):
     """The real integration boundary is RunContext, not a standalone logger."""
     from types import SimpleNamespace
 
-    from evalrx.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.runlog.context import RunContext
 
     root = tmp_path / "run"
     ctx = RunContext(root, config={"model": "fake"}, observability_mode="offline")
@@ -458,7 +458,7 @@ def test_run_context_v2_keeps_only_json_and_media_and_inlines_reports(tmp_path):
 def test_run_context_v2_snapshots_explore_text_and_media(tmp_path):
     from types import SimpleNamespace
 
-    from evalrx.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.runlog.context import RunContext
 
     root = tmp_path / "run"
     ctx = RunContext(root, observability_mode="offline")
@@ -492,7 +492,7 @@ def test_run_context_v2_root_holds_no_v1_named_directories(tmp_path):
     asserts directory names directly."""
     from types import SimpleNamespace
 
-    from evalrx.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.runlog.context import RunContext
 
     root = tmp_path / "run"
     ctx = RunContext(root, observability_mode="offline")
@@ -550,7 +550,7 @@ def test_reporting_reader_and_server_discover_v2_run(tmp_path):
 
 def test_non_numeric_probe_artifacts_survive_without_sidecar_files(tmp_path):
     from evalrx.core.result import Result
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
 
     artifacts = {"details": {"answer": "yes"}, "samples": ["yes", "no"],
                  "rows": [{"case_id": "a", "score": 0.5}]}
@@ -564,7 +564,7 @@ def test_non_numeric_probe_artifacts_survive_without_sidecar_files(tmp_path):
 
 
 def test_fix_trials_and_remaining_runtime_survive_cleanup(tmp_path):
-    from evalrx.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.runlog.context import RunContext
 
     with RunContext(tmp_path, observability_mode="offline") as ctx:
         trials = [ctx.new_trial("fixes", name) for name in ("first", "second")]
@@ -606,7 +606,7 @@ def test_failed_runtime_archive_does_not_delete_source(tmp_path, monkeypatch):
 
     import pytest
 
-    from evalrx.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.runlog.context import RunContext
 
     ctx = RunContext(tmp_path, observability_mode="offline")
     ctx.logger.log_run_start({})
@@ -637,7 +637,7 @@ def test_the_case_study_reads_m4_from_the_logged_bundle(tmp_path):
 
 def test_loop_summary_keeps_verified_hypothesis_evidence(tmp_path):
     from evalrx.eval_agent.hypothesis import Hypothesis, HypothesisStatus
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTestResult
 
     hypothesis = Hypothesis(statement="why", target_model="stub", predicted_failure_mode="mode")
@@ -658,8 +658,8 @@ def test_loop_summary_keeps_verified_hypothesis_evidence(tmp_path):
 def test_persisted_event_identity_orders_concurrent_calls_and_validates(tmp_path, monkeypatch):
     from concurrent.futures import ThreadPoolExecutor
 
-    from evalrx.eval_agent.log_schema import EVENT_TYPES, _validator, build_schema
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
+    from evalrx.eval_agent.runlog.schema import EVENT_TYPES, _validator, build_schema
     from evalrx.reporting.run_events import read_run_events
 
     monkeypatch.setenv("EVALRX_VALIDATE_LOG", "1")
@@ -697,7 +697,7 @@ def test_persisted_event_identity_orders_concurrent_calls_and_validates(tmp_path
 def test_v2_schema_validation_warns_but_preserves_invalid_event(tmp_path, monkeypatch):
     import pytest
 
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
 
     monkeypatch.setenv("EVALRX_VALIDATE_LOG", "1")
     with RunLogger(tmp_path, observability_mode="offline") as logger:
@@ -737,7 +737,7 @@ def test_hypothesis_id_joins_m3_to_m4_and_m5(tmp_path):
 def test_outbox_dir_is_per_user(monkeypatch, tmp_path):
     # A shared /tmp/evalrx-outbox is owned by whoever created it first, so
     # every other user on the host failed with "unable to open database file".
-    import evalrx.eval_agent.run_logger as run_logger
+    import evalrx.eval_agent.runlog.logger as run_logger
 
     monkeypatch.setattr(run_logger.tempfile, "gettempdir", lambda: str(tmp_path))
     monkeypatch.setattr(run_logger.getpass, "getuser", lambda: "alice")

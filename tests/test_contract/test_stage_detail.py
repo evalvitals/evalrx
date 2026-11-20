@@ -60,7 +60,7 @@ def test_a_full_m1_to_m5_run_conforms(tmp_path):
 
 def test_a_logged_run_with_examples_and_a_repair_conforms(tmp_path):
     from evalrx.core import CaseBatch, FailureCase, Label, Result
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.dynamic import build_report_data
 
     cases = CaseBatch([
@@ -88,7 +88,7 @@ def test_a_logged_run_with_examples_and_a_repair_conforms(tmp_path):
 
 
 def test_an_empty_run_conforms(tmp_path):
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.dynamic import build_report_data
 
     logger = RunLogger(tmp_path, observability_mode="offline")

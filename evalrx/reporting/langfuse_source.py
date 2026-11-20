@@ -7,7 +7,7 @@ those without making the renderer understand Langfuse-specific response
 types, then re-buckets it into a run-log-shaped cache (:func:`materialize`) so the
 normal ``run.json``/``M<n>/log.json`` read path can render it.
 
-Caveat: :class:`~evalrx.eval_agent.run_logger.RunLogger` does not
+Caveat: :class:`~evalrx.eval_agent.runlog.logger.RunLogger` does not
 currently push structured events through that outbox (it relies on live
 spans/generations instead), so a run's recovered events presently carry
 no ``stage`` tag and land in ``run.json``'s ``unrouted`` bucket rather than

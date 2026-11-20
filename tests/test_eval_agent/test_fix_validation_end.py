@@ -273,7 +273,7 @@ print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
 
 
 def test_candidate_outputs_and_truncation_are_recorded(tmp_path):
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
 
     class Truncating(CountingModel):
         def generate(self, inputs, **kwargs):

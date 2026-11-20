@@ -13,10 +13,10 @@ M5 (SurgeryAgent) runs separately via ``VLDiagnoseLoop.run_m5()`` once the
 loop stops — propose a fix for the best verified hypothesis (Plan A), or
 propose + execute a fix (Plan B).
 
-The order of the stages is a policy (:mod:`evalrx.eval_agent.policy`): the
-default :class:`~evalrx.eval_agent.policy.FixedOrderPolicy` runs the cycle
+The order of the stages is a policy (:mod:`evalrx.eval_agent.loop.fixed`, :mod:`evalrx.eval_agent.loop.judge`): the
+default :class:`~evalrx.eval_agent.loop.fixed.FixedOrderPolicy` runs the cycle
 above; ``VLDiagnoseLoop(..., policy=JudgePolicy(judge))`` lets a judge pick
-each next stage instead (:class:`~evalrx.eval_agent.agentic.JudgePolicy`).
+each next stage instead (:class:`~evalrx.eval_agent.loop.judge.JudgePolicy`).
 
 Usage::
 
@@ -41,7 +41,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from evalrx.eval_agent.loop_fix import (
+from evalrx.eval_agent.loop.fix import (
     _climb_ladder,
     _confirm_from_explore,
     _fix_context_from_report,
@@ -50,7 +50,15 @@ from evalrx.eval_agent.loop_fix import (
     _merge_rungs,
     _unverified_hypotheses,
 )
-from evalrx.eval_agent.loop_reports import (
+from evalrx.eval_agent.loop.fixed import FixedOrderPolicy
+from evalrx.eval_agent.loop.metadata import (
+    _attach_run_logger,
+    _coerce_explore_context,
+    _log_generated_tools,
+    _make_intervention_result_from_test,
+    _run_config,
+)
+from evalrx.eval_agent.loop.report import (
     STOPPED_BY_ANALYSIS,
     STOPPED_BY_CRITERIA,
     STOPPED_BY_DIAG_ERROR,
@@ -59,14 +67,7 @@ from evalrx.eval_agent.loop_reports import (
     STOPPED_BY_NO_PROBE,
     AutoDiagnoseReport,
 )
-from evalrx.eval_agent.policy import FixedOrderPolicy, Policy
-from evalrx.eval_agent.run_metadata import (
-    _attach_run_logger,
-    _coerce_explore_context,
-    _log_generated_tools,
-    _make_intervention_result_from_test,
-    _run_config,
-)
+from evalrx.eval_agent.loop.state import Policy
 from evalrx.eval_agent.store import InMemoryStore, Store
 
 if TYPE_CHECKING:
@@ -201,9 +202,9 @@ class VLDiagnoseLoop:
                             training cases. Mutually exclusive with
                             ``test_split > 0``.
         policy:             Who picks the next stage:
-                            :class:`~evalrx.eval_agent.policy.FixedOrderPolicy`
+                            :class:`~evalrx.eval_agent.loop.fixed.FixedOrderPolicy`
                             (default) or
-                            :class:`~evalrx.eval_agent.agentic.JudgePolicy`.
+                            :class:`~evalrx.eval_agent.loop.judge.JudgePolicy`.
         max_cycles:         Hard cap on M1→M4 iterations (default 1: one
                             diagnosis pass, then the caller moves on to
                             M5/fix — with fix-on-unverified enabled the
@@ -211,7 +212,7 @@ class VLDiagnoseLoop:
                             tripled the wall-clock; raise it to keep
                             mining when a cycle's M4 designs feed the
                             next cycle's M1).
-        run_logger:         Optional :class:`~evalrx.eval_agent.run_logger.RunLogger`.
+        run_logger:         Optional :class:`~evalrx.eval_agent.runlog.logger.RunLogger`.
         token_budget:       Stop early when accumulated token usage reaches
                             this limit (0 = unlimited).
         analysis_only:      Run only M1→M2 and stop before hypothesis generation.
@@ -351,7 +352,7 @@ class VLDiagnoseLoop:
         # Under a JudgePolicy it is the judge-decided `explore_data` tool
         # instead of the fixed in-cycle call.
         self.explorer = explorer
-        # Who picks the next stage (see evalrx.eval_agent.policy).
+        # Who picks the next stage (see evalrx.eval_agent.loop.state.Policy).
         self.policy: Policy = policy if policy is not None else FixedOrderPolicy()
         self._explore_dir = Path(explore_dir) if explore_dir is not None else None
         self._explore_question = str(explore_question or "")
@@ -653,7 +654,7 @@ class VLDiagnoseLoop:
         report reader looks (``reporting.run_data``: ``<logs>/explore``, else a
         sibling ``explore/``):
 
-        - a :class:`~evalrx.eval_agent.run_context.RunContext`-backed logger
+        - a :class:`~evalrx.eval_agent.runlog.context.RunContext`-backed logger
           → ``ctx.explore_dir``, an ephemeral tree under ``ctx.runtime_root``
           (captured into ``M2/log.json`` and deleted at ``finalize()``;
           writing straight to ``<ctx.root>/explore`` would leak real files

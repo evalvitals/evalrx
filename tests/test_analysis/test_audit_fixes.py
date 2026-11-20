@@ -21,7 +21,7 @@ from evalrx.analysis.operationalize import (
     compile_recipes,
     per_case_to_records,
 )
-from evalrx.eval_agent.loop import VLDiagnoseLoop
+from evalrx.eval_agent.loop.diagnose import VLDiagnoseLoop
 
 
 class _FakeResult:

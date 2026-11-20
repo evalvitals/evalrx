@@ -457,7 +457,7 @@ Two things the contract will not do for you, both deliberate:
   grounded.
 
 The rest of this section describes the raw run directory — `RunContext`'s
-only layout now (`evalrx/eval_agent/RUN_LOGGER.md`; there is no other
+only layout now (`evalrx/eval_agent/runlog/README.md`; there is no other
 logger to select). `contract/` is unaffected by any of this.
 
 ### 1. Choose a source of truth

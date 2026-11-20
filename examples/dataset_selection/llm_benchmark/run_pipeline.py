@@ -4,7 +4,7 @@
     python run_pipeline.py --analysis-only        # M1->M2->M3, stop before M4/M5
     python -m evalrx.cli serve outputs/qwen3.5-9b/supergpqa_law
 
-Stages (evalrx.eval_agent.loop.VLDiagnoseLoop -- the class name says VL, but
+Stages (evalrx.eval_agent.loop.diagnose.VLDiagnoseLoop -- the class name says VL, but
 it takes a plain Model plus an ExperimentProtocol whose target_modalities is
 {"text"} here, and nothing in it is vision-specific):
 
@@ -851,7 +851,7 @@ def main() -> None:
                  if args.analyzer_max_cases > 0 else {})
     # A confirm-only pass logs beside the analysis it reuses, never over it.
     # RunLogger writes run.json + one JSON per M-stage (M1/log.json ..
-    # M5/log.json) under this dir — see evalrx/eval_agent/RUN_LOGGER.md.
+    # M5/log.json) under this dir — see evalrx/eval_agent/runlog/README.md.
     logger = RunLogger(run_dir=out / ("logs_confirm" if args.confirm_only else "logs"),
                          verbose=True)
 

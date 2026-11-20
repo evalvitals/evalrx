@@ -17,7 +17,7 @@ from evalrx.benchmark.run import build_parser
 from evalrx.benchmark.tasks import get
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.eval_agent import CaseDiscoveryAgent, VLDiagnoseLoop
-from evalrx.eval_agent.loop_reports import AutoDiagnoseReport
+from evalrx.eval_agent.loop.report import AutoDiagnoseReport
 from evalrx.eval_agent.stages.fix.tiers import FixTier
 from evalrx.eval_agent.stages.fix.types import FixCandidate, FixOutcome, FixValidation
 from evalrx.reporting.run_events import read_run_events

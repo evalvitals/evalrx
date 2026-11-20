@@ -38,7 +38,7 @@ def _print_fix_progress(event):
 
 def _benchmark_agentic_registry(loop, state):
     """Keep repair/CONFIRM access outside the adaptive controller."""
-    from evalrx.eval_agent.agentic.tools import ToolRegistry, build_default_registry
+    from evalrx.eval_agent.loop.judge.tools import ToolRegistry, build_default_registry
 
     full = build_default_registry(loop, state)
     registry = ToolRegistry()
@@ -662,7 +662,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     discovery_model = model
     if not args.baseline_only:
         from evalrx.eval_agent import RunContext
-        from evalrx.eval_agent.model_instrumentation import InstrumentedModel
+        from evalrx.eval_agent.runlog.instrumentation import InstrumentedModel
 
         # Create the run log before Stage-0 so each discovery request is durable
         # as it happens, including its real latency and any transport error.
@@ -731,7 +731,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
                                extra_args=coder_extra)
     policy = None
     if _is_agentic(args):
-        from evalrx.eval_agent.agentic import JudgePolicy
+        from evalrx.eval_agent.loop.judge import JudgePolicy
 
         policy = JudgePolicy(judge, max_actions=args.max_actions,
                              registry_factory=_benchmark_agentic_registry)

@@ -15,8 +15,8 @@ from evalrx.core.capability import Capability
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.core.model import Model
 from evalrx.eval_agent.hypothesis import Hypothesis
-from evalrx.eval_agent.loop import VLDiagnoseLoop
-from evalrx.eval_agent.loop_reports import AutoDiagnoseReport
+from evalrx.eval_agent.loop.diagnose import VLDiagnoseLoop
+from evalrx.eval_agent.loop.report import AutoDiagnoseReport
 from evalrx.eval_agent.stages.fix.agent import FixCandidate, FixOutcome, FixValidation
 from evalrx.eval_agent.stages.fix.tiers import FixTier
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
@@ -377,7 +377,7 @@ def test_val_data_run_m5_surgery_stays_on_explore():
 def test_confirm_with_no_explore_lead_routes_the_next_supported_tier():
     """With nothing to freeze, the recommendation comes from the agent's own tier
     router (unsupported L3a/L3b skipped), not a flat "stay at the ceiling"."""
-    from evalrx.eval_agent.loop_fix import _confirm_from_explore
+    from evalrx.eval_agent.loop.fix import _confirm_from_explore
     from evalrx.eval_agent.stages.fix.agent import FixAgent
 
     confirm = CaseBatch([
@@ -395,7 +395,7 @@ def test_confirm_with_no_explore_lead_routes_the_next_supported_tier():
 def test_confirm_routes_from_the_given_ceiling_not_the_agents():
     """The loop passes the run's ceiling explicitly: an agent configured at L1
     confirming under an L2 ceiling recommends past L2, not past L1."""
-    from evalrx.eval_agent.loop_fix import _confirm_from_explore
+    from evalrx.eval_agent.loop.fix import _confirm_from_explore
     from evalrx.eval_agent.stages.fix.agent import FixAgent
 
     confirm = CaseBatch([
@@ -427,7 +427,7 @@ def test_run_fix_never_writes_to_the_fix_agent():
 def test_confirm_freezes_the_supported_explore_lead_and_says_why_it_did_not_hold():
     """The lead with support is the one frozen, and when it fails on CONFIRM
     the agent's recommendation is prefixed with that fact."""
-    from evalrx.eval_agent.loop_fix import _confirm_from_explore
+    from evalrx.eval_agent.loop.fix import _confirm_from_explore
     from evalrx.eval_agent.stages.fix.types import FixCandidate, FixValidation
 
     def lead(name, n_pairs, n_fixed, n_broken):

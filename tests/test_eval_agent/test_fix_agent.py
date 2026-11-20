@@ -3251,7 +3251,7 @@ def test_declarative_candidate_gets_record_and_result_but_no_workspace(tmp_path)
     never gets a workspace/ subdir. There is no per-trial
     record.md/result.json either; the outcome data lives inline in
     M5/log.json's "fix" entry."""
-    from evalrx.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.runlog.context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
     judge = ScriptedJudge(
@@ -3290,7 +3290,7 @@ def test_deduped_candidate_in_round_two_leaves_no_trial_folder(tmp_path):
     record.md/result.json), so the dedup guarantee is checked against the
     returned attempt list and the inlined M5/log.json record instead of a
     directory listing."""
-    from evalrx.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.runlog.context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
     judge = ScriptedJudge(
@@ -3375,7 +3375,7 @@ print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
 
 def test_two_coded_fix_attempts_get_separate_trial_workspaces(tmp_path):
     pytest.importorskip("PIL")
-    from evalrx.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.runlog.context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
     agent = FixAgent(
@@ -3905,7 +3905,7 @@ def test_coded_attempt_persists_guard_and_control_audit_files(tmp_path):
     record or reverted anything). Checked before finalize(): these live under
     RunContext's ephemeral runtime tree, which finalize() inlines and deletes,
     not under the run root itself."""
-    from evalrx.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.runlog.context import RunContext
 
     ctx = RunContext(tmp_path / "run")
     agent = FixAgent(

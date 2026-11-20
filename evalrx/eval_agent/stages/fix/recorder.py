@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from evalrx.agent_runtime.judge_call import Exchange
     from evalrx.core.case import CaseBatch
     from evalrx.core.model import Model
-    from evalrx.eval_agent.run_context import Trial
+    from evalrx.eval_agent.runlog.context import Trial
     from evalrx.eval_agent.stages.fix.types import FixOutcome
 
 logger = logging.getLogger(__name__)
@@ -146,7 +146,7 @@ class FixRecorder:
         """Wrap *model* so every call is logged, when the run has a log."""
         if self.run_logger is None:
             return model
-        from evalrx.eval_agent.model_instrumentation import InstrumentedModel
+        from evalrx.eval_agent.runlog.instrumentation import InstrumentedModel
 
         return InstrumentedModel(
             model, self.run_logger, stage="M5",

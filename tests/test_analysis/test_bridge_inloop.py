@@ -11,7 +11,7 @@ from evalrx.analysis.operationalize import (
     safe_ident,
 )
 from evalrx.analysis.stats_tools import build_stats_input
-from evalrx.eval_agent.loop import VLDiagnoseLoop
+from evalrx.eval_agent.loop.diagnose import VLDiagnoseLoop
 
 
 class _FakeResult:

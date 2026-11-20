@@ -1,19 +1,17 @@
-"""Who picks the next stage of a :class:`~evalrx.eval_agent.loop.VLDiagnoseLoop` run.
+"""The default next-step policy: M1→M2→M3(→M4) cycles in a fixed order.
 
-The loop owns the stages (M1 probe, explore, M2 stats, M3 diagnosis, M4 test),
-the run log and the confirm split. A policy decides the order:
-:class:`FixedOrderPolicy` (the default) runs M1→M2→M3→M4 cycles;
-:class:`~evalrx.eval_agent.agentic.policy.JudgePolicy` asks a judge, one tool
-call at a time. Both keep their bookkeeping in one :class:`RunState`.
+The loop (:class:`~evalrx.eval_agent.loop.diagnose.VLDiagnoseLoop`) owns the
+stages, the run log and the confirm split; a policy only decides the order.
+The alternative is :class:`~evalrx.eval_agent.loop.judge.policy.JudgePolicy`,
+which asks a judge one tool call at a time.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING
 
-from evalrx.eval_agent.loop_reports import (
+from evalrx.eval_agent.loop.report import (
     STOPPED_BY_BUDGET,
     STOPPED_BY_CRITERIA,
     STOPPED_BY_DIAG_ERROR,
@@ -22,60 +20,13 @@ from evalrx.eval_agent.loop_reports import (
     STOPPED_BY_NO_PROBE,
     AutoDiagnoseReport,
 )
+from evalrx.eval_agent.loop.state import RunState, cycle_summary
 
 if TYPE_CHECKING:
     from evalrx.core.case import CaseBatch
-    from evalrx.eval_agent.loop import VLDiagnoseLoop
+    from evalrx.eval_agent.loop.diagnose import VLDiagnoseLoop
 
 logger = logging.getLogger(__name__)
-
-
-class Policy(Protocol):
-    def run(self, loop: "VLDiagnoseLoop", data: "CaseBatch",
-            timings: dict[str, float]) -> AutoDiagnoseReport: ...
-
-
-@dataclass
-class RunState:
-    """What one run accumulates, whichever policy drives it."""
-
-    original_data: Any
-    data: Any
-    timings: dict[str, float] = field(default_factory=dict)
-    cycle: int = 0
-    all_hypotheses: list[Any] = field(default_factory=list)
-    all_test_results: list[Any] = field(default_factory=list)
-    #: Each finished cycle's summary, M3's context for the next one.
-    prior_cycles: list[dict[str, Any]] = field(default_factory=list)
-    stats_report: Any = None
-    diagnosis_failed: bool = False
-    #: The last M1's analyzers — what the held-out M4 pass re-runs.
-    analyzer_names: list[str] = field(default_factory=list)
-    # Judge-decided runs only: the decision judge and the tools' working state.
-    judge: Any = None
-    pending_hypotheses: list[Any] = field(default_factory=list)
-    probe_results: dict[str, Any] = field(default_factory=dict)
-    artifact_pngs: list[Any] = field(default_factory=list)
-    failure_modes: Any = None
-    probe_search_result: Any = None
-    surgery_outcome: Any = None
-    fix_outcome: Any = None
-
-
-def cycle_summary(cycle: int, stats_report: Any, hypotheses: list) -> dict[str, Any]:
-    """One finished cycle as the next M3 call sees it."""
-    return {
-        "cycle": cycle,
-        "severity": getattr(stats_report, "severity", "none"),
-        "hypotheses": [
-            {
-                "statement": h.statement,
-                "failure_mode": h.predicted_failure_mode,
-                "status": h.status.value if h.status else "pending",
-            }
-            for h in hypotheses
-        ],
-    }
 
 
 class FixedOrderPolicy:

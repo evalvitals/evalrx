@@ -152,7 +152,7 @@ class FixAgent:
         alpha:            Significance level for the e-value gate (default 0.05;
                           rejects when e >= 1/alpha).  Also sets the power
                           ceiling used to flag underpowered-by-design runs.
-        run_context:      Optional :class:`~evalrx.eval_agent.run_context.RunContext`.
+        run_context:      Optional :class:`~evalrx.eval_agent.runlog.context.RunContext`.
                           When set (directly, or inherited from ``run_logger``),
                           coded-pipeline sandbox workdirs are allocated durably
                           under ``workspace/`` instead of an ephemeral temp dir.

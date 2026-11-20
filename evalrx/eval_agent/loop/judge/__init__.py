@@ -9,10 +9,10 @@ M1->M2->M3->M4 cycle: ``VLDiagnoseLoop(..., policy=JudgePolicy(judge))``.
 
 from __future__ import annotations
 
-from evalrx.eval_agent.agentic.actions import Action, decide
-from evalrx.eval_agent.agentic.board import BudgetState, EvidenceBoard
-from evalrx.eval_agent.agentic.policy import JudgePolicy
-from evalrx.eval_agent.agentic.tools import (
+from evalrx.eval_agent.loop.judge.actions import Action, decide
+from evalrx.eval_agent.loop.judge.board import BudgetState, EvidenceBoard
+from evalrx.eval_agent.loop.judge.policy import JudgePolicy
+from evalrx.eval_agent.loop.judge.tools import (
     ToolOutcome,
     ToolRegistry,
     ToolSpec,

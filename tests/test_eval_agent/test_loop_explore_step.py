@@ -23,8 +23,8 @@ from evalrx.analysis.explorer import ExploratoryAnalysisReport
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.core.result import Result
 from evalrx.eval_agent.hypothesis import Hypothesis
-from evalrx.eval_agent.loop import VLDiagnoseLoop
-from evalrx.eval_agent.run_logger import RunLogger
+from evalrx.eval_agent.loop.diagnose import VLDiagnoseLoop
+from evalrx.eval_agent.runlog.logger import RunLogger
 from evalrx.eval_agent.stages.diagnosis import DiagnosisResult, ExploreContext
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 from evalrx.reporting.run_events import read_run_events
@@ -367,7 +367,7 @@ def test_default_explore_dir_with_a_run_context_stays_off_the_run_root(tmp_path)
     ctx.root/"explore" instead of calling ctx.explore_dir — which would have
     left real files outside the JSON-only run artifact, never cleaned up
     by finalize()'s runtime_root rmtree."""
-    from evalrx.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.runlog.context import RunContext
 
     calls: list[str] = []
     workdir = tmp_path / "sandbox"
@@ -402,10 +402,10 @@ def test_default_explore_dir_beside_a_standalone_logs_dir_and_inside_other_dirs(
 
 
 def test_agentic_explore_publishes_artifacts_and_passes_notes_to_m3(tmp_path):
-    from evalrx.eval_agent.agentic.board import EvidenceBoard
-    from evalrx.eval_agent.agentic.tools import _explore_data
-    from evalrx.eval_agent.policy import RunState
-    from evalrx.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.loop.judge.board import EvidenceBoard
+    from evalrx.eval_agent.loop.judge.tools import _explore_data
+    from evalrx.eval_agent.loop.state import RunState
+    from evalrx.eval_agent.runlog.context import RunContext
 
     calls = []
     workdir = tmp_path / 'sandbox'

@@ -20,9 +20,9 @@ from pydantic import BaseModel, Field, create_model
 from evalrx.agent_runtime.judge_call import JudgeError, ask_judge
 
 if TYPE_CHECKING:
-    from evalrx.eval_agent.agentic.board import EvidenceBoard
-    from evalrx.eval_agent.agentic.tools import ToolRegistry
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.loop.judge.board import EvidenceBoard
+    from evalrx.eval_agent.loop.judge.tools import ToolRegistry
+    from evalrx.eval_agent.runlog.logger import RunLogger
 
 logger = logging.getLogger(__name__)
 

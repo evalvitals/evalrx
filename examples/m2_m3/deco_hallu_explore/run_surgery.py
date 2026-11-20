@@ -161,7 +161,7 @@ def main() -> None:
         SurgeryAgent,
         VLDiagnoseLoop,
     )
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.models.backends.base import RuntimeConfig
 
     judge = loop_run.build_judge(loop_run.CFG.get("judge_model", "claude-opus-4-8"),

@@ -8,8 +8,8 @@ experiment code into an ephemeral temp dir.  ``RunContext`` replaces that
 gluing with one library-owned object that owns the whole run directory and
 hands every producer its subdirectory.
 
-The logger is :class:`~evalrx.eval_agent.run_logger.RunLogger` (see
-``evalrx/eval_agent/RUN_LOGGER.md``): one ``run.json`` plus one
+The logger is :class:`~evalrx.eval_agent.runlog.logger.RunLogger` (see
+``evalrx/eval_agent/runlog/README.md``): one ``run.json`` plus one
 ``M1/log.json``..``M5/log.json`` per stage, no flat event file, no persisted
 ``prompts/``/``experiments/``/``tools/``/``workspace/``/``fixes/`` — generated
 text/code is captured inline into the relevant stage's JSON via an ephemeral
@@ -57,7 +57,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
 
 
 class Trial:
@@ -113,7 +113,7 @@ class RunContext:
         verbose:  Forwarded to the logger (human-readable stdout).
         narrate:  Forwarded to the logger — live, aligned M1-M5 terminal
                   narration instead of `verbose`'s raw one-liner (see
-                  :class:`evalrx.eval_agent.narration.LoopNarrator`).
+                  :class:`evalrx.eval_agent.runlog.narration.LoopNarrator`).
                   Supersedes *verbose* rather than stacking with it.
         config:   Optional run-configuration dict recorded verbatim in the
                   manifest (model, judge, protocol, …).
@@ -200,7 +200,7 @@ class RunContext:
     def logger(self) -> "RunLogger":
         """The logger bound to this context (created on first use)."""
         if self._logger is None:
-            from evalrx.eval_agent.run_logger import RunLogger
+            from evalrx.eval_agent.runlog.logger import RunLogger
 
             self._logger = RunLogger(
                 run_dir=self.root, verbose=self._verbose, narrate=self._narrate,
@@ -275,7 +275,7 @@ class RunContext:
         *discovery* (optional) is a list of already-serialised case rows —
         examples that compute task-specific columns (e.g. parsed yes/no)
         build the rows themselves. Delegates to
-        :meth:`~evalrx.eval_agent.run_logger.RunLogger.log_diagnose_report`.
+        :meth:`~evalrx.eval_agent.runlog.logger.RunLogger.log_diagnose_report`.
         """
         self.logger.log_diagnose_report(report, cases, discovery=discovery)
 

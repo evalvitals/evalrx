@@ -1080,7 +1080,7 @@ class TestM3FaultTolerance:
 
         import json
 
-        from evalrx.eval_agent.run_logger import RunLogger
+        from evalrx.eval_agent.runlog.logger import RunLogger
 
         run_logger = RunLogger(tmp_path / "logs")
         loop = VLDiagnoseLoop(
@@ -1242,7 +1242,7 @@ class TestM4Holdout:
 def test_m3_transient_error_retries_without_reprobing(tmp_path):
     from types import SimpleNamespace
 
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
 
     class Transient:
         calls = 0

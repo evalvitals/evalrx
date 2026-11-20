@@ -1,7 +1,7 @@
 # LAMBDA 探索 × M2/M4 确证 集成设计
 
 > 状态：**Phase A–D 已实现**（2026-06-27）。如何把 LAMBDA 式探索层（`evalrx/analysis/`）接入 M1→M5 诊断-修复链路。
-> 新增模块：[adjudicate.py](adjudicate.py)（宿主裁决）· [operationalize.py](operationalize.py)（recipe→冻结信号 + in-loop 桥接）· [fused_pipeline.py](fused_pipeline.py)（explore→confirm 编排）；in-loop 注入在 [loop.py](../eval_agent/loop.py) `VLDiagnoseLoop._bridge_signals`。测试 `tests/test_analysis/test_{adjudicate,operationalize,fused_pipeline,bridge_inloop,integration_fused}.py`（74 项全过）。
+> 新增模块：[adjudicate.py](adjudicate.py)（宿主裁决）· [operationalize.py](operationalize.py)（recipe→冻结信号 + in-loop 桥接）· [fused_pipeline.py](fused_pipeline.py)（explore→confirm 编排）；in-loop 注入在 [loop.py](../eval_agent/loop/diagnose.py) `VLDiagnoseLoop._bridge_signals`。测试 `tests/test_analysis/test_{adjudicate,operationalize,fused_pipeline,bridge_inloop,integration_fused}.py`（74 项全过）。
 >
 > **延伸（单轮 viz 管线：图表/观察→M3 + dashboard，含 chat 退役）**：本文档接的是**信号→M2 确证**；让 M3 消费/输出 explorer **图表+观察(机制语言)**、把 viz 提成共享核、退役交互 REPL（只留单轮管线）的已实现设计见 [DESIGN_m3_charts.md](DESIGN_m3_charts.md)。历史行号仅用于追溯，当前代码以文件中的函数名为准。
 > 一句话：**LAMBDA 提议、M2 扩族确证、M4（gated on M2）验证、FixAgent 修复——永不用一张图来确证。** 核心新部件是 **operationalization bridge**，把 LAMBDA 发现的复合/切片信号编译成冻结 per-case 信号，使其进入 M2 的 e-BH family。
@@ -32,7 +32,7 @@ M1 ProbeAgent      analyzers → probe_results（Result.findings["per_case"] 是
 
 → 推论：若 LAMBDA 只在 M2 **之后**提假设，它发现的任何新信号永远拿不到 e-value，M4 判非 decisive，假设全塌成 INCONCLUSIVE。**必须在 M2 跑之前把信号桥接进它的族。**
 
-**已具备的护栏（漏洞已修）**：充分统计量+宿主重算决策（`_reconstruct_decision`，[stats_tool_generator.py](stats_tool_generator.py)）；候选族 e-BH（`ebh_survivors`，[fix/verdict.py](../eval_agent/stages/fix/verdict.py)）；留出 CONFIRM split（`_split_explore_confirm`，[loop.py](../eval_agent/loop.py)，`(label, probe_type)` 分层、按 id 不相交）。
+**已具备的护栏（漏洞已修）**：充分统计量+宿主重算决策（`_reconstruct_decision`，[stats_tool_generator.py](stats_tool_generator.py)）；候选族 e-BH（`ebh_survivors`，[fix/verdict.py](../eval_agent/stages/fix/verdict.py)）；留出 CONFIRM split（`_split_explore_confirm`，[loop.py](../eval_agent/loop/diagnose.py)，`(label, probe_type)` 分层、按 id 不相交）。
 
 ---
 
@@ -119,7 +119,7 @@ def compile_recipe(recipe, records) -> dict[str, float]:
 
 **Phase C ✅ — 桥接信号接回 in-loop M2（合成-Result 注入）**
 - [operationalize.py](operationalize.py)：`safe_ident`/`per_case_to_records`（转置 + 把 `analyzer.metric` 消歧成 DSL 标识符）/`bridge_recipes_to_result`（recipe 在已有 analyzer 信号上编译 → 合成 `explored` analyzer Result）。
-- [loop.py](../eval_agent/loop.py)：`VLDiagnoseLoop` 加 `signal_recipes` 参数 + `_bridge_signals`（M1→M2 之间注入，no-op 默认）。**leak-free by construction**：recipe 必须 out-of-band 预注册（B2 留出集或手写），非窥探本轮 label，故 in-loop 测它等同测预注册 analyzer。
+- [loop.py](../eval_agent/loop/diagnose.py)：`VLDiagnoseLoop` 加 `signal_recipes` 参数 + `_bridge_signals`（M1→M2 之间注入，no-op 默认）。**leak-free by construction**：recipe 必须 out-of-band 预注册（B2 留出集或手写），非窥探本轮 label，故 in-loop 测它等同测预注册 analyzer。
 
 **Phase D ✅ — 测试**：双盲守卫（explorer 只见 explore、verdict 算在不相交 confirm）；宿主裁决（自报 `reject=true`/`e_value=1e9` 被结构性丢弃重算）；**不合并**（不同 estimand → 两个独立 e-BH 成员，从不合并 e-value）；确定性复现（同 seed 同输出）；`expr` 编译/安全；真实 explorer codegen→bridge→M2 端到端。
 

@@ -63,7 +63,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from evalrx.core.capability import Capability
     from evalrx.core.model import CaptureSpec, Judge, Model, Trace
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
 
     # The proxy stands in for the Model it wraps. It is not a subclass at run
     # time: Model's class-level defaults (capabilities, modalities) would

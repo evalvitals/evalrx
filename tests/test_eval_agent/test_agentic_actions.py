@@ -9,14 +9,14 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from evalrx.eval_agent.agentic.actions import (
+from evalrx.eval_agent.loop.judge.actions import (
     Action,
     _fallback_action,
     action_model,
     decide,
 )
-from evalrx.eval_agent.agentic.board import EvidenceBoard
-from evalrx.eval_agent.agentic.tools import ToolOutcome, ToolRegistry, ToolSpec
+from evalrx.eval_agent.loop.judge.board import EvidenceBoard
+from evalrx.eval_agent.loop.judge.tools import ToolOutcome, ToolRegistry, ToolSpec
 
 
 def _registry() -> ToolRegistry:

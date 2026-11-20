@@ -1,5 +1,5 @@
 """Live per-stage terminal narration for the M1-M5 diagnosis loop
-(:class:`~evalrx.eval_agent.run_logger.RunLogger`).
+(:class:`~evalrx.eval_agent.runlog.logger.RunLogger`).
 
 Sibling of :class:`evalrx.analysis.narration.TerminalNarrator` (built for
 the `evalrx explore`/`run-codebase` CLI pipeline) — same visual grammar

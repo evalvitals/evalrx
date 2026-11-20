@@ -6,6 +6,29 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed — `eval_agent` grouped into `loop/` and `runlog/`
+
+The loop and its policies live in `evalrx.eval_agent.loop`, the run directory and
+event log in `evalrx.eval_agent.runlog`. Top-level imports
+(`from evalrx.eval_agent import VLDiagnoseLoop, RunContext, ...`) are unchanged;
+deep imports move, with no aliases left behind:
+
+| Was | Now |
+|---|---|
+| `evalrx.eval_agent.loop` | `evalrx.eval_agent.loop.diagnose` |
+| `evalrx.eval_agent.policy` | `evalrx.eval_agent.loop.state` (`Policy`, `RunState`, `cycle_summary`), `evalrx.eval_agent.loop.fixed` (`FixedOrderPolicy`) |
+| `evalrx.eval_agent.agentic` (and `.actions`, `.board`, `.tools`, `.policy`) | `evalrx.eval_agent.loop.judge` (same submodules) |
+| `evalrx.eval_agent.loop_reports` | `evalrx.eval_agent.loop.report` |
+| `evalrx.eval_agent.loop_fix` | `evalrx.eval_agent.loop.fix` |
+| `evalrx.eval_agent.run_metadata` | `evalrx.eval_agent.loop.metadata` |
+| `evalrx.eval_agent.run_context` | `evalrx.eval_agent.runlog.context` |
+| `evalrx.eval_agent.run_logger` | `evalrx.eval_agent.runlog.logger` |
+| `evalrx.eval_agent.run_log_entries` / `run_log_files` / `run_log_tracing` | `evalrx.eval_agent.runlog.entries` / `files` / `tracing` |
+| `evalrx.eval_agent.log_schema` (+ `run_log.schema.json`) | `evalrx.eval_agent.runlog.schema` (schema file beside it) |
+| `evalrx.eval_agent.narration` | `evalrx.eval_agent.runlog.narration` |
+| `evalrx.eval_agent.model_instrumentation` | `evalrx.eval_agent.runlog.instrumentation` |
+| `evalrx/eval_agent/RUN_LOGGER.md` | `evalrx/eval_agent/runlog/README.md` |
+
 ### Added — typed judge calls
 
 `evalrx.agent_runtime.judge_call.ask_judge(judge, prompt, OutputModel, role=...)`

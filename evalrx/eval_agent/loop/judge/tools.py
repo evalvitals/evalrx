@@ -12,12 +12,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
-from evalrx.eval_agent.policy import RunState, cycle_summary
+from evalrx.eval_agent.loop.state import RunState, cycle_summary
 
 if TYPE_CHECKING:
-    from evalrx.eval_agent.agentic.actions import Action
-    from evalrx.eval_agent.agentic.board import EvidenceBoard
-    from evalrx.eval_agent.loop_reports import AutoDiagnoseReport
+    from evalrx.eval_agent.loop.judge.actions import Action
+    from evalrx.eval_agent.loop.judge.board import EvidenceBoard
+    from evalrx.eval_agent.loop.report import AutoDiagnoseReport
 
 
 @dataclass(frozen=True)
@@ -147,7 +147,7 @@ def _summarize_stats(report: Any) -> list[dict[str, Any]]:
 
 def _current_report(loop: Any, state: RunState) -> "AutoDiagnoseReport":
     """Snapshot the run so far into the same report shape run_m5/run_fix expect."""
-    from evalrx.eval_agent.loop_reports import AutoDiagnoseReport
+    from evalrx.eval_agent.loop.report import AutoDiagnoseReport
 
     verified = loop.hypothesis_tester.best_hypotheses(state.all_test_results)
     return AutoDiagnoseReport(

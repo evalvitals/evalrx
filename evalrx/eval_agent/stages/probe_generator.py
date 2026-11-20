@@ -189,7 +189,7 @@ class ProbeGenerator:
         if self._max_cases > 0:  # 0 = every case
             selected = selected[: self._max_cases]
         if self.run_logger is not None:
-            from evalrx.eval_agent.model_instrumentation import InstrumentedModel
+            from evalrx.eval_agent.runlog.instrumentation import InstrumentedModel
 
             model = InstrumentedModel(
                 model, self.run_logger,

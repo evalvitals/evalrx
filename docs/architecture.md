@@ -180,7 +180,7 @@ core contracts described above. Two loops are available — the same M1-M4
 stages, two different orchestration strategies:
 
 ```text
-VLDiagnoseLoop  (loop.py — protocol-guided, stops on verified hypothesis)
+VLDiagnoseLoop  (loop/diagnose.py — protocol-guided, stops on verified hypothesis)
   ExperimentProtocol  ← user's NL description of what to investigate
        │
   M1 · ProbeAgent         detect model kind → run ranked analyzers;
@@ -193,9 +193,9 @@ VLDiagnoseLoop  (loop.py — protocol-guided, stops on verified hypothesis)
        │
   M5 · SurgeryAgent       called once post-loop on the best verified hypothesis
 
-The cycle above is the default policy, FixedOrderPolicy (policy.py).
+The cycle above is the default policy, FixedOrderPolicy (loop/fixed.py).
 
-VLDiagnoseLoop(policy=JudgePolicy(judge))  (agentic/policy.py — judge-decided, same M1-M4 stages)
+VLDiagnoseLoop(policy=JudgePolicy(judge))  (loop/judge/policy.py — judge-decided, same M1-M4 stages)
   A CLI judge picks the next tool (run_probe / run_stats / explore_data /
   cluster_failures / search_probes / propose_hypotheses / test_hypothesis /
   run_surgery / run_fix / stop) each turn from an EvidenceBoard, instead of a
@@ -209,7 +209,7 @@ The agent touches models only through the `Model` protocol and stores all
 evidence in a `Store`.
 
 `.run()` on both loops returns the same class, `AutoDiagnoseReport`
-(`loop_reports.py`). Each loop populates only the fields relevant to what it
+(`loop/report.py`). Each loop populates only the fields relevant to what it
 ran — see [Stage Input/Output Reference](stage_io.md#loop-level-output) for
 the full field table.
 
@@ -217,18 +217,23 @@ the full field table.
 
 ```text
 eval_agent/
-├── loop.py               VLDiagnoseLoop (current)
-├── loop_fix.py           run_fix orchestration: fix targets, tier ladder, EXPLORE→CONFIRM
-├── loop_reports.py       AutoDiagnoseReport — the one report class both policies return
-├── policy.py             FixedOrderPolicy (default M1→M4 cycles) + RunState, shared by both policies
-├── run_metadata.py       shared run-provenance + logging-wiring helpers
-├── agentic/              JudgePolicy — judge-decided M1-M4 (see below)
-├── run_context.py        RunContext, Trial — single owner of a run's output directory
-├── run_logger.py         RunLogger — run.json + per-stage M<n>/log.json event log
-├── run_log_entries.py    what each logged event records, one pure function per event
-├── run_log_files.py      atomic JSON writes, inlined sandbox workspaces, saved artifacts
-├── run_log_tracing.py    each logged event mirrored into Langfuse
-├── log_schema.py         published event JSON Schema
+├── loop/                 the diagnosis loop and who picks its next step
+│   ├── diagnose.py       VLDiagnoseLoop — stages, confirm split, run phases
+│   ├── state.py          Policy (next-step contract), RunState (what a run carries)
+│   ├── fixed.py          FixedOrderPolicy — M1→M4 cycles, the default
+│   ├── judge/            JudgePolicy — judge-decided M1-M4 (see below)
+│   ├── report.py         AutoDiagnoseReport — the one report class both policies return
+│   ├── fix.py            run_fix orchestration: fix targets, tier ladder, EXPLORE→CONFIRM
+│   └── metadata.py       shared run-provenance + logging-wiring helpers
+├── runlog/               a run's output directory and event log (README.md: the layout)
+│   ├── context.py        RunContext, Trial — single owner of a run's output directory
+│   ├── logger.py         RunLogger — run.json + per-stage M<n>/log.json event log
+│   ├── entries.py        what each logged event records, one pure function per event
+│   ├── files.py          atomic JSON writes, inlined sandbox workspaces, saved artifacts
+│   ├── tracing.py        each logged event mirrored into Langfuse
+│   ├── schema.py         published event JSON Schema (run_log.schema.json)
+│   ├── narration.py      live terminal narration of a run
+│   └── instrumentation.py  InstrumentedModel — logs each analyzer call to the model
 ├── hypothesis.py         Hypothesis, HypothesisStatus — shared across M3/M4/M5
 ├── store.py              Store / InMemoryStore / JsonlStore
 └── stages/               ← M1, M3, M4, M5 stage implementations (M2 lives in evalrx.analysis)
@@ -485,7 +490,7 @@ wiring required.
 files, a logger buried under a `logs/` subdir, hand-built figure-dir paths,
 and M5 sandboxes living in ephemeral temp dirs deleted on success.  One
 `RunContext` owns the whole run root and hands every producer its
-subdirectory, always through `RunLogger` (`evalrx/eval_agent/RUN_LOGGER.md`) —
+subdirectory, always through `RunLogger` (`evalrx/eval_agent/runlog/README.md`) —
 there is no other logger to select:
 
 ```text
@@ -540,8 +545,8 @@ jq '.probe[-1].findings' run_dir/M1/log.json  # latest M1 findings
 ```
 
 The event format is a **published JSON Schema** (Draft 2020-12), shipped as
-package data at `evalrx/eval_agent/run_log.schema.json` and built from
-`evalrx/eval_agent/log_schema.py` — so downstream parsers (in any language)
+package data at `evalrx/eval_agent/runlog/run_log.schema.json` and built from
+`evalrx/eval_agent/runlog/schema.py` — so downstream parsers (in any language)
 can validate an event instead of guessing field shapes. It's permissive by
 design: it pins the common envelope (`event`, `schema_version`, `ts`,
 `trace_id`, `stage`, `span_id`, `event_seq`), the per-event required fields

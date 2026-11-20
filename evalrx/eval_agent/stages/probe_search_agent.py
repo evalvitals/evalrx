@@ -68,7 +68,7 @@ class ProbeSearchAgent:
     def run(self, model: "Model", seed_pool: "CaseBatch") -> ProbeSearchResult:
         judge = self.judge
         if self.run_logger is not None:
-            from evalrx.eval_agent.model_instrumentation import InstrumentedModel
+            from evalrx.eval_agent.runlog.instrumentation import InstrumentedModel
 
             run_logger = self.run_logger
             cycle = int(getattr(run_logger, "current_cycle", -1))

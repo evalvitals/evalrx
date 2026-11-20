@@ -16,16 +16,16 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from evalrx.eval_agent.agentic.actions import decide
-from evalrx.eval_agent.agentic.board import BudgetState, EvidenceBoard
-from evalrx.eval_agent.agentic.tools import ToolRegistry, build_default_registry
-from evalrx.eval_agent.loop_reports import STOPPED_BY_DIAG_ERROR, AutoDiagnoseReport
-from evalrx.eval_agent.policy import RunState
-from evalrx.eval_agent.run_metadata import _data_provenance
+from evalrx.eval_agent.loop.judge.actions import decide
+from evalrx.eval_agent.loop.judge.board import BudgetState, EvidenceBoard
+from evalrx.eval_agent.loop.judge.tools import ToolRegistry, build_default_registry
+from evalrx.eval_agent.loop.metadata import _data_provenance
+from evalrx.eval_agent.loop.report import STOPPED_BY_DIAG_ERROR, AutoDiagnoseReport
+from evalrx.eval_agent.loop.state import RunState
 
 if TYPE_CHECKING:
     from evalrx.core.case import CaseBatch
-    from evalrx.eval_agent.loop import VLDiagnoseLoop
+    from evalrx.eval_agent.loop.diagnose import VLDiagnoseLoop
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ def _protocol_summary(protocol: "Any | None") -> str:
 
 
 class JudgePolicy:
-    """Next-step policy for :class:`~evalrx.eval_agent.loop.VLDiagnoseLoop`.
+    """Next-step policy for :class:`~evalrx.eval_agent.loop.diagnose.VLDiagnoseLoop`.
 
     Args:
         judge:            Judge that decides the next action each turn (e.g.

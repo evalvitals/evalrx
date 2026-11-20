@@ -15,7 +15,7 @@ import json
 
 from evalrx.core.capability import Capability
 from evalrx.core.case import CaseBatch, FailureCase, Inputs
-from evalrx.eval_agent.run_logger import RunLogger
+from evalrx.eval_agent.runlog.logger import RunLogger
 from evalrx.eval_agent.stages.probe_agent import ProbeAgent
 from tests.conftest import FakeModel
 

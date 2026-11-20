@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from evalrx.agent_runtime.cli_types import CliAgentConfig
     from evalrx.core.case import CaseBatch, FailureCase
     from evalrx.core.model import Judge, Model
-    from evalrx.eval_agent.run_context import Trial
+    from evalrx.eval_agent.runlog.context import Trial
 
 logger = logging.getLogger(__name__)
 
