@@ -122,7 +122,7 @@ def build_probe(name: str, params: "Mapping[str, Any] | None" = None, *,
                 f"{name}: the host must supply {list(spec.injected_params)} "
                 "(pass a constructed analyzer via analyzer_overrides)", "unavailable",
             )
-        return spec.analyzer_cls(**cleaned)
+        return registry.analyzers.get(name)(**cleaned)
     except ProbeCallError:
         raise
     except (TypeError, ValueError) as exc:
@@ -172,6 +172,8 @@ class ProbeToolbox:
         batch = self.data if data is None else data
         if batch is None:
             raise ProbeCallError(f"{name}: no data to probe", "unavailable")
+        if self.model is None:
+            raise ProbeCallError(f"{name}: no model to probe", "unavailable")
         analyzer = build_probe(name, params, overrides=self.overrides)
         verdict = availability(spec_for(name), self.model, batch, overrides=self.overrides)
         if not verdict.available:

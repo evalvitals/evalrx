@@ -113,6 +113,17 @@ class WeightEditContinuationAudit(Analyzer):
         ),
     }
 
+    edit: Any
+    groups: str
+    repeat_ngram: int
+    controls: tuple[str, ...]
+    n_seeds: int
+    steering: bool
+    max_tokens: int
+    chunk: int
+    seed: int
+    max_cases: int
+
     def __init__(self, edit: "Any", groups: str = "repetition", repeat_ngram: int = 32,
                  controls: "tuple[str, ...]" = ("random_direction", "random_columns"),
                  n_seeds: int = 1, steering: bool = True, max_tokens: int = 4096,
@@ -204,11 +215,11 @@ class WeightEditContinuationAudit(Analyzer):
                       for t in delta.tensors}
 
         # ---- Pass 2: per case, the clean run and every state ------------------------
-        def score(clean: Any, other: Any, item: dict[str, Any]) -> "tuple[Any, Any, Any, Any]":
+        def score(clean: Any, other: Any, item: dict[str, Any]) -> "tuple[Any, ...]":
             """Per target: clean NLL, NLL change, KL from clean, top-1 changed."""
             pos = torch.tensor([i - 1 for i in item["targets"]], device=device)
             tgt = torch.tensor([item["ids"][i] for i in item["targets"]], device=device)
-            out = [[], [], [], []]
+            out: list[list[Any]] = [[], [], [], []]
             for a in range(0, len(pos), int(self.chunk)):
                 p, t = pos[a:a + int(self.chunk)], tgt[a:a + int(self.chunk)]
                 lp0 = torch.log_softmax(clean[p].float(), dim=-1)
@@ -296,14 +307,14 @@ class WeightEditContinuationAudit(Analyzer):
             edit_kl = float(cat(pooled["edit"][g]["kl"]).mean())
             for label in state_names:
                 dnll = cat(pooled[label][g]["dnll"])
-                kl = float(cat(pooled[label][g]["kl"]).mean())
+                mean_kl = float(cat(pooled[label][g]["kl"]).mean())
                 findings[f"mean_dnll_{label}_{g}"] = float(dnll.mean())
-                findings[f"mean_kl_{label}_{g}"] = kl
+                findings[f"mean_kl_{label}_{g}"] = mean_kl
                 findings[f"frac_flips_{label}_{g}"] = round(
                     float(cat(pooled[label][g]["flip"]).mean()), 4)
                 if label in self.controls:
                     # Output movement of the edit over that of the matched control.
-                    findings[f"specificity_{label}_{g}"] = round(edit_kl / kl, 4) if kl > 0 else None
+                    findings[f"specificity_{label}_{g}"] = round(edit_kl / mean_kl, 4) if mean_kl > 0 else None
                 if label == "steer":
                     total = float((edit_dnll ** 2).sum())
                     findings[f"steer_recovery_{g}"] = (

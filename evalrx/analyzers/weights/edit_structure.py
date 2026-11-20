@@ -58,6 +58,10 @@ class WeightEditStructure(Analyzer):
         ),
     }
 
+    edit: Any
+    verify_base: bool
+    top_singular: int
+
     def __init__(self, edit: "Any", verify_base: bool = False, top_singular: int = 8) -> None:
         super().__init__(edit=edit, verify_base=verify_base, top_singular=top_singular)
 

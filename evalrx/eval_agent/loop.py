@@ -602,6 +602,10 @@ class VLDiagnoseLoop:
             h.predicted_failure_mode for h in all_hypotheses
             if getattr(h, "predicted_failure_mode", None)
         ))
+        # Named calls run exactly what was named (no cap, no backfill).
+        named: dict[str, Any] = {"analyzers": analyzers, "exact": True} if analyzers is not None else {}
+        if analyzer_params:
+            named["analyzer_params"] = analyzer_params
         _t0 = time.monotonic()
         probe_results = self.probe_agent.probe(
             self.model,
@@ -609,9 +613,7 @@ class VLDiagnoseLoop:
             protocol=self.protocol,
             prior_hypotheses=all_hypotheses or None,
             hint_failure_modes=prior_modes or None,
-            # Named calls run exactly what was named (no cap, no backfill).
-            **({"analyzers": analyzers, "exact": True} if analyzers is not None else {}),
-            **({"analyzer_params": analyzer_params} if analyzer_params else {}),
+            **named,
         )
         _dt = time.monotonic() - _t0
         timings["m1"] = timings.get("m1", 0.0) + _dt
