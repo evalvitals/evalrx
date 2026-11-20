@@ -48,6 +48,8 @@ class EvidenceBoard:
     protocol_summary: str = ""
     data_summary: dict[str, Any] = field(default_factory=dict)
     probe_findings: list[dict[str, Any]] = field(default_factory=list)
+    #: Rendered output of the last ``list_probes`` call (names, arguments, reasons).
+    probe_catalog: str = ""
     stats_findings: list[dict[str, Any]] = field(default_factory=list)
     stats_confirmatory: bool = False
     explore_takeaways: list[dict[str, Any]] = field(default_factory=list)
@@ -74,6 +76,8 @@ class EvidenceBoard:
         if self.data_summary:
             lines.append(f"DATA: {self.data_summary}\n")
 
+        if self.probe_catalog:
+            lines.append(f"PROBE CATALOG (from list_probes):\n{self.probe_catalog}\n")
         lines.append(f"PROBE FINDINGS (M1): {self.probe_findings or 'none yet'}")
         lines.append(
             f"STATS FINDINGS (M2, confirmatory={self.stats_confirmatory}): "

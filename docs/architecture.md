@@ -13,6 +13,8 @@ evalrx/
 +-- specs.py           # model identity registry
 +-- models/            # model composition, runtime backends, compatibility shims
 +-- analyzers/         # analyzers grouped by capability (attention, lens, uncertainty, …)
++-- probing/           # analyzers as tools: catalog, availability, routing, calls by name
++-- wsp/               # weight edits: build, apply/restore, controls, structure
 +-- datasets/          # loaders that produce FailureCase / CaseBatch
 +-- stats/             # statistical tests: McNemar, e-value, bootstrap CI, Friedman
 `-- eval_agent/        # automated diagnosis loop + selective-inference orchestration

@@ -182,6 +182,11 @@ class ProbeAgent:
         self.max_cases_per_analyzer = int(max_cases_per_analyzer or 0)
         #: Names actually truncated by the cap, for the caller to report.
         self.capped_analyzers: dict[str, tuple[int, int]] = {}
+        #: Arguments each probe was last CALLED BY NAME with. A pinned re-run
+        #: (the held-out confirmation) replays them, so the confirm split is
+        #: probed the way the explore split was; rebuilding with defaults would
+        #: measure a different signal under the same name.
+        self._named_params: dict[str, dict[str, Any]] = {}
 
     # ------------------------------------------------------------------
     # Public interface
@@ -196,6 +201,8 @@ class ProbeAgent:
         prior_hypotheses: list[Any] | None = None,
         hint_failure_modes: list[str] | None = None,
         analyzers: list[str] | None = None,
+        analyzer_params: "dict[str, dict[str, Any]] | None" = None,
+        exact: bool = False,
     ) -> dict[str, "Result"]:
         """Select analyzers and run each one, returning a ``{name: Result}`` dict.
 
@@ -230,6 +237,21 @@ class ProbeAgent:
                                  entirely (still filtered for applicability).
                                  Used by the loop's held-out M4 confirmation to
                                  re-run the same set on the confirm split.
+            analyzer_params:     ``{name: constructor arguments}`` for this call
+                                 only, checked against each probe's schema
+                                 (:func:`~evalrx.probing.toolbox.build_probe`).
+                                 A call whose arguments are rejected raises
+                                 :class:`~evalrx.probing.toolbox.ProbeCallError`
+                                 before any analyzer runs. Used together with
+                                 *analyzers* by tool-style callers that name the
+                                 probe and its arguments themselves.
+            exact:               With *analyzers*: run those and nothing else —
+                                 no ``max_analyzers`` cap and no backfill from
+                                 the static selector when one is inapplicable.
+                                 A caller that names its probes wants the
+                                 evidence it asked for, or to be told it is
+                                 missing; substitutes would be reported under
+                                 names it never requested.
         """
         rationale: str
         self._last_need_custom = None
@@ -240,7 +262,8 @@ class ProbeAgent:
             # too — a fresh judge selection could pick a different set and turn
             # a real signal into a spurious "designated evidence not measured").
             names = list(dict.fromkeys(analyzers))
-            rationale = "Pinned by caller (held-out confirmation re-run)."
+            rationale = ("Called by name." if exact or analyzer_params else
+                         "Pinned by caller (held-out confirmation re-run).")
         elif self.judge is not None and protocol is not None:
             names, rationale = self._llm_select(protocol, model, prior_hypotheses, data)
         else:
@@ -251,15 +274,29 @@ class ProbeAgent:
                 data=data,
             )
             rationale = _static_rationale(names, hint_failure_modes)
-        names, filtered = self._filter_applicable_names(names, model, data)
+        if exact and analyzers is not None:
+            filtered = [
+                n for n in names
+                if not _analyzer_data_preconditions_met(n, data, model) or self._needs_injection(n)
+            ]
+            names = [n for n in names if n not in filtered]
+        else:
+            names, filtered = self._filter_applicable_names(names, model, data)
         if filtered:
             rationale += f" Filtered inapplicable analyzer(s): {', '.join(filtered)}."
 
         # Build (name, analyzer) pairs up front — _make_analyzer is cheap and
         # not thread-safe to call concurrently.
+        if exact and analyzers is not None:
+            for name in names:  # a named call with no arguments means the defaults
+                self._named_params.pop(name, None)
+        if analyzer_params:
+            self._named_params.update({k: dict(v) for k, v in analyzer_params.items() if v})
+        replay = self._named_params if analyzers is not None else {}
         tasks: list[tuple[str, "Analyzer"]] = []
         for name in names:
-            analyzer = self._make_analyzer(name)
+            analyzer = self._make_analyzer(
+                name, (analyzer_params or {}).get(name) or replay.get(name))
             if analyzer is not None:
                 tasks.append((name, analyzer))
 
@@ -935,7 +972,15 @@ class ProbeAgent:
                                inspect.Parameter.VAR_KEYWORD)
         ]
 
-    def _make_analyzer(self, name: str) -> "Analyzer | None":
+    def _make_analyzer(
+        self, name: str, params: "dict[str, Any] | None" = None
+    ) -> "Analyzer | None":
+        if params:
+            # Explicit per-call arguments go through the probe's schema; a bad
+            # call is the caller's error and must surface, not be skipped.
+            from evalrx.probing.toolbox import build_probe
+
+            return build_probe(name, params, overrides=self._overrides)
         if name in self._overrides:
             return self._overrides[name]
         cls = registry.analyzers.get(name)

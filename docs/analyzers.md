@@ -26,9 +26,10 @@ model, not by a black-box / white-box label.
 | [Lens](#lens) | `lens/` | 6 | 0 |
 | [Patching](#patching) | `patching/` | 6 | 0 |
 | [Geometry](#geometry) | `geometry/` | 2 | 0 |
+| [Weights](#weights) | `weights/` | 3 | 0 |
 | [Reasoning](#reasoning) | `reasoning/` | 7 | 0 |
 | [Agent](#agent) | `agent/` | 7 | 0 |
-| **Total** | | **54** | **2** |
+| **Total** | | **57** | **2** |
 <!-- END GENERATED -->
 
 How to read the columns:
@@ -213,6 +214,36 @@ encoders; on a decoder-only MLLM, read them as within-stream layer similarity.
 |---|---|---|---|---|---|
 | Linear CKA | `cka` | `HIDDEN_STATES` | text + image | [Kornblith et al. 2019](https://arxiv.org/abs/1905.00414) | ✓ |
 | Linear probe | `linear_probe` | `HIDDEN_STATES` | text + image | [Alain & Bengio 2016](https://arxiv.org/abs/1610.01644) | ✓ |
+<!-- END GENERATED -->
+
+### Weights
+
+`evalrx/analyzers/weights/`: what a direct weight edit changes, and whether the
+change is specific (`LOGITS` on a local model; the edit is written into the
+module for the measurement and restored exactly afterwards). Both analyzers take
+the edit as a constructor argument, an `evalrx.wsp.WeightEdit`, so a selector
+only offers them when the host passes a constructed instance. See
+[Weight edits and probe tools](wsp_and_probe_tools.md).
+
+`weight_edit_structure` needs no cases: it reports where the weights moved, how
+far, the rank of the change, and for a rank-one change the strength `alpha` of
+the rule `w' = w - alpha u (u^T w)` that reproduces it. `weight_edit_audit`
+measures the edit on the next-token distribution beside a random direction of
+the same size, the same rule on other neurons, and a constant activation shift
+with the weights untouched.
+
+`weight_edit_continuation_audit` takes the same measurement along recorded
+generations (`case.observed` appended to the prompt, teacher-forced), split into
+positions inside a repeated stretch and positions outside one. Use it for an
+edit whose effect only appears during generation, such as one that breaks
+repetition loops.
+
+<!-- BEGIN GENERATED: analyzers/weights -->
+| Analyzer | Key | Requires | Modality | Paper | Status |
+|---|---|---|---|---|---|
+| Weight-edit structure | `weight_edit_structure` | `LOGITS` | text | [Takehi et al. 2026 (WSP)](https://rikiyat.github.io/blog/weight-space-programming/) | ✓ |
+| Weight-edit audit | `weight_edit_audit` | `LOGITS` | text | [Takehi et al. 2026 (WSP)](https://rikiyat.github.io/blog/weight-space-programming/); [Zhang et al. 2026 (EditLens)](https://xxlya.github.io/editlens/) | ✓ |
+| Weight-edit continuation audit | `weight_edit_continuation_audit` | `LOGITS` | text | [Takehi et al. 2026 (WSP)](https://rikiyat.github.io/blog/weight-space-programming/); [Zhang et al. 2026 (EditLens)](https://xxlya.github.io/editlens/) | ✓ |
 <!-- END GENERATED -->
 
 ### Reasoning

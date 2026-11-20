@@ -584,6 +584,8 @@ class VLDiagnoseLoop:
     def _do_m1(
         self, cycle: int, data: "Any", all_hypotheses: "list[Any]",
         timings: "dict[str, float]", *, log: bool = True,
+        analyzers: "list[str] | None" = None,
+        analyzer_params: "dict[str, dict[str, Any]] | None" = None,
     ) -> "tuple[dict[str, Any], list]":
         """M1: protocol-guided probing + signal bridge.
 
@@ -591,7 +593,11 @@ class VLDiagnoseLoop:
         when M1 produced nothing (caller decides whether to stop). When
         ``log`` is False the probe events are not written — used by
         :meth:`run_confirm` when it only needs to regenerate the stats the
-        tester reads (M1/M2 already belong to the analysis phase's log)."""
+        tester reads (M1/M2 already belong to the analysis phase's log).
+
+        ``analyzers`` / ``analyzer_params`` name the probes and their arguments
+        explicitly, bypassing selection (see :meth:`ProbeAgent.probe`); the
+        agentic loop's ``run_probe`` tool passes them through."""
         prior_modes = list(dict.fromkeys(
             h.predicted_failure_mode for h in all_hypotheses
             if getattr(h, "predicted_failure_mode", None)
@@ -603,6 +609,9 @@ class VLDiagnoseLoop:
             protocol=self.protocol,
             prior_hypotheses=all_hypotheses or None,
             hint_failure_modes=prior_modes or None,
+            # Named calls run exactly what was named (no cap, no backfill).
+            **({"analyzers": analyzers, "exact": True} if analyzers is not None else {}),
+            **({"analyzer_params": analyzer_params} if analyzer_params else {}),
         )
         _dt = time.monotonic() - _t0
         timings["m1"] = timings.get("m1", 0.0) + _dt

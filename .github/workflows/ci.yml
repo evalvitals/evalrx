@@ -17,7 +17,10 @@ jobs:
       - run: ruff check .
 
   frontend:
-    # Playwright's chromium does not install on ubuntu-latest (26.04) yet.
+    # Pinned: ubuntu-latest now resolves to Ubuntu 26.04 on some runners, where
+    # `playwright install --with-deps chromium` (Playwright 1.55.0) has no
+    # supported system packages and exits 1. Return to ubuntu-latest once
+    # @playwright/test is upgraded to a release that supports 26.04.
     runs-on: ubuntu-24.04
     defaults:
       run:

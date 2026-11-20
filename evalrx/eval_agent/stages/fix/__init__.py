@@ -14,6 +14,7 @@
   tools.py           L2 tool catalog + PipelineSpec executor
   pipeline.py        L2 coded-pipeline sandbox with the model bridge
   internals.py       L3b intervention primitives, L4 LoRA repair
+  weight_edit.py     L4 training-free weight edit (rank-one rule + matched control)
   repair_catalog.py  discovery of pre-audited model repair capabilities
 
 Import ``FixAgent`` from :mod:`evalrx.eval_agent`.

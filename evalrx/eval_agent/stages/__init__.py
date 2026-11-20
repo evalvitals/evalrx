@@ -29,7 +29,7 @@ M2 — Analysis (statistical interpretation)
 
 M3 — Diagnosis (hypothesis generation)
   diagnosis.py    DiagnosisAgent   LLM judge reads AnalysisReport → Hypothesis list;
-                                   falls back to threshold-derived hypotheses on NO_ISSUE
+                                   falls back to threshold-derived hypotheses on an empty proposal
 
 M5 — Surgery (fix proposal + execution)
   surgery.py           SurgeryAgent       four strategies: verify_fn → analyzer_params →

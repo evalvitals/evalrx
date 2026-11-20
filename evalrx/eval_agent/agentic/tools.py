@@ -189,18 +189,154 @@ def _current_report(loop: Any, state: _RunState) -> "AutoDiagnoseReport":
     )
 
 
+#: Full M1 passes (``run_probe`` with no probe named) allowed per run.
+_MAX_UNNAMED_PROBE_RUNS = 3
+
+
+def _probe_overrides(loop: Any) -> "dict[str, Any]":
+    """Constructed analyzers the host configured on the loop's probe agent."""
+    return dict(getattr(getattr(loop, "probe_agent", None), "_overrides", None) or {})
+
+
+def _requested_probes(params: "dict[str, Any]") -> "list[tuple[str, dict[str, Any]]] | str":
+    """Read ``run_probe`` arguments as ``[(name, params), ...]``.
+
+    Accepts ``{"name": ..., "params": {...}}`` for one probe and
+    ``{"probes": [{"name": ..., "params": {...}}, ...]}`` for several. Returns
+    an error string when the shape is wrong, an empty list when the call names
+    no probe (the automatic-selection form).
+    """
+    entries: list[Any] = []
+    if params.get("probes") is not None:
+        if not isinstance(params["probes"], list):
+            return "params.probes must be a list of {name, params} objects"
+        entries.extend(params["probes"])
+    if params.get("name") is not None:
+        entries.append({"name": params["name"], "params": params.get("params")})
+    out: list[tuple[str, dict[str, Any]]] = []
+    for entry in entries:
+        if isinstance(entry, str):
+            entry = {"name": entry}
+        if not isinstance(entry, dict) or not str(entry.get("name") or "").strip():
+            return "each probe needs a name"
+        args = entry.get("params") or {}
+        if not isinstance(args, dict):
+            return f"params for {entry['name']!r} must be an object"
+        out.append((str(entry["name"]).strip(), dict(args)))
+    return out
+
+
+def _list_probes(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
+    def handler(board: "EvidenceBoard", params: dict[str, Any]) -> ToolOutcome:
+        from evalrx.probing import ProbeRouter
+
+        modes = params.get("failure_modes") or []
+        if isinstance(modes, str):
+            modes = [modes]
+        if not modes:
+            # Default to what the investigation currently suspects.
+            modes = [h.get("failure_mode") for h in board.hypotheses if h.get("failure_mode")]
+        families = params.get("families")
+        if isinstance(families, str):
+            families = [families]
+        router = ProbeRouter(
+            selector=getattr(getattr(loop, "probe_agent", None), "selector", None),
+            overrides=_probe_overrides(loop),
+        )
+        route = router.route(
+            loop.model, state.data,
+            failure_modes=modes or None,
+            families=families or None,
+            access=params.get("access"),
+            allow_interventions=bool(params.get("allow_interventions", True)),
+            only_matching=bool(params.get("only_matching", False)),
+            max_probes=int(params.get("max_probes", 12)),
+        )
+        board.probe_catalog = route.to_prompt()
+        summary = f"{len(route.selected)} runnable probe(s)"
+        if route.unavailable:
+            summary += f", {len(route.unavailable)} requested but unavailable"
+        if not route.selected:
+            return ToolOutcome(False, summary + "; widen the filters", payload=route, error="empty")
+        return ToolOutcome(True, summary + ": " + ", ".join(route.names), payload=route)
+
+    return handler
+
+
 def _run_probe(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
     def handler(board: "EvidenceBoard", params: dict[str, Any]) -> ToolOutcome:
-        probe_results, artifact_pngs = loop._do_m1(
-            state.cycle, state.data, state.all_hypotheses, state.timings
-        )
+        requested = _requested_probes(params or {})
+        if isinstance(requested, str):
+            return ToolOutcome(False, requested, error="bad_params")
+        if not requested:
+            # No probe named: M1 selects (judge-guided or static), as before,
+            # and under the cap a full pass always had. The tool's own cap is
+            # higher only to leave room for the narrower named calls.
+            unnamed = sum(
+                1 for a in board.action_log
+                if a.get("tool") == "run_probe" and a.get("ok")
+                and not _requested_probes(a.get("params") or {})
+            )
+            if unnamed >= _MAX_UNNAMED_PROBE_RUNS:
+                return ToolOutcome(
+                    False,
+                    f"run_probe without a probe name has reached its limit "
+                    f"({_MAX_UNNAMED_PROBE_RUNS}); name the probes to run (see list_probes)",
+                    error="max_calls",
+                )
+            probe_results, artifact_pngs = loop._do_m1(
+                state.cycle, state.data, state.all_hypotheses, state.timings
+            )
+            if not probe_results:
+                return ToolOutcome(False, "M1 produced no probe results", error="empty")
+            state.probe_results = probe_results
+            state.artifact_pngs = artifact_pngs
+            board.probe_findings = _summarize_probe(probe_results)
+            summary = f"ran {len(probe_results)} analyzer(s): {sorted(probe_results)}"
+            state.cycle += 1
+            return ToolOutcome(True, summary, payload=probe_results)
+
+        from evalrx.probing import ProbeCallError, availability, build_probe, spec_for
+
+        overrides = _probe_overrides(loop)
+        names: list[str] = []
+        call_params: dict[str, dict[str, Any]] = {}
+        for name, args in requested:
+            # Validate every call before any model work: one bad argument must
+            # not cost the probes named beside it, nor a slot of the call cap.
+            try:
+                build_probe(name, args, overrides=overrides)
+            except ProbeCallError as exc:
+                return ToolOutcome(False, str(exc), error=exc.code)
+            verdict = availability(spec_for(name), loop.model, state.data, overrides=overrides)
+            if not verdict.available:
+                return ToolOutcome(
+                    False, f"{name} cannot run here: {'; '.join(verdict.missing)}",
+                    error="unavailable",
+                )
+            names.append(name)
+            if args:
+                call_params[name] = args
+        names = list(dict.fromkeys(names))
+        try:
+            probe_results, artifact_pngs = loop._do_m1(
+                state.cycle, state.data, state.all_hypotheses, state.timings,
+                analyzers=names, analyzer_params=call_params or None,
+            )
+        except ProbeCallError as exc:
+            return ToolOutcome(False, str(exc), error=exc.code)
         if not probe_results:
-            return ToolOutcome(False, "M1 produced no probe results", error="empty")
-        state.probe_results = probe_results
-        state.artifact_pngs = artifact_pngs
-        board.probe_findings = _summarize_probe(probe_results)
-        summary = f"ran {len(probe_results)} analyzer(s): {sorted(probe_results)}"
+            return ToolOutcome(False, f"no result from {names}", error="empty")
+        # Named calls ADD evidence: the judge is assembling a picture one probe
+        # at a time, so an earlier probe's findings must survive a later call.
+        state.probe_results = {**state.probe_results, **probe_results}
+        state.artifact_pngs = list(state.artifact_pngs) + list(artifact_pngs)
+        board.probe_findings = _summarize_probe(state.probe_results)
         state.cycle += 1
+        missing = [n for n in names if n not in probe_results]
+        summary = f"ran {sorted(probe_results)}"
+        if missing:
+            summary += f"; no result from {missing} (failed at runtime or filtered)"
         return ToolOutcome(True, summary, payload=probe_results)
 
     return handler
@@ -424,11 +560,62 @@ def build_default_registry(loop: Any, state: _RunState) -> ToolRegistry:
     """Build the default M1-M4 tool registry for one :class:`JudgePolicy` run."""
     registry = ToolRegistry()
     registry.register(ToolSpec(
+        name="list_probes",
+        description=(
+            "List the probes that can run on this model and data, grouped by family, "
+            "with their arguments and why each is ranked; probes you asked for that "
+            "cannot run are listed with what they are missing. Runs no model. "
+            "params.failure_modes (list[str], default: the current hypotheses' modes), "
+            "params.families (list[str]), params.access ('black_box' | 'white_box'), "
+            "params.allow_interventions (bool, default true), "
+            "params.only_matching (bool, default false), params.max_probes (int, default 12)."
+        ),
+        params_schema={
+            "type": "object",
+            "properties": {
+                "failure_modes": {"type": "array", "items": {"type": "string"}},
+                "families": {"type": "array", "items": {"type": "string"}},
+                "access": {"type": "string", "enum": ["black_box", "white_box"]},
+                "allow_interventions": {"type": "boolean"},
+                "only_matching": {"type": "boolean"},
+                "max_probes": {"type": "integer"},
+            },
+        },
+        handler=_list_probes(loop, state),
+        max_calls=4,
+    ))
+    registry.register(ToolSpec(
         name="run_probe",
-        description="Run M1 analyzer probing to gather per-case findings on the model.",
-        params_schema={"type": "object", "properties": {}},
+        description=(
+            "Gather per-case findings on the model (M1). With no params, the probe "
+            f"agent selects the analyzers (at most {_MAX_UNNAMED_PROBE_RUNS} times). "
+            "To call specific probes, pass params.name "
+            "(str) and params.params (object), or params.probes "
+            "(list of {name, params}); see list_probes for names and arguments. "
+            "Named calls add to the findings gathered so far."
+        ),
+        params_schema={
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "params": {"type": "object"},
+                "probes": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["name"],
+                        "properties": {
+                            "name": {"type": "string"},
+                            "params": {"type": "object"},
+                        },
+                    },
+                },
+            },
+        },
         handler=_run_probe(loop, state),
-        max_calls=3,
+        # Named calls are narrower than a full M1 pass, so the cap allows a
+        # few of them; the run's max_actions still bounds the total.
+        max_calls=6,
     ))
     registry.register(ToolSpec(
         name="run_stats",

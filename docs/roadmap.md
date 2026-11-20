@@ -28,6 +28,8 @@ surfaces and planned interfaces.
 | **RunContext** | **Single owner of a run's output directory (`report/`, `figures/`, `artifacts/`, `experiments/`, `fixes/`, `manifest.json`, auto-generated `README.txt`); per-trial folders (`new_trial()`) for fix candidates and M5 experiments.** |
 | **FixAgent** | **Tiered post-loop repair (L1 prompt → L2 scaffold → L3a/b internals → L4 parameter space); paired McNemar + e-value validation; `max_repair_rounds` feedback-driven retry with candidate dedup; `loop.run_fix(auto_escalate=True)` steps the tier ladder.** |
 | **Result image overlays** | **`RelativeAttentionResult.overlay()`/`.image_overlays()` — CAM-style heatmap-on-source-image blending; duck-typed hook picked up by `RunLogger` into `figures/`.** |
+| **Probe tools** | **`evalrx.probing`: every analyzer as a tool (family, question, access, cost, JSON-schema arguments), availability with reasons, `ProbeRouter`, `ProbeToolbox.call(name, params)`; agentic `list_probes` and named `run_probe`.** |
+| **Weight edits (WSP)** | **`evalrx.wsp`: `WeightEdit` / `TensorEdit` (rank-one, low-rank, dense, sparse), reversible `applied()`, controls, structure read-out, contrast-derived edits; `weight_edit_structure` / `weight_edit_audit` analyzers; opt-in L4 `rank_one_weight_edit` repair. Tested on a planted-defect model and tiny random modules, not yet on a full-size model.** |
 | Contract tests | Parametrized pyod-style suite covering all 26 registered analyzers (554 unit tests). |
 
 ## Stage 2 stubs (registered, `_run` raises `NotImplementedError`)
