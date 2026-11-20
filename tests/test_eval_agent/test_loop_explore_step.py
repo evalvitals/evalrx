@@ -403,7 +403,8 @@ def test_default_explore_dir_beside_a_standalone_logs_dir_and_inside_other_dirs(
 
 def test_agentic_explore_publishes_artifacts_and_passes_notes_to_m3(tmp_path):
     from evalrx.eval_agent.agentic.board import EvidenceBoard
-    from evalrx.eval_agent.agentic.tools import _explore_data, _RunState
+    from evalrx.eval_agent.agentic.tools import _explore_data
+    from evalrx.eval_agent.policy import RunState
     from evalrx.eval_agent.run_context import RunContext
 
     calls = []
@@ -413,7 +414,7 @@ def test_agentic_explore_publishes_artifacts_and_passes_notes_to_m3(tmp_path):
     data = _batch()
     with RunContext(tmp_path / 'run') as ctx:
         loop, diag = _loop(calls, explorer, run_logger=ctx.logger)
-        state = _RunState(original_data=data, data=data, timings={})
+        state = RunState(original_data=data, data=data, timings={})
         state.probe_results = loop.probe_agent.probe(loop.model, data)
         outcome = _explore_data(loop, state)(EvidenceBoard(), {'question': 'Inspect long chains'})
         assert outcome.ok

@@ -17,9 +17,9 @@ from evalrx.eval_agent.agentic.actions import Action
 from evalrx.eval_agent.agentic.board import EvidenceBoard
 from evalrx.eval_agent.agentic.tools import (
     _requested_probes,
-    _RunState,
     build_default_registry,
 )
+from evalrx.eval_agent.policy import RunState
 from evalrx.eval_agent.run_context import RunContext
 from evalrx.eval_agent.stages.probe_agent import ProbeAgent
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
@@ -73,7 +73,7 @@ def _setup(tmp_path, model=None, judge=None):
         run_logger=ctx.logger,
     )
     data = _cases()
-    state = _RunState(original_data=data, data=data, judge=judge)
+    state = RunState(original_data=data, data=data, judge=judge)
     return loop, state, build_default_registry(loop, state), EvidenceBoard()
 
 

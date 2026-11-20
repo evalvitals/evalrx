@@ -82,7 +82,7 @@ class Cell:
                                    n_unknown=0, has_m4_groups=cell.has_m4_groups)
 
         def loop_run(loop, data):
-            mode = type(loop.policy).__name__ if loop.policy is not None else "fixed"
+            mode = type(loop.policy).__name__
             cell.calls.append(f"loop.run:{mode}:{len(data)}")
             cell.loop = loop
             return cell.report
@@ -235,7 +235,7 @@ def test_a_one_sided_baseline_cannot_be_diagnosed(cell):
 def test_held_out_labels_a_separate_validation_set_for_the_fixed_loop(cell, capsys):
     assert cell.run("--diagnosis-mode", "fixed", "--held-out", "--skip-fix") == 0
 
-    assert cell.calls == ["judge", "load_model", "discover:8", "discover:4", "loop.run:fixed:8"]
+    assert cell.calls == ["judge", "load_model", "discover:8", "discover:4", "loop.run:FixedOrderPolicy:8"]
     assert cell.loop.m4_holdout is True and [c.id for c in cell.loop.val_data] == ["v0", "v1", "v2", "v3"]
     val = cell.read("baseline_val.json")
     assert (val["role"], val["n"], val["n_pass"], val["accuracy"]) == ("validation", 4, 2, 0.5)

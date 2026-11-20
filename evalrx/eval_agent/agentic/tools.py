@@ -9,8 +9,10 @@ protocol-consistent hypothesis).
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
+
+from evalrx.eval_agent.policy import RunState, cycle_summary
 
 if TYPE_CHECKING:
     from evalrx.eval_agent.agentic.actions import Action
@@ -118,34 +120,6 @@ class ToolRegistry:
 # ---------------------------------------------------------------------------
 
 
-@dataclass
-class _RunState:
-    """Mutable, per-run state the default tool handlers read and update.
-
-    Mirrors the local variables ``VLDiagnoseLoop.run()`` keeps on its stack —
-    an agentic run just spreads the same bookkeeping across tool calls instead
-    of a fixed cycle.
-    """
-
-    original_data: Any
-    data: Any
-    judge: Any = None  # the policy's decision judge (also drives probe search)
-    cycle: int = 0
-    timings: dict[str, float] = field(default_factory=dict)
-    all_hypotheses: list[Any] = field(default_factory=list)
-    pending_hypotheses: list[Any] = field(default_factory=list)
-    all_test_results: list[Any] = field(default_factory=list)
-    prior_cycles: list[dict[str, Any]] = field(default_factory=list)
-    probe_results: dict[str, Any] = field(default_factory=dict)
-    artifact_pngs: list[Any] = field(default_factory=list)
-    stats_report: Any = None
-    failure_modes: Any = None
-    probe_search_result: Any = None
-    surgery_outcome: Any = None
-    fix_outcome: Any = None
-    diagnosis_failed: bool = False
-
-
 def _summarize_probe(probe_results: dict[str, Any]) -> list[dict[str, Any]]:
     """Compact, board-friendly summary of one M1 pass (scalars only, no per-case rows)."""
     out = []
@@ -171,7 +145,7 @@ def _summarize_stats(report: Any) -> list[dict[str, Any]]:
     ]
 
 
-def _current_report(loop: Any, state: _RunState) -> "AutoDiagnoseReport":
+def _current_report(loop: Any, state: RunState) -> "AutoDiagnoseReport":
     """Snapshot the run so far into the same report shape run_m5/run_fix expect."""
     from evalrx.eval_agent.loop_reports import AutoDiagnoseReport
 
@@ -226,7 +200,7 @@ def _requested_probes(params: "dict[str, Any]") -> "list[tuple[str, dict[str, An
     return out
 
 
-def _list_probes(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
+def _list_probes(loop: Any, state: RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
     def handler(board: "EvidenceBoard", params: dict[str, Any]) -> ToolOutcome:
         from evalrx.probing import ProbeRouter
 
@@ -263,7 +237,7 @@ def _list_probes(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dict]
     return handler
 
 
-def _run_probe(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
+def _run_probe(loop: Any, state: RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
     def handler(board: "EvidenceBoard", params: dict[str, Any]) -> ToolOutcome:
         requested = _requested_probes(params or {})
         if isinstance(requested, str):
@@ -342,7 +316,7 @@ def _run_probe(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dict], 
     return handler
 
 
-def _run_stats(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
+def _run_stats(loop: Any, state: RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
     def handler(board: "EvidenceBoard", params: dict[str, Any]) -> ToolOutcome:
         confirmatory = bool(params.get("confirmatory", True))
         stats_report = loop._do_m2(
@@ -363,7 +337,7 @@ def _run_stats(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dict], 
     return handler
 
 
-def _explore_data(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
+def _explore_data(loop: Any, state: RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
     def handler(board: "EvidenceBoard", params: dict[str, Any]) -> ToolOutcome:
         question = str(
             params.get("question")
@@ -385,7 +359,7 @@ def _explore_data(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dict
     return handler
 
 
-def _cluster_failures(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
+def _cluster_failures(loop: Any, state: RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
     def handler(board: "EvidenceBoard", params: dict[str, Any]) -> ToolOutcome:
         from evalrx.analysis.failure_modes import cluster_failures
         from evalrx.analysis.operationalize import per_case_to_records
@@ -413,7 +387,7 @@ def _cluster_failures(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, 
     return handler
 
 
-def _search_probes(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
+def _search_probes(loop: Any, state: RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
     def handler(board: "EvidenceBoard", params: dict[str, Any]) -> ToolOutcome:
         from evalrx.eval_agent.stages.probe_search_agent import ProbeSearchAgent
 
@@ -446,7 +420,7 @@ def _search_probes(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dic
     return handler
 
 
-def _propose_hypotheses(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
+def _propose_hypotheses(loop: Any, state: RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
     def handler(board: "EvidenceBoard", params: dict[str, Any]) -> ToolOutcome:
         diag = loop._do_m3(
             state.cycle, state.stats_report, state.prior_cycles, state.timings,
@@ -470,24 +444,13 @@ def _propose_hypotheses(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard
             }
             for h in state.all_hypotheses
         ]
-        state.prior_cycles.append({
-            "cycle": state.cycle,
-            "severity": getattr(state.stats_report, "severity", "none"),
-            "hypotheses": [
-                {
-                    "statement": h.statement,
-                    "failure_mode": h.predicted_failure_mode,
-                    "status": h.status.value if h.status else "pending",
-                }
-                for h in diag.hypotheses
-            ],
-        })
+        state.prior_cycles.append(cycle_summary(state.cycle, state.stats_report, diag.hypotheses))
         return ToolOutcome(True, f"proposed {len(diag.hypotheses)} hypothesis(es)", payload=diag)
 
     return handler
 
 
-def _test_hypothesis(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
+def _test_hypothesis(loop: Any, state: RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
     def handler(board: "EvidenceBoard", params: dict[str, Any]) -> ToolOutcome:
         if not state.pending_hypotheses:
             return ToolOutcome(
@@ -522,7 +485,7 @@ def _test_hypothesis(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, d
     return handler
 
 
-def _run_surgery(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
+def _run_surgery(loop: Any, state: RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
     def handler(board: "EvidenceBoard", params: dict[str, Any]) -> ToolOutcome:
         report = _current_report(loop, state)
         iv = loop.run_m5(report, state.original_data)
@@ -534,7 +497,7 @@ def _run_surgery(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dict]
     return handler
 
 
-def _run_fix(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
+def _run_fix(loop: Any, state: RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
     def handler(board: "EvidenceBoard", params: dict[str, Any]) -> ToolOutcome:
         report = _current_report(loop, state)
         outcome = loop.run_fix(report, state.original_data)
@@ -547,7 +510,7 @@ def _run_fix(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dict], To
     return handler
 
 
-def _stop(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
+def _stop(loop: Any, state: RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
     def handler(board: "EvidenceBoard", params: dict[str, Any]) -> ToolOutcome:
         resolved = bool(params.get("resolved", False))
         reason = str(params.get("reason") or "")
@@ -556,7 +519,7 @@ def _stop(loop: Any, state: _RunState) -> "Callable[[EvidenceBoard, dict], ToolO
     return handler
 
 
-def build_default_registry(loop: Any, state: _RunState) -> ToolRegistry:
+def build_default_registry(loop: Any, state: RunState) -> ToolRegistry:
     """Build the default M1-M4 tool registry for one :class:`JudgePolicy` run."""
     registry = ToolRegistry()
     registry.register(ToolSpec(

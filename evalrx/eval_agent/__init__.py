@@ -1,10 +1,10 @@
 """Self-evolving evaluation agent — automated failure discovery and diagnosis.
 
-Two loops are available:
+One loop, two policies for the order of its stages:
 
-  VLDiagnoseLoop       M1 → M2 → M3 → M4 inner loop, M5 called post-loop (Plan A)
-                       Stops when M4 finds a statistically supported,
-                       protocol-consistent hypothesis.
+  VLDiagnoseLoop       M1 → M2 → M3 → M4, M5 called post-loop (Plan A)
+  FixedOrderPolicy     the default: M1 → M4 cycles until M4 finds a statistically
+                       supported, protocol-consistent hypothesis.
   JudgePolicy          pass as VLDiagnoseLoop(policy=...): a judge picks each next stage.
 
 Stage modules live in ``stages/``; shared infrastructure stays at the top level.
@@ -145,6 +145,7 @@ from evalrx.eval_agent.log_schema import (
 from evalrx.eval_agent.loop import VLDiagnoseLoop
 from evalrx.eval_agent.loop_reports import AutoDiagnoseReport
 from evalrx.eval_agent.nl_runner import scaffold_from_description
+from evalrx.eval_agent.policy import FixedOrderPolicy
 from evalrx.eval_agent.run_context import RunContext
 from evalrx.eval_agent.run_logger import RunLogger
 from evalrx.eval_agent.stages.case_discovery import (
@@ -228,7 +229,8 @@ __all__ = [
     # Loop
     "AutoDiagnoseReport",
     "VLDiagnoseLoop",
-    # Agentic loop (judge-decided M1-M4, alternative to VLDiagnoseLoop's fixed cycle)
+    # Policies: who picks the next stage
+    "FixedOrderPolicy",
     "JudgePolicy",
     "ToolSpec",
     "ToolOutcome",

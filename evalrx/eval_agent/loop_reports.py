@@ -1,6 +1,6 @@
 """Report dataclasses returned by the diagnosis loops.
 
-Split out of ``loop.py`` so the loops (``loop.VLDiagnoseLoop`` and
+Split out of ``loop.py`` so the loop and its policies (``policy.FixedOrderPolicy``,
 ``agentic.JudgePolicy``) can share them without a circular import.
 """
 
@@ -16,6 +16,16 @@ if TYPE_CHECKING:
     from evalrx.eval_agent.hypothesis import Hypothesis
     from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTestResult
 
+# ``AutoDiagnoseReport.stopped_by`` values.
+STOPPED_BY_CRITERIA = "criteria_met"
+STOPPED_BY_MAX = "max_cycles"
+STOPPED_BY_BUDGET = "budget"
+STOPPED_BY_NO_HYPS = "no_hypotheses"
+STOPPED_BY_DIAG_ERROR = "diagnosis_error"
+STOPPED_BY_NO_PROBE = "no_probe_results"
+# run_analysis() ran M1->M2->M3 and proposed hypotheses without confirming them
+# (M4 deferred to run_confirm()). Not a failure — the analysis report is ready.
+STOPPED_BY_ANALYSIS = "analysis_complete"
 
 @dataclass
 class AutoDiagnoseReport:

@@ -193,6 +193,8 @@ VLDiagnoseLoop  (loop.py — protocol-guided, stops on verified hypothesis)
        │
   M5 · SurgeryAgent       called once post-loop on the best verified hypothesis
 
+The cycle above is the default policy, FixedOrderPolicy (policy.py).
+
 VLDiagnoseLoop(policy=JudgePolicy(judge))  (agentic/policy.py — judge-decided, same M1-M4 stages)
   A CLI judge picks the next tool (run_probe / run_stats / explore_data /
   cluster_failures / search_probes / propose_hypotheses / test_hypothesis /
@@ -217,7 +219,8 @@ the full field table.
 eval_agent/
 ├── loop.py               VLDiagnoseLoop (current)
 ├── loop_fix.py           run_fix orchestration: fix targets, tier ladder, EXPLORE→CONFIRM
-├── loop_reports.py       AutoDiagnoseReport — the one report class both loops return
+├── loop_reports.py       AutoDiagnoseReport — the one report class both policies return
+├── policy.py             FixedOrderPolicy (default M1→M4 cycles) + RunState, shared by both policies
 ├── run_metadata.py       shared run-provenance + logging-wiring helpers
 ├── agentic/              JudgePolicy — judge-decided M1-M4 (see below)
 ├── run_context.py        RunContext, Trial — single owner of a run's output directory

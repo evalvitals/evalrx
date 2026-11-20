@@ -48,7 +48,7 @@ M5  FixAgent.propose_and_validate(...) → FixOutcome
     (propose + validate candidate repairs, tiered L1→L4)
 ```
 
-`VLDiagnoseLoop` runs M1→M2→M3→M4 in a cycle and calls M5 (`SurgeryAgent` then
+`VLDiagnoseLoop` runs M1→M2→M3→M4 in a cycle (the default `FixedOrderPolicy`) and calls M5 (`SurgeryAgent` then
 `FixAgent`) once, post-loop, on the best verified hypothesis.
 With `policy=JudgePolicy(judge)` a judge chooses the next stage instead. Both consume and
 produce the same per-stage types described below — only the wiring differs.

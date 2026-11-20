@@ -1,7 +1,8 @@
 """JudgePolicy — a judge picks each next stage of a VLDiagnoseLoop run.
 
-``VLDiagnoseLoop`` runs M1->M2->M3->M4 in a fixed cycle. Given
-``policy=JudgePolicy(judge)``, the same loop instead asks the judge, one tool
+By default ``VLDiagnoseLoop`` runs M1->M2->M3->M4 in a fixed cycle
+(``FixedOrderPolicy``). Given ``policy=JudgePolicy(judge)``, the same loop
+instead asks the judge, one tool
 call at a time, what to do next — probe, run stats, explore the raw data,
 propose hypotheses, test one, fix, or stop. The stages, the confirm split and
 the post-loop run_m5/run_fix discipline stay the loop's own. The host, not the
@@ -17,8 +18,9 @@ from typing import TYPE_CHECKING, Any
 
 from evalrx.eval_agent.agentic.actions import decide
 from evalrx.eval_agent.agentic.board import BudgetState, EvidenceBoard
-from evalrx.eval_agent.agentic.tools import ToolRegistry, _RunState, build_default_registry
-from evalrx.eval_agent.loop_reports import AutoDiagnoseReport
+from evalrx.eval_agent.agentic.tools import ToolRegistry, build_default_registry
+from evalrx.eval_agent.loop_reports import STOPPED_BY_DIAG_ERROR, AutoDiagnoseReport
+from evalrx.eval_agent.policy import RunState
 from evalrx.eval_agent.run_metadata import _data_provenance
 
 if TYPE_CHECKING:
@@ -74,11 +76,9 @@ class JudgePolicy:
         self.time_budget_sec = time_budget_sec
         self.registry_factory = registry_factory
 
-    def run(self, loop: "VLDiagnoseLoop", data: "CaseBatch") -> AutoDiagnoseReport:
+    def run(self, loop: "VLDiagnoseLoop", data: "CaseBatch",
+            timings: dict[str, float]) -> AutoDiagnoseReport:
         """Drive the judge-decided action loop to a stop or a budget limit."""
-        loop._tokens_used = 0
-        timings: dict[str, float] = {}
-
         explore, confirm = loop._split_explore_confirm(data)
         original_data = data
         if confirm is not None:
@@ -102,8 +102,8 @@ class JudgePolicy:
         )
         board.budget.start()
 
-        state = _RunState(original_data=original_data, data=data, timings=timings,
-                          judge=self.judge)
+        state = RunState(original_data=original_data, data=data, timings=timings,
+                         judge=self.judge)
         registry: ToolRegistry = (
             self.registry_factory(loop, state)
             if self.registry_factory is not None
@@ -151,9 +151,9 @@ class JudgePolicy:
             step += 1
 
         if state.diagnosis_failed:
-            stopped_by = "diagnosis_error"
+            stopped_by = STOPPED_BY_DIAG_ERROR
         verified = loop.hypothesis_tester.best_hypotheses(state.all_test_results)
-        report = AutoDiagnoseReport(
+        return AutoDiagnoseReport(
             cycles=step,
             resolved=bool(verified),
             stopped_by=stopped_by,
@@ -164,4 +164,3 @@ class JudgePolicy:
             store=loop.store,
             _run_id=loop._run_id,
         )
-        return loop._end_run(report, timings)

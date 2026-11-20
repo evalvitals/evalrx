@@ -100,6 +100,14 @@ judge-decided run; the loop's own `explorer` becomes the `explore_data` tool.
 still receives `(loop, run_state)`; the decision judge is `run_state.judge`
 (was `loop.judge`).
 
+The fixed M1→M4 cycle is a policy too, `FixedOrderPolicy`, and the default:
+`loop.policy` is never `None`. A policy is any object with
+`run(loop, data, timings) -> AutoDiagnoseReport`; `VLDiagnoseLoop.run` resets
+the token count, calls it and logs `loop_end`. Both policies keep their
+bookkeeping in one `evalrx.eval_agent.policy.RunState` (the agentic
+`_RunState` is gone), and the `stopped_by` values are constants in
+`loop_reports` (`STOPPED_BY_*`).
+
 ### Removed
 
 - `create_sandbox`, `SandboxFactoryConfig`, `SandboxConfig`

@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from evalrx.core.case import CaseBatch, FailureCase, Inputs
 from evalrx.eval_agent.agentic.board import EvidenceBoard
-from evalrx.eval_agent.agentic.tools import _RunState, build_default_registry
+from evalrx.eval_agent.agentic.tools import build_default_registry
+from evalrx.eval_agent.policy import RunState
 
 
 class _ScriptedJudge:
@@ -51,14 +52,14 @@ def _seed_pool() -> CaseBatch:
 
 def test_search_probes_registered_in_default_registry():
     loop = _FakeLoop(_AlwaysWrongModel())
-    state = _RunState(original_data=_seed_pool(), data=_seed_pool(), judge=_ScriptedJudge())
+    state = RunState(original_data=_seed_pool(), data=_seed_pool(), judge=_ScriptedJudge())
     registry = build_default_registry(loop, state)
     assert "search_probes" in registry.tool_names()
 
 
 def test_search_probes_runs_and_populates_board_and_state():
     loop = _FakeLoop(_AlwaysWrongModel())
-    state = _RunState(original_data=_seed_pool(), data=_seed_pool(), judge=_ScriptedJudge())
+    state = RunState(original_data=_seed_pool(), data=_seed_pool(), judge=_ScriptedJudge())
     registry = build_default_registry(loop, state)
     board = EvidenceBoard()
 
@@ -74,7 +75,7 @@ def test_search_probes_runs_and_populates_board_and_state():
 
 def test_search_probes_empty_seed_pool_returns_failure_without_crashing():
     loop = _FakeLoop(_AlwaysWrongModel())
-    state = _RunState(original_data=CaseBatch([]), data=CaseBatch([]), judge=_ScriptedJudge())
+    state = RunState(original_data=CaseBatch([]), data=CaseBatch([]), judge=_ScriptedJudge())
     registry = build_default_registry(loop, state)
     board = EvidenceBoard()
 
@@ -87,7 +88,7 @@ def test_search_probes_respects_call_cap_via_registry_dispatch():
     from evalrx.eval_agent.agentic.actions import Action
 
     loop = _FakeLoop(_AlwaysWrongModel())
-    state = _RunState(original_data=_seed_pool(), data=_seed_pool(), judge=_ScriptedJudge())
+    state = RunState(original_data=_seed_pool(), data=_seed_pool(), judge=_ScriptedJudge())
     registry = build_default_registry(loop, state)
     board = EvidenceBoard()
     action = Action(tool="search_probes", params={"budget": 1}, rationale="t")
