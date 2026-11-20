@@ -96,9 +96,10 @@ def _select_tools_via_llm(
         tool_catalog=catalog,
         data_shape=json.dumps(describe_data(inp), indent=2),
     )
+    tool_list: Any = list[Literal[tuple(sorted(valid_names))]]  # type: ignore[misc]
     choice = create_model(
         "ToolChoice",
-        tools=(list[Literal[tuple(sorted(valid_names))]], Field(min_length=1)),  # type: ignore[valid-type,misc]
+        tools=(tool_list, Field(min_length=1)),
         rationale=(str, ""),
     )
     reply = ask_judge(judge, prompt, choice, role="stats_tool_selection")

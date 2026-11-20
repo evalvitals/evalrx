@@ -41,10 +41,10 @@ class Action:
 
 def action_model(registry: "ToolRegistry") -> type[BaseModel]:
     """The decision's output model: ``tool`` is one of *registry*'s names."""
-    names = tuple(sorted(registry.tool_names()))
+    tool_name: Any = Literal[tuple(sorted(registry.tool_names()))]
     return create_model(
         "NextAction",
-        tool=(Literal[names], Field(description="a tool name from AVAILABLE TOOLS")),
+        tool=(tool_name, Field(description="a tool name from AVAILABLE TOOLS")),
         params=(dict[str, Any], Field(default_factory=dict, description="the tool's parameters")),
         rationale=(str, Field(min_length=1, description="one sentence: why this tool, why now")),
     )
