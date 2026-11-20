@@ -104,6 +104,14 @@ class EmbedLensAnalyzer(Analyzer):
         "el_prompt_best_sim": ("Its grounding similarity", "Cosine similarity of that word's embedding to its closest media token."),
     }
 
+    layer: 'int | float'
+    top_k: int
+    recurring_frac: float
+    min_images: int
+    norm_ratio: float
+    vocab_chunk: int
+    max_cases: int
+
     def __init__(self, layer: "int | float" = 0, top_k: int = 5, recurring_frac: float = 0.5,
                  min_images: int = 3, norm_ratio: float = 4.0, vocab_chunk: int = 32768,
                  max_cases: int = 0) -> None:
@@ -142,7 +150,8 @@ class EmbedLensAnalyzer(Analyzer):
             """Top-k cosine neighbours of *x* ``(n, dim)``: ``(sims, ids)``, each ``(n, k)``."""
             x = x.float().to(table.device)
             x = x / x.norm(dim=-1, keepdim=True).clamp(min=1e-12)
-            best_s = best_i = None
+            best_s = None
+            best_i: Any = None  # set together with best_s
             for start in range(0, table.shape[0], max(1, self.vocab_chunk)):
                 block = table[start:start + self.vocab_chunk].float()
                 sims = (x @ block.T) / row_norms[start:start + self.vocab_chunk]
@@ -214,7 +223,7 @@ class EmbedLensAnalyzer(Analyzer):
                 "el_frac_high_norm": round(sum(per_token[case.id]["high_norm"]) / len(media), 4),
             }
             if grounding:
-                best_word = max(grounding, key=grounding.get)
+                best_word = max(grounding, key=grounding.__getitem__)
                 row["el_prompt_best_word"] = best_word
                 row["el_prompt_best_sim"] = grounding[best_word]
             rows.append(row)

@@ -4,15 +4,15 @@ Langfuse's observations API is row-oriented.  A run whose durable events were
 delivered through the outbox queue arrives as one EVENT observation per event
 (``input={"event": {...}}``); this adapter recovers the ordered stream from
 those without making the renderer understand Langfuse-specific response
-types, then re-buckets it into a V2-shaped cache (:func:`materialize`) so the
+types, then re-buckets it into a run-log-shaped cache (:func:`materialize`) so the
 normal ``run.json``/``M<n>/log.json`` read path can render it.
 
-Caveat: :class:`~evalrx.eval_agent.run_logger_v2.RunLoggerV2` does not
+Caveat: :class:`~evalrx.eval_agent.run_logger.RunLogger` does not
 currently push structured events through that outbox (it relies on live
-spans/generations instead), so a V2 run's recovered events presently carry
+spans/generations instead), so a run's recovered events presently carry
 no ``stage`` tag and land in ``run.json``'s ``unrouted`` bucket rather than
-a real ``M<n>/log.json`` — full V2 support here is unfinished, not something
-this module claims to solve.
+a real ``M<n>/log.json`` — recovering a full run this way is unfinished, not
+something this module claims to solve.
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ class LangfuseRunSource:
 
     def materialize(self, trace_id: str, destination: str | Path) -> Path:
         """Write a renderer-compatible cache; it is not a source of truth."""
-        from evalrx.reporting.run_events import write_v2_bundle
+        from evalrx.reporting.run_events import write_run_bundle
 
         root = Path(destination)
         root.mkdir(parents=True, exist_ok=True)
@@ -84,7 +84,7 @@ class LangfuseRunSource:
             raise LookupError(f"No EvalRX events found for Langfuse trace {trace_id!r}")
         for event in events:
             self._materialize_artifacts(event, root)
-        write_v2_bundle(root, [_public_event(event) for event in events])
+        write_run_bundle(root, [_public_event(event) for event in events])
         return root
 
     def _materialize_artifacts(self, event: dict[str, Any], root: Path) -> None:

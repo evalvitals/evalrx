@@ -60,11 +60,11 @@ def warn(msg: str, fix: str = "") -> None:
 
 def check_python() -> None:
     v = sys.version_info
-    if (v.major, v.minor) >= (3, 10):
-        ok(f"python {v.major}.{v.minor}.{v.micro} (>=3.10)")
+    if (v.major, v.minor) >= (3, 11):
+        ok(f"python {v.major}.{v.minor}.{v.micro} (>=3.11)")
     else:
         bad(f"python {v.major}.{v.minor} is too old",
-            "evalrx requires >=3.10; make a new venv")
+            "evalrx requires >=3.11; make a new venv")
 
 
 def check_imports() -> None:

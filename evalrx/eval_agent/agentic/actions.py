@@ -1,47 +1,30 @@
 """Judge-decided actions for the agentic diagnosis loop.
 
-Each decision turn, the CLI judge returns one strict JSON object describing
-the next tool to call. ``parse_action`` turns that raw text into a validated
-:class:`Action`, using the shared :func:`~evalrx.agent_runtime.json_shape.validate_json_shape`
-(re-exported here for convenience — also used by M3's hypothesis parser and
-failure-mode cluster naming).
+Each decision turn, the judge picks the next tool. :func:`decide` asks for it
+through :func:`~evalrx.agent_runtime.judge_call.ask_judge` with an output
+model whose ``tool`` field only admits registered tool names, so an unknown
+tool, a missing rationale or a non-JSON reply goes back to the judge with the
+validation errors. When no valid answer comes back, the deterministic
+next-unmet-stage heuristic runs instead and the decision is logged with
+``valid=False``.
 """
 
 from __future__ import annotations
 
-import json
 import logging
-import re
-import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
-from evalrx.agent_runtime.json_shape import validate_json_shape
+from pydantic import BaseModel, Field, create_model
+
+from evalrx.agent_runtime.judge_call import JudgeError, ask_judge
 
 if TYPE_CHECKING:
     from evalrx.eval_agent.agentic.board import EvidenceBoard
     from evalrx.eval_agent.agentic.tools import ToolRegistry
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.run_logger import RunLogger
 
 logger = logging.getLogger(__name__)
-
-ACTION_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "required": ["tool", "rationale"],
-    "properties": {
-        "tool": {"type": "string", "minLength": 1},
-        "params": {"type": "object"},
-        "rationale": {"type": "string", "minLength": 1},
-    },
-}
-
-
-class ActionParseError(Exception):
-    """Raised when the judge's raw output cannot be turned into a valid Action."""
-
-    def __init__(self, message: str, errors: list[str] | None = None) -> None:
-        super().__init__(message)
-        self.errors = errors or []
 
 
 @dataclass
@@ -56,47 +39,21 @@ class Action:
     valid: bool = True
 
 
-def _strip_fences(text: str) -> str:
-    text = text.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```\w*\n?", "", text)
-        text = re.sub(r"\n?```\s*$", "", text)
-    return text.strip()
-
-
-def parse_action(raw: str, registry: "ToolRegistry") -> Action:
-    """Parse the judge's raw text into a validated :class:`Action`.
-
-    Raises :class:`ActionParseError` when the text is not JSON, fails the
-    action schema, or names a tool the registry doesn't know about.
-    """
-    text = _strip_fences(raw)
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise ActionParseError(f"not valid JSON: {exc}") from exc
-
-    errors = validate_json_shape(data, ACTION_SCHEMA)
-    if errors:
-        raise ActionParseError("action schema validation failed", errors)
-
-    tool = str(data["tool"])
-    if tool not in registry.tool_names():
-        raise ActionParseError(
-            f"unknown tool {tool!r}", [f"must be one of {sorted(registry.tool_names())}"]
-        )
-
-    params = data.get("params") or {}
-    if not isinstance(params, dict):
-        raise ActionParseError("params must be an object", [f"$.params: got {type(params).__name__}"])
-
-    return Action(tool=tool, params=params, rationale=str(data["rationale"]), raw=raw)
+def action_model(registry: "ToolRegistry") -> type[BaseModel]:
+    """The decision's output model: ``tool`` is one of *registry*'s names."""
+    tool_name: Any = Literal[tuple(sorted(registry.tool_names()))]
+    return create_model(
+        "NextAction",
+        tool=(tool_name, Field(description="a tool name from AVAILABLE TOOLS")),
+        params=(dict[str, Any], Field(default_factory=dict, description="the tool's parameters")),
+        rationale=(str, Field(min_length=1, description="one sentence: why this tool, why now")),
+    )
 
 
 def _fallback_action(board: "EvidenceBoard") -> Action:
     """Deterministic next-step heuristic: the first unmet M1->M4 stage.
 
-    Used when the judge's output is unusable even after one repair prompt, so
+    Used when the judge fails or gives no valid answer within its retries, so
     a stuck judge doesn't stall the run — the action is marked ``valid=False``
     so the loop can track a consecutive-failure streak and give up cleanly.
     """
@@ -122,81 +79,39 @@ def decide(
     board: "EvidenceBoard",
     registry: "ToolRegistry",
     *,
-    run_logger: "RunLoggerV2 | None" = None,
+    run_logger: "RunLogger | None" = None,
     step: int = 0,
-    max_repairs: int = 1,
+    retries: int = 1,
 ) -> Action:
-    """Ask the judge for the next action, repairing/falling back as needed.
+    """Ask the judge for the next action; never raises.
 
-    Always returns an :class:`Action` — never raises. When the judge's
-    response can't be salvaged after *max_repairs* repair prompts, returns the
-    deterministic :func:`_fallback_action` with ``valid=False``.
+    An answer that fails validation is sent back up to *retries* times. When
+    the judge fails or no answer is valid, returns :func:`_fallback_action`
+    with ``valid=False``.
     """
-    from evalrx.eval_agent.prompts.agentic import ACTION_REPAIR_PROMPT, DECISION_PROMPT
+    from evalrx.eval_agent.prompts.agentic import DECISION_PROMPT
 
-    evidence = board.to_prompt(registry)
-    prompt = DECISION_PROMPT.format(evidence=evidence)
-    judge_calls: list[dict[str, Any]] = []
-    started = time.perf_counter()
+    prompt = DECISION_PROMPT.format(evidence=board.to_prompt(registry))
     try:
-        raw = judge.generate(prompt)
-    except Exception as exc:  # noqa: BLE001
-        judge_calls.append({
-            "role": "agent_decision", "operation": "generate", "inputs": prompt,
-            "output": None, "error": str(exc),
-            "duration_sec": time.perf_counter() - started,
-        })
-        raw = ""
-        action: Action | None = _fallback_action(board)
-    else:
-        judge_calls.append({
-            "role": "agent_decision", "operation": "generate", "inputs": prompt,
-            "output": str(raw), "error": None,
-            "duration_sec": time.perf_counter() - started,
-        })
-        try:
-            action = parse_action(raw, registry)
-        except ActionParseError as exc:
-            action = None
-            last_raw, last_exc = raw, exc
-    if action is None:
-        for attempt in range(1, max_repairs + 1):
-            repair_prompt = ACTION_REPAIR_PROMPT.format(
-                raw=last_raw,
-                errors="\n".join(last_exc.errors) or str(last_exc),
-                evidence=evidence,
-            )
-            started = time.perf_counter()
-            try:
-                last_raw = judge.generate(repair_prompt)
-            except Exception as exc:  # noqa: BLE001
-                judge_calls.append({
-                    "role": "agent_decision_repair", "operation": "generate",
-                    "inputs": repair_prompt, "output": None, "error": str(exc),
-                    "duration_sec": time.perf_counter() - started,
-                    "metadata": {"attempt": attempt},
-                })
-                break
-            judge_calls.append({
-                "role": "agent_decision_repair", "operation": "generate",
-                "inputs": repair_prompt, "output": str(last_raw), "error": None,
-                "duration_sec": time.perf_counter() - started,
-                "metadata": {"attempt": attempt},
-            })
-            try:
-                action = parse_action(last_raw, registry)
-                action.repair_attempts = attempt
-                break
-            except ActionParseError as exc2:
-                last_exc = exc2
-                action = None
-    if action is None:
+        reply = ask_judge(
+            judge, prompt, action_model(registry), role="agent_decision", retries=retries,
+        )
+    except JudgeError as exc:
+        logger.warning("decide: %s; using the next-unmet-stage heuristic", exc)
+        exchanges = exc.exchanges
         action = _fallback_action(board)
-        action.raw = raw
+    else:
+        exchanges = reply.exchanges
+        chosen = reply.output
+        action = Action(
+            tool=str(chosen.tool), params=dict(chosen.params), rationale=chosen.rationale,  # type: ignore[attr-defined]
+            repair_attempts=len(exchanges) - 1,
+        )
+    action.raw = (exchanges[-1].output or "") if exchanges else ""
 
     if run_logger is not None:
         try:
-            log_kwargs = dict(
+            run_logger.log_agent_decision(
                 step=step,
                 action=action.tool,
                 params=action.params,
@@ -205,11 +120,9 @@ def decide(
                 repair_attempts=action.repair_attempts,
                 fallback_used=not action.valid,
                 judge_prompt=prompt,
-                judge_raw=raw,
+                judge_raw=action.raw,
+                judge_calls=[e.record() for e in exchanges],
             )
-            if getattr(run_logger, "preserve_full_model_io", False):
-                log_kwargs["judge_calls"] = judge_calls
-            run_logger.log_agent_decision(**log_kwargs)
         except Exception:  # noqa: BLE001 — logging must never break the loop
             logger.warning("decide: log_agent_decision failed", exc_info=True)
 

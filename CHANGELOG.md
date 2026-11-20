@@ -6,6 +6,366 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — typed judge calls
+
+`evalrx.agent_runtime.judge_call.ask_judge(judge, prompt, OutputModel, role=...)`
+asks a judge for one pydantic object. PydanticAI runs the exchange: the
+reply's first JSON value is validated, an invalid reply goes back to the
+judge with the validation errors, and when the retry budget runs out
+`JudgeOutputError` is raised (`JudgeCallError` when the judge itself fails).
+Both carry every exchange for the log. Stages move onto it one by one and
+drop their own parsers.
+
+### Changed — Python 3.11 and two new core dependencies
+
+`pydantic>=2.12` and `pydantic-ai-slim>=2.71,<3` are core dependencies, and
+the package needs Python 3.11 (pydantic-ai does; Python 3.10 left upstream
+support in October 2026). CI no longer tests 3.10.
+
+### Changed — the agentic loop's decision is a typed answer
+
+`decide` asks through `ask_judge` with an output model whose `tool` field only
+admits registered tool names. Removed: `parse_action`, `ActionParseError`,
+`ACTION_SCHEMA`, the `validate_json_shape` re-export from
+`evalrx.eval_agent.agentic`, `ACTION_REPAIR_PROMPT`, and `decide(max_repairs=)`
+(now `retries=`). Every decision exchange is logged with role `agent_decision`
+and its attempt number; there is no separate `agent_decision_repair` role.
+
+### Changed — M3 asks for typed hypotheses and a typed review
+
+`DiagnosisAgent` asks for a `Proposal` (`hypotheses`: `hypothesis`,
+`plain_statement`, `failure_mode` as a snake_case tag, `test`,
+`expected_association`) and the critic for a `Review` (one keep/reject
+decision per numbered hypothesis). The Markdown label parser and its
+regexes, the format re-ask and the separate plain-language repair call are
+gone: an invalid answer, or a plain statement that fails the jargon check,
+goes back to the judge once with the reason. An empty proposal means "no
+problem found" (was `NO_ISSUE`).
+
+A proposal that is still invalid after its retry now raises `JudgeOutputError`
+instead of being replaced by template hypotheses; the loop logs every
+exchange and retries M3 or stops. The report marks such a run's M3 stage `failed`, with
+the reason (`stage_detail.m3.error`), on the loop figure and the M3 page. A critic with no usable answer keeps the
+hypotheses with `review_unavailable`, as a failed critic call did before.
+All proposer attempts are logged as role `diagnosis_judge`; the
+`diagnosis_format_repair` and `diagnosis_plain_language_repair` roles are gone.
+
+### Changed — the remaining structured judge calls go through `ask_judge`
+
+M5 fix proposals (`FixAgent`), failure-mode cluster naming and error signals
+(`cluster_failures`), and held-out grading (`holdout_confirm`) ask through
+`ask_judge`, so a reply in prose or code fences is read, and an invalid one is
+sent back with the errors instead of being repeated blind or dropped. A
+held-out judge that gives no valid answer now records `verdict="not_judged"`
+with `judge_error`, not `not_testable`. Every fix-judge attempt is logged
+(`FixRecorder.judge_exchanges`).
+
+### Changed — M2 and case labeling ask for typed answers
+
+`StatsAnalysisAgent`'s written analysis is a typed answer (`conclusion`,
+`evidence_chain`, `qualitative`) instead of `CONCLUSION:`/`EVIDENCE_CHAIN:`
+sections, and its tool selection only accepts catalog names (the free-text
+scan for any tool name in the reply is gone). An analysis that is still
+invalid after one retry keeps the deterministic report, with the reason in
+`llm_fallback_reason` and the judge's last answer in `llm_raw`.
+`CaseDiscoveryAgent`'s judge label is typed (`PASS`/`FAIL`/`UNKNOWN`, any
+case); a judge with no valid label falls back to the expected-answer
+rubric, as an `UNKNOWN` label did, instead of keyword-scanning the reply.
+
+### Changed — `evalrx explore` hypotheses are a typed answer
+
+`HypothesisAgent` (the hypotheses after `explore()`) asks through `ask_judge`
+for `hypotheses` (`hypothesis`, `plain_statement`, `basis`, `test`); the
+`HYPOTHESIS:`/`PLAIN:` parser, its trajectory de-duplication and
+`PLAIN_REPAIR_PROMPT` are gone, and a jargon-laden plain statement goes back
+once through the same retry. With a CLI coding agent as the backend, the
+agent now writes its answer to `answer.json` (new
+`evalrx.agent_runtime.judges.cli_agent.CliAgentJudge`) instead of the
+hypotheses being scraped from its whole tool-call trajectory, where a draft
+could be read as the answer.
+
+### Changed — one way to run a CLI judge
+
+`ClaudeModel`, `CodexModel` and `AgyModel` run through the providers'
+`SubprocessRunner`: a timeout kills the CLI's whole process group (its worker
+processes outlived a plain `subprocess.run` timeout), Claude runs in a
+throwaway directory instead of the caller's, and a limit notice printed as an
+answer raises for every provider, not only Claude.
+A coding agent (`claude_code`, `codex`, ...) that ends its session on a
+limit notice and writes no files now reports `error="account limit reached: ..."`
+instead of no error and no files.
+
+### Changed — one diagnosis loop; the judge-decided mode is a policy
+
+`AgenticDiagnoseLoop` is gone. Pass `policy=JudgePolicy(judge, max_actions=...,
+time_budget_sec=..., registry_factory=...)` to `VLDiagnoseLoop` for the same
+judge-decided run; the loop's own `explorer` becomes the `explore_data` tool.
+`run_start` records the loop as `JudgePolicy`. A custom `registry_factory`
+still receives `(loop, run_state)`; the decision judge is `run_state.judge`
+(was `loop.judge`).
+
+The fixed M1→M4 cycle is a policy too, `FixedOrderPolicy`, and the default:
+`loop.policy` is never `None`. A policy is any object with
+`run(loop, data, timings) -> AutoDiagnoseReport`; `VLDiagnoseLoop.run` resets
+the token count, calls it and logs `loop_end`. Both policies keep their
+bookkeeping in one `evalrx.eval_agent.policy.RunState` (the agentic
+`_RunState` is gone), and the `stopped_by` values are constants in
+`loop_reports` (`STOPPED_BY_*`).
+
+### Removed
+
+- `create_sandbox`, `SandboxFactoryConfig`, `SandboxConfig`
+  (`evalrx.agent_runtime.factory`): nothing called them, and the `docker` mode
+  silently returned the subprocess sandbox. Use `ExperimentSandbox(workdir)`.
+- `evalrx.agent_runtime.json_shape.validate_json_shape`: output models
+  validate with pydantic.
+
+## [0.2.0] — 2026-11-14
+
+### Changed — the run logger and its readers lose their "V2" names
+
+There has been one run logger since 0.1.2, so its names no longer carry a
+version. The old names are gone, with nothing forwarding to the new ones:
+
+| was | is |
+|---|---|
+| `evalrx.eval_agent.run_logger_v2` | `evalrx.eval_agent.run_logger` |
+| `RunLoggerV2` | `RunLogger` |
+| `read_v2_events` | `read_run_events` |
+| `write_v2_bundle` | `write_run_bundle` |
+| `resolve_v2_root` | `resolve_run_root` |
+| `evalrx/eval_agent/RUN_LOGGER_V2.md` | `RUN_LOGGER.md`, rewritten to describe the current design |
+
+The Langfuse delivery queue's temp directory is `evalrx-outbox-<user>`.
+
+### Changed — `run_logger.py` split by what each part does
+
+`RunLogger` keeps routing, stamping and atomic writes. What each event
+records moved to `run_log_entries` (one pure function per event), what lands
+on disk beside the JSON to `run_log_files`, and the Langfuse mirror of each
+event to `run_log_tracing`. The `log_*` methods, their signatures, the files
+they write and the tracer calls they make are unchanged.
+
+### Removed — reading runs written by earlier log versions
+
+A run is read from its log: `run.json` and `M1..M5/log.json`, as the current
+logger writes them. The readers for what earlier versions kept in files
+beside the log are gone:
+
+- `artifacts/c<N>_<analyzer>.result.json`, `fixes/*/result.json` and
+  `outputs.jsonl`, `report/hypotheses.json`, `report/m4_results.json`,
+  `prompts/`, `tools/`, `manifest.json`, and an `explore/` directory beside
+  the logs of a loop run.
+- The join against a benchmark data manifest that supplied case text for
+  runs whose log did not carry the cases. With it go `--example-dir` on
+  `evalrx report` / `evalrx publish-report` and the `example_dir` argument of
+  `build_report_data`, `publish_report`, `export_static_report`,
+  `RunContext.publish_report` and `VLDiagnoseLoop.publish_report`.
+
+- What the report inferred for logs that did not record it: the partition
+  of untagged case records (from the record order), a finished run from
+  `loop_end` (a run is finished when it logged `run_end`), the repair
+  numbering of contract payloads written before `ref`, and case text from
+  `report/discovery_cases.json`.
+- Layouts published before two renderer changes: the `OutcomeCard` component
+  is no longer accepted, and elements without `props` are no longer patched
+  on load.
+- Events without the envelope the logger stamps. Events are ordered by
+  `event_seq` (a log without it is not readable), and a `surgery` / `fix`
+  event is told apart by its own `module`.
+- M3's `agent_response` and `unparsed_proposals` in `stage_detail` (and the
+  `UnparsedProposal` contract model): they were filled from a `prompts/`
+  directory. The aggregate M4 example shown when a log kept no validation
+  case, and M1 examples rebuilt for logs that recorded none, are gone too.
+- The contract no longer maps the spellings `ebh` / `bh` (correction method)
+  or `env` / `critic` (trajectory step role) onto the current ones.
+
+A run logged by an earlier version is refused with a message that says so.
+Re-run it to open it with this version.
+
+### Fixed — report fields that still looked for files no run writes
+
+- The Case Studio and M5's worked example show what the repair answered on
+  each case again. They read `outputs.jsonl` from a trial folder that is gone
+  by the time a run finishes; the fix event carries the same answers, and the
+  report reads them from there.
+- The header names the agent that drove the run ("Claude Code ·
+  claude-opus-5"). It looked for a `manifest.json` beside the log; the
+  `run_start` event records it.
+- M2's rate comparison (failure rate with and without a signal) draws again:
+  the two rates are on the analysis event, not in an `artifacts/` file.
+- The case study's example case shows its gold answer and the model's
+  baseline answer, read from the case record instead of
+  `report/discovery_cases.json`.
+- Each M4 verdict card shows its own test statistics. With several
+  hypotheses, every card borrowed the last verdict's interval.
+- A case with more than one media slot shows each file in its own slot. The
+  report paired a case's inputs with the copies the logger made by position,
+  in a different slot order than the logger wrote them, so an image-and-audio
+  case had the two swapped. They are paired by file name.
+- The Case Studio lists a multiple-choice case's options (`metadata.options`,
+  else `metadata.choices`); the block was always empty. A case's label is its
+  `metadata.category`, else the task kind, so it is no longer blank on
+  datasets without categories.
+
+Report data is version 23.
+
+### Fixed — the pinned-M1 examples ran no analyzer on an audio model
+
+`mmau_qwen2_audio`, `audiocaps_hallucination_qwen2_audio`,
+`musicavqa_videollama2` and the three VLM examples keyed their pinned
+analyzer list on `vlm` / `agent` / `llm` only. An audio model is routed as
+`alm` or `avlm`, so it was handed an empty list and M1 ran nothing. They key
+the list on every `ModelKind`.
+
+### Changed — the explore agent's record shows for loop runs too
+
+M2's full record now carries the explore agent's code, output and audit for a
+diagnosis run as well, read from the files the logger inlines on the explore
+event. It was filled only for standalone explore outputs.
+
+### Removed — the first M2 tool layer; run log schema 8
+
+`StatsToolAgent` (`evalrx.analysis.stats_tool_agent`: `scalar_summary` and
+`per_case_signal_label_association`) ran beside the statistical tool layer
+only to fill two report fields, `stats_tool_results` and `visualizations`.
+Nothing read them: the M2 judge, M3, M4, the contract and the report all use
+`stats_results` and `figures`.
+
+- `StatsToolAgent`, `StatsAnalysisAgent(stats_tool_agent=...)`, and
+  `StatsAnalysisReport.stats_tool_results` / `.visualizations` are removed.
+  `enable_stats_tools` is unchanged: it gates the statistical tool layer.
+- The `analysis` event no longer carries `stats_tool_results` or
+  `visualizations`, so `RUN_LOG_SCHEMA_VERSION` is 8.
+
+### Removed — names and code paths kept from earlier iterations
+
+Each of these had a current replacement and stayed only so older code kept
+working. They are gone, with no forwarding name left behind.
+
+- `QwenLLM()` / `QwenVL()`: use `evalrx.load("<spec key>")` or a version
+  factory such as `qwen2_5_7b_instruct()`.
+- The model aliases `"qwen"` and `"qwen2.5-7b"` and `resolve_spec_key`: name a
+  spec key (`evalrx.list_specs()`). An unknown key raises `KeyError`.
+- `registry.models` and `register_model`: model identity lives in
+  `evalrx.specs`.
+- `PureQADataset` and `evalrx.datasets.pure_qa`: use `LLMQADataset`.
+- `evalrx.stats.sample_subset` (use `stratified_subset`) and `ab_test` (use
+  `compare`).
+- A leading `call_` on `analysis:` in a config file is no longer stripped.
+- `VLDiagnoseReport` (use `AutoDiagnoseReport`, the same class) and the
+  report's `all_hypotheses` property (use `final_hypotheses`).
+- `evalrx.reporting.langfuse_exporter`: import `export_to_langfuse_bundle` /
+  `sync_to_langfuse_live` from `evalrx.observability`, or run
+  `evalrx export-langfuse`.
+- `evalrx.cli.serve_report` and the hidden `evalrx serve --no-audio` flag,
+  which did nothing.
+- The pre-0.1.2 module paths (`evalrx.models.backends.hf_local`,
+  `.jax_local`, `.openai_compat`, `.gemini_compat`,
+  `evalrx.models.blackbox.gemini`, `evalrx.models._discover`,
+  `evalrx.models.inference`, `evalrx.models.jax*`): import from
+  `evalrx.models.backends.{hf,jax,api}`.
+- `AutoDiagnoseReport.final_results` (always empty) and `final_analysis`
+  (a mirror of `final_stats_report`).
+- `Trial.write_record` / `Trial.write_result`, `RUN_LOGGER_V2_VERSION`,
+  `HFLocalModel._vcd_next_token_logits`, and the `_resolve_image` /
+  `_resolve_audio` names in `backends.hf.model` (use
+  `evalrx.models._media`): nothing called them.
+- The held-out M4 probe no longer retries without `analyzers=` when a probe
+  agent raises `TypeError`.
+- The report server no longer looks for case media in a `data/` folder beside
+  the run. The logger copies each case's media into the run's `media/`, and
+  the report serves that copy.
+- `run_fix` calls its fix agent with `FixAgent`'s signature. It used to
+  inspect the agent and pass only the keywords it accepted, skip `recommend`
+  and `no_fix_recommendation` when they were missing, and hand back whatever
+  object `propose_and_validate` returned. A replacement agent now needs the
+  members listed under "A replacement fix agent" in `docs/stage_io.md` and
+  must return a `FixOutcome`; one that does not fails at the call instead of
+  running a tier ladder that ignores the tier.
+- `DiagnosisAgent.diagnose` takes the M2 report only. It no longer wraps a
+  bare `{analyzer: Result}` dict, and its `model_name` argument (used only for
+  that dict) is gone: pass `AnalysisModule().analyze(results, model_name)`.
+- `RunLogger.inline_text_artifacts` and `.preserve_full_model_io`. Both were
+  always true: they let a producer ask which logger it had, and there is one.
+  With them go the branches for the other answer, in which a model call's
+  text was cut at 8000 characters and a coded repair's prompt and code were
+  written as files in its trial folder, and the checks for whether the
+  logger has `log_model_exchange`. A stage records its model calls whenever
+  it has a run logger.
+- `rejected_tools` in the multiplicity report (`fdr_correct`,
+  `StatsAnalysisReport.corrected_rejections`, `FusedReport.adjudication`):
+  read `rejected_result_keys`. A tool name stood for every result of that
+  tool, so one surviving signal marked all of `signal_label_assoc` as
+  surviving. M2's evidence chain, which M3 reads, now lists the surviving
+  results by key and names the correction that was applied (BH, e-BH or
+  mixed) instead of always saying e-BH.
+- `evalrx.analysis.default_plan` and `AnalysisPlanItem.as_legacy_tuple`: call
+  `plan_stats_input`, which returns the `AnalysisPlanItem`s (`.tool`,
+  `.config`, `.rationale`) the tuples were made from.
+- `compile_diagnostic_report` with `DiagnosticReport`, `Claim`, `Evidence`
+  and `ReportStep` (exported from `evalrx.reporting` and `evalrx.analysis`),
+  `evalrx.reporting.stages` (`STAGE_SPECS`, `StageSpec`,
+  `stage_specs_as_dicts`), `evalrx.viz.prompts` and `evalrx.viz.schema`: they
+  fed the dashboard server this release removes, and nothing else read them.
+  The report's opening summary (`compile_reader_report`) is unchanged.
+- `evalrx.eval_agent.iter_log_errors` (it validated a `run_log.jsonl`, which
+  no logger writes; use `validate_event` per event), and the schema entries
+  for fields only the flat logger wrote: `judge_io`, `model_calls_path`,
+  `code_paths`, `output_paths`, `record`.
+
+### Added — follow a run while it is written
+
+`evalrx serve` on a run still in progress follows it: the top bar says "run in
+progress" and the report on screen is replaced in place each time the run logs
+something (server-sent events on `/api/runs/{id}/live`), until the run ends.
+A run that goes quiet without ending says so, with how long it has been quiet,
+instead of "report complete". The report carries `setting.finished` and
+`setting.last_event_at`, so an export of an unfinished run says the same.
+
+### Changed — the run log records when a run ends: `run_end`
+
+`RunLogger.close()` writes a `run_end` event, the run-level completion
+signal. `loop_end` ends M1–M4 only (M5 and the fix step log after it), which
+is why it could not serve. A run whose log has no `run_end` is read as
+unfinished. The new event type made the log schema 7; the removal of two
+`analysis` fields (above) makes it 8.
+
+### Added — compare two runs in `evalrx serve`
+
+**Compare** in the report's top bar opens the run beside another one the
+server lists (`#/compare/<id>`): metrics and stage outcomes side by side, and
+the shared cases (joined by id) that passed in one run and failed in the
+other, each linking into the case studio.
+
+### Changed — the package type-checks, and CI enforces it
+
+`mypy evalrx` reports no errors (it reported 672) and now runs in CI. Most of
+the work was declarations: analyzers declare the hyper-parameters
+`Analyzer.__init__` stores with `setattr`, the HF backend mixins declare the
+host attributes they use, and stages type their judge as the new
+`evalrx.core.model.Judge` protocol (`capabilities` + `generate`), which every
+`Model` and the CLI judges in `agent_runtime.judges` satisfy. Two real bugs it
+found are listed under Fixed. `CapabilityError.missing` accepts any set.
+
+### Fixed — Docker-routed analyzers crashed on cases without a label
+
+`ProbeAgent(use_docker=True)` rebuilt each case inside the container with
+`label=None` when the case had no usable label, so anything that serialised
+the case (`FailureCase.to_dict()`) raised `AttributeError`. Such cases are
+now `Label.UNKNOWN`, the field's own default.
+
+### Fixed — `ReportData.repairs` carried the per-case repair outcomes
+
+`build_report_data` reused the name `repairs` for M5's per-case outcomes, so
+the report's `repairs` list (`[{id, fixed, title, effect, fixed_cases,
+broken_cases}]`) was replaced by a `case id → outcome` dict, and the loop
+figure, which reads `repairs[0]`, never showed the repair. The list is back;
+the per-case outcomes still reach each case as `case.repair`. Its counts now
+come from the same M5 result as the "Cases repaired" tile (the confirmation,
+or the strongest scored candidate when none was certified); read from the fix
+event alone they said "0 fixed" beside a tile of 3.
+
 ### Added — validation report for the published weight edit on Qwen3.5-0.8B
 
 `docs/validation/astra_p50c_20261115.md` records the structure read-out, the
@@ -108,8 +468,7 @@ with everything only they used:
 - `evalrx.eval_agent.orchestrator` (`EvalOrchestrator`) and what only it used:
   `ab_runner` (`ABRunner`, `ABResult`), `preregister` (`DataSplit`, `Split`,
   `PreregisteredHypothesis`, `PreregistrationLog`) and `report`
-  (`DiagnosticReport` — `evalrx.reporting.DiagnosticReport` is a different,
-  kept class). For a paired comparison use `evalrx.stats.compare`.
+  (`DiagnosticReport`). For a paired comparison use `evalrx.stats.compare`.
 - `evalrx.eval_agent._tools`, whose one live function `SurgeryAgent`'s
   parameter sweep now calls directly.
 
@@ -127,20 +486,33 @@ from `evalrx.agent_runtime.providers.<name>`; `SkillInstaller` /
 `evalrx.eval_agent` still exports `CliAgentConfig`, `CliAgentResult` and
 `create_cli_agent`.
 
-### Removed — the `dashboard` report server (breaking)
+### Removed — the `dashboard` report server and the legacy static report (breaking)
 
 Run reports have one UI: the React report (`evalrx serve` / `evalrx report` /
-`evalrx publish-report`).
+`evalrx publish-report`), for loop runs and explore outputs alike.
 
 - `evalrx dashboard` and `evalrx.analysis.dashboard` are removed: the
   standard-library server that served the legacy static `report.html`, and the
   `load_run` / `load_case_studies` / `load_loop_story` loaders, which nothing
   outside their tests used. Use `evalrx serve <run dir>` for a run.
-- `evalrx explore`, `evalrx run-codebase` and `evalrx-explore`: an explore
-  output is not an M1–M5 run, and the React report cannot render one (all five
-  stages read "not run"), so these keep writing the legacy static
-  `report.html` (`evalrx.reporting.html_report`, now used only for this).
-  `--serve-report` opens that file in a browser instead of starting a server;
+- `evalrx.reporting.html_report` (`build_html_report`, `generate_html_report`,
+  `embed_figures`, `embed_media`, and the `evalrx.reporting.build_html_report`
+  export) is removed. An explore output (`evalrx explore`, `evalrx
+  run-codebase`, a fused run) is now read as its own report: M2 and M3 show
+  as completed, the question and data come from its `exploratory_report.json`
+  (or `fused_report.json`), and the header counts patterns, charts and
+  proposed causes instead of cases. M2's full record carries what the legacy
+  page showed of the explore agent, for loop runs too: the analysis code it
+  ran, what it printed, its audit, and its trajectory (cut at 200 000
+  characters; the run directory keeps the whole file). `evalrx serve <explore out>` works on it,
+  and the `report.html` these commands write is the React report's portable
+  export (`evalrx.reporting.static_export.write_report`). A source checkout
+  must build the renderer (`npm run build` in `evalrx/reporting/web`) for that
+  file; without it the run finishes and says why the file was not written.
+  The example images that run an explore step build the renderer in a Node
+  stage, and no longer ask for the `dashboard` extra, which no longer exists.
+- `evalrx explore`, `evalrx run-codebase` and `evalrx-explore`:
+  `--serve-report` opens the written `report.html` in a browser instead of starting a server;
   the deprecated `--dashboard` alias and `--port` are removed (`evalrx-explore`
   had `--dashboard`, now `--serve-report`). The `run_explore` /
   `run_codebase_cli` keywords `dashboard` / `dashboard_port` become
@@ -224,13 +596,14 @@ log lines now come from the `evalrx.eval_agent.loop_fix` logger.
 
 ### Changed — the run reader moved to `evalrx.reporting.run_data`
 
-`extract_run_data` (and the run-layout helpers and analyzer glossary it uses)
-moved from `evalrx.reporting.html_report` to `evalrx.reporting.run_data`. It
-is the reader behind the dynamic report, the Langfuse bundle export and the
-legacy static page, and no longer lives inside the legacy renderer.
-`html_report` keeps the static page (`build_html_report`,
-`generate_html_report`, `embed_figures`, `embed_media`). Import
-`extract_run_data` from `evalrx.reporting.run_data`.
+`extract_run_data` (and the run-layout helpers it uses) moved from
+`evalrx.reporting.html_report` to `evalrx.reporting.run_data`. It is the
+reader behind the report and the Langfuse bundle export. Import
+`extract_run_data` from `evalrx.reporting.run_data`; `html_report` itself is
+gone (see the removal above).
+
+The reader is one function per stage now, and the analyzer glossary and the
+M1 results live in `evalrx.reporting.run_probes`.
 
 ### Changed — FixAgent split into the `stages/fix/` package
 
@@ -275,17 +648,13 @@ unchanged. Visible differences:
 - After `run_fix(max_tier=...)` or an `auto_escalate` run, the agent keeps
   its configured `max_tier`; it used to keep the requested or last-tried
   tier, which leaked into the next `run_fix` call.
-- A custom fix agent whose `propose_and_validate` cannot take
-  `max_tier`/`min_tier` now raises `TypeError` under `auto_escalate` or an
-  explicit `max_tier`, instead of running every rung at its own tier.
-- A custom fix agent whose `propose_and_validate` does not take `record`
-  is no longer silenced during the search (the loop used to set its
-  `run_logger` to `None`); it logs whatever it logs per round.
-- Under `auto_escalate` without a held-out split, a custom agent's opaque
-  (non-`FixOutcome`) result is returned as-is, as the held-out ladder
-  already did, instead of raising `AttributeError`.
+- A replacement fix agent is called with these keywords and must return a
+  `FixOutcome`: see "A replacement fix agent" in `docs/stage_io.md`. One
+  whose `propose_and_validate` cannot take `max_tier` / `min_tier` /
+  `record` raises `TypeError` at the call, instead of running every rung at
+  its own tier.
 
-### Fixed — RunLoggerV2 outbox on multi-user hosts
+### Fixed — the Langfuse outbox on multi-user hosts
 
 The Langfuse outbox lived in a single shared `/tmp/evalrx-v2-outbox`, owned by
 whichever user created it first; every other user's run then failed with

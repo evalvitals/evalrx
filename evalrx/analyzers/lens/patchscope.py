@@ -96,6 +96,13 @@ class PatchscopeAnalyzer(Analyzer):
         "ps_agree_mid": ("Mid-stack readout agrees", "Share of the middle third of the layers whose readout ranks the model's final answer first."),
     }
 
+    target: str
+    target_prompt: str
+    n_points: int
+    media_layers: int
+    batch_rows: int
+    max_cases: int
+
     def __init__(self, target: str = "prediction", target_prompt: str = IDENTITY_PROMPT,
                  n_points: int = 0, media_layers: int = 0, batch_rows: int = 64,
                  max_cases: int = 0) -> None:

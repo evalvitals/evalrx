@@ -43,6 +43,8 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
+from pydantic import BaseModel
+
 from evalrx.contract.common import (
     SCHEMA_VERSION,
     ArtifactRef,
@@ -110,8 +112,8 @@ class StageContract(NamedTuple):
 
     stage: str
     purpose: str
-    input: type
-    output: type
+    input: type[BaseModel]
+    output: type[BaseModel]
     optional: bool = False
 
 

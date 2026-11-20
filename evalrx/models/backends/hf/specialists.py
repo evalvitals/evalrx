@@ -11,7 +11,7 @@ substance; they live here until another backend needs them.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from evalrx.core.case import Inputs
 from evalrx.models._media import resolve_audio as _resolve_audio
@@ -26,11 +26,29 @@ from evalrx.models.backends.hf._util import (  # noqa: F401
     _read_nested_attr,
 )
 
+if TYPE_CHECKING:
+    from evalrx.core.spec import ModelSpec
+
 logger = logging.getLogger(__name__)
 
 
 class SpecialistRepairsMixin:
     """L2 calibrated specialist repairs (see the module docstring)."""
+
+    if TYPE_CHECKING:
+        # Provided by the host model (HFLocalModel), which this mixin is written for.
+        spec: ModelSpec
+        runtime: RuntimeConfig
+        _detect_engines: dict[str, Any]
+        _audio_text_engines: dict[tuple[str, str], Any]
+        _audio_api_specialist_engines: dict[str, Any]
+        _vision_api_specialist_engines: dict[str, Any]
+        _vision_specialist_engines: dict[str, Any]
+        @property
+        def _loaded(self) -> tuple[Any, Any]: ...
+
+        @staticmethod
+        def _as_prompt(inputs: Any) -> str: ...
 
     def generate_detector_grounded_presence(
         self,
@@ -130,7 +148,10 @@ class SpecialistRepairsMixin:
                 from transformers import ClapModel, ClapProcessor
 
                 processor = ClapProcessor.from_pretrained(model_id)
-                clap = ClapModel.from_pretrained(model_id).to(device).eval()
+                # transformers 5.2x types ``.to`` as an unbound wrapper, so a
+                # device string fails mypy there; the call itself is fine.
+                clap: Any = ClapModel.from_pretrained(model_id)
+                clap = clap.to(device).eval()
 
                 def engine(waveform: Any, text: str) -> float:
                     samples = resample_poly(waveform, 3, 1).astype("float32")

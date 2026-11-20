@@ -10,13 +10,10 @@ TOOL_CALLS when the model's chat template supports tools)::
     from evalrx.models.whitebox.qwen import qwen3_8b
     model = qwen3_8b(device="cuda", dtype="bfloat16")
     # equivalent to: evalrx.load("qwen3-8b", backend="hf_local", ...)
-
-``QwenLLM(...)`` remains as a deprecated back-compat shim.
 """
 
 from __future__ import annotations
 
-import warnings
 from typing import Any
 
 # Spec keys exposed as factories (each must exist in evalrx.specs).
@@ -45,17 +42,4 @@ for _k in _TEXT_KEYS:
     globals()[_k.replace("-", "_").replace(".", "_")] = _version_factory(_k)
 
 
-def QwenLLM(checkpoint: str | None = None, device: str = "auto", dtype: str = "bfloat16", **runtime: Any):
-    """Deprecated. Use a version factory (e.g. ``qwen2_5_7b_instruct()``) or
-    ``evalrx.load('qwen2.5-7b-instruct')``."""
-    warnings.warn(
-        "QwenLLM is deprecated; use a version factory (e.g. qwen2_5_7b_instruct()) "
-        "or evalrx.load('qwen2.5-7b-instruct').",
-        DeprecationWarning, stacklevel=2,
-    )
-    from evalrx.models import load
-    return load("qwen2.5-7b-instruct", backend="hf_local",
-                checkpoint=checkpoint, device=device, dtype=dtype, **runtime)
-
-
-__all__ = ["QwenLLM"] + [k.replace("-", "_").replace(".", "_") for k in _TEXT_KEYS]
+__all__ = [k.replace("-", "_").replace(".", "_") for k in _TEXT_KEYS]

@@ -157,7 +157,7 @@ def main() -> None:
     )
     from evalrx.eval_agent.stages.diagnosis import DiagnosisAgent
     from evalrx.eval_agent.stages.probe_agent import ProbeAgent
-    from evalrx.eval_agent.stages.probe import StrategyProbe
+    from evalrx.eval_agent.stages.probe import ModelKind, StrategyProbe
     from evalrx.analysis.stats_agent import StatsAnalysisAgent
 
     judge = build_judge(args.judge_model, args.judge_effort)  # probe BEFORE weights load
@@ -186,7 +186,7 @@ def main() -> None:
     loop = VLDiagnoseLoop(
         model=model,
         probe_agent=ProbeAgent(
-            probe=StrategyProbe(priority_override={k: PINNED_M1_ANALYZERS for k in ("vlm", "agent", "llm")}),
+            probe=StrategyProbe(priority_override={kind: PINNED_M1_ANALYZERS for kind in ModelKind}),
             judge=None,  # pinned static selection -- see PINNED_M1_ANALYZERS above
             max_analyzers=len(PINNED_M1_ANALYZERS),
         ),

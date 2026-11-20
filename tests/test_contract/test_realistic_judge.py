@@ -8,7 +8,7 @@ declared TOOL_CALLS. Each of those is generous in a way a real run is not.
 So the fixtures here are deliberately shabby, in the exact ways a cheap model on
 low effort was observed to be shabby:
 
-* it proposes a mechanism and no way to be wrong about it (no ``TEST:`` line),
+* it proposes a mechanism and no way to be wrong about it (no ``test`` field),
 * it leaves ``Hypothesis.id`` empty, because nothing in the loop fills it,
 * the model under test declares tool calling, because every chat model served
   over an OpenAI-compatible endpoint does.
@@ -28,7 +28,8 @@ from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.eval_agent import DiagnosisAgent, RunContext, VLDiagnoseLoop
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 from tests.conftest import FakeModel
-from tests.test_eval_agent.test_vl_diagnose import ScriptedModel
+from tests.judge_replies import proposal
+from tests.test_eval_agent.test_vl_diagnose import M3Judge
 
 pytest.importorskip("pydantic")
 
@@ -37,19 +38,21 @@ from evalrx.contract import (  # noqa: E402
     DiagnosisOutput,
     HypothesisTestOutput,
     ProbeOutput,
+    StatsReportWire,
 )
 
 #: What the judge returned on the live run: a mechanism, a failure mode, and no
-#: `test` key at all. The parser accepts it and `test_design` comes out "".
+#: `test` key at all (no plain_statement either). The schema accepts it and
+#: `test_design` comes out "".
 NO_TEST_RESPONSE = (
-    '[{"hypothesis": "The model gives unstable answers across resamples.", '
-    '"failure_mode": "self_consistency"}]'
+    '{"hypotheses": [{"hypothesis": "The model gives unstable answers across resamples.", '
+    '"failure_mode": "self_consistency"}]}'
 )
 
 #: The same claim WITH the commitment to how it could be wrong.
 WITH_TEST_RESPONSE = (
-    '[{"hypothesis": "The model gives unstable answers across resamples.", '
-    '"failure_mode": "self_consistency", "test": "self_consistency.consistency"}]'
+    '{"hypotheses": [{"hypothesis": "The model gives unstable answers across resamples.", '
+    '"failure_mode": "self_consistency", "test": "self_consistency.consistency"}]}'
 )
 
 
@@ -90,7 +93,7 @@ def _run(tmp_path, judge_response: str, model=None, cases=None):
                 description="Does the model answer these consistently?",
                 task_domain="reasoning",
             ),
-            diagnosis_agent=DiagnosisAgent(judge=ScriptedModel([judge_response])),
+            diagnosis_agent=DiagnosisAgent(judge=M3Judge(judge_response)),
             max_cycles=1, run_logger=ctx.logger,
         ).run(cases if cases is not None else _batch())
     return {p.name: p for p in (ctx.root / "contract").glob("*.json")}
@@ -166,8 +169,8 @@ def test_omitting_the_test_design_is_currently_the_more_permissive_path(tmp_path
     Same batch, same analyzers, same statistics. The ONLY difference is whether
     the judge said in advance how its claim could be wrong:
 
-        no TEST: line  -> SUPPORTED     (verdict_fallback searches every signal)
-        a TEST: line   -> INCONCLUSIVE  (the named test did not run, and
+        no test field  -> SUPPORTED     (verdict_fallback searches every signal)
+        a test field   -> INCONCLUSIVE  (the named test did not run, and
                                          hypothesis_tester refuses substitutes)
 
     The strict half is deliberate and documented in hypothesis_tester: "An
@@ -233,9 +236,29 @@ def test_a_batch_that_does_carry_trajectories_is_an_agent_run(tmp_path):
 
 # ── a judge that fails outright ──────────────────────────────────────────────
 
-def test_an_empty_judge_response_does_not_corrupt_the_contract(tmp_path):
-    """A rate-limited judge returns "". The run should degrade, not lie."""
-    files = _run(tmp_path, "")
+@pytest.mark.parametrize("response", ["", "I think the model is just bad at this, honestly."],
+                         ids=["empty", "prose"])
+def test_an_unreadable_judge_response_fails_m3_without_corrupting_the_contract(tmp_path, response):
+    """A rate-limited judge returns "", a lazy one returns prose. The run should
+    degrade, not lie: M3 is retried, then recorded as failed with every exchange,
+    and no M3 payload claims a completed diagnosis that found nothing."""
+    import json
+
+    files = _run(tmp_path, response)
+    assert not [n for n in files if n.endswith(".invalid.json")], sorted(files)
+    _latest(files, "m1", ProbeOutput)                      # the stages that ran still decode
+    _latest(files, "m2", StatsReportWire)
+    assert not [n for n in files if n.endswith(".m3.json")], sorted(files)
+
+    calls = json.loads((tmp_path / "run" / "M3" / "log.json").read_text())["model_calls"]
+    judge_calls = [c for c in calls if c["role"] == "diagnosis_judge"]
+    assert judge_calls and all(c["output"] == response for c in judge_calls)
+    failures = [c for c in calls if c["role"] == "diagnosis"]
+    assert failures and all("JudgeOutputError" in c["error"] for c in failures)
+
+
+def test_a_judge_that_finds_nothing_is_a_completed_empty_result(tmp_path):
+    files = _run(tmp_path, proposal())
     assert not [n for n in files if n.endswith(".invalid.json")], sorted(files)
     m3 = _latest(files, "m3", DiagnosisOutput)
     # Zero hypotheses is a completed, empty result -- not an error, and not a
@@ -244,26 +267,12 @@ def test_an_empty_judge_response_does_not_corrupt_the_contract(tmp_path):
     assert m3.status.state.value in ("empty", "succeeded")
 
 
-def test_a_malformed_judge_response_does_not_corrupt_the_contract(tmp_path):
-    files = _run(tmp_path, "I think the model is just bad at this, honestly.")
-    assert not [n for n in files if n.endswith(".invalid.json")], sorted(files)
-    _latest(files, "m3", DiagnosisOutput)   # decodes, whatever it contains
-
-
 # ── M2 must actually ship its statistics ─────────────────────────────────────
 
-def test_m2_serializes_the_typed_verdicts_not_the_legacy_summaries():
-    """StatsAnalysisReport carries two similarly named lists with different shapes.
-
-        stats_results       list[StatsToolResult]  -- the per-tool verdicts
-        stats_tool_results  list[dict]             -- legacy JSON-safe summaries,
-                                                      keyed by `name`, no `tool`
-
-    Reading the second and filtering on `tool` dropped every result. A live run
-    shipped M2 with zero statistics next to corrected_rejections.n_tested=16 --
-    and "nothing was tested" is a legitimate state, so nothing downstream could
-    tell the empty payload was a field mix-up.
-    """
+def test_m2_serializes_every_typed_verdict():
+    """A live run once shipped M2 with zero statistics next to
+    corrected_rejections.n_tested=16, and "nothing was tested" is a legitimate
+    state, so nothing downstream could tell the payload had lost its rows."""
     from evalrx.analysis.stats_agent import StatsAnalysisReport
     from evalrx.analysis.stats_tools import StatsToolResult
     from evalrx.contract.emit import from_stats_report
@@ -275,8 +284,6 @@ def test_m2_serializes_the_typed_verdicts_not_the_legacy_summaries():
                             analysis_key="signal_label_assoc:self_consistency.consistency"),
             StatsToolResult(tool="mcnemar_evalue", ok=True, effect=0.1, reject=False),
         ],
-        # Populated too, and first in the old lookup order -- the whole trap.
-        stats_tool_results=[{"name": "scalar_summary", "metrics": {"n_scalar_metrics": 52}}],
         corrected_rejections={"method": "BH", "alpha": 0.05, "n_tested": 2,
                               "rejected_result_keys": []},
     )

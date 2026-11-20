@@ -142,6 +142,18 @@ def test_holdout_confirm_without_judge_marks_not_judged():
     assert confirm["judge"] is None
 
 
+def test_holdout_confirm_records_a_judge_that_never_answers_validly():
+    class _Rambling:
+        def generate(self, prompt, **kwargs):
+            return "I think it is mostly supported, roughly."
+
+    confirm = holdout_confirm(_report(), _rows(), outcome_col="label", judge=_Rambling())
+    (hv,) = confirm["hypothesis_verdicts"]
+    # Not "not_testable": that would be a verdict the judge never gave.
+    assert hv["verdict"] == "not_judged" and hv["needs_surgery"] is True
+    assert "no valid answer" in hv["judge_error"]
+
+
 def test_holdout_confirm_non_binary_outcome_degrades_honestly():
     rows = [{"x": 0.9, "label": f"grade{i % 3}"} for i in range(12)]
     confirm = holdout_confirm(_report(), rows, outcome_col="label", judge=None)

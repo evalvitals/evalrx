@@ -127,6 +127,21 @@ export interface CorrectedRejections {
 export type EvidenceGrade = "intervention" | "observational" | "none";
 
 /**
+ * What the explore coding agent left: the analysis it wrote and ran.
+ *
+ * ``transcript`` is its CLI trajectory, cut to the report's budget; the run
+ * directory keeps the whole file.
+ */
+export interface ExploreAgentView {
+  code: string | null;
+  stdout: string | null;
+  stderr: string | null;
+  transcript: string | null;
+  transcript_truncated: boolean;
+  audit: unknown;
+}
+
+/**
  * Descriptive EDA notes from the optional explore side-path.
  *
  * Never authoritative. It enters the M3 prompt and the dashboard and nothing
@@ -212,7 +227,7 @@ export interface FixAttemptWire {
   /**
    * The reader-facing identifier, e.g. `R3`. Assigned by the producer over the whole run and STABLE across `selection` and `attempted`, so a reader who sees R3 in the sweep can find R3's card and know it is the same repair.
    *
-   * This exists because `name` cannot do the job. Consumers that numbered rows by list position gave the same repair two different numbers in the two lists, which is worse than no number at all. Empty means the producer assigned none; a consumer may then number by position, but only within one list and never as a cross-list identity.
+   * This exists because `name` cannot do the job. Consumers that numbered rows by list position gave the same repair two different numbers in the two lists, which is worse than no number at all.
    */
   ref?: string;
   /**
@@ -415,13 +430,13 @@ export interface M2StageDetail {
   caveats: (unknown)[];
   candidate_signals: (CandidateSignalView)[];
   recommended_tests: (unknown)[];
+  agent: ExploreAgentView | null;
 }
 
 export interface M3StageDetail {
   mode: string;
   hypotheses: (HypothesisView)[];
-  unparsed_proposals: (UnparsedProposal)[];
-  agent_response: string;
+  error?: string | null;
   candidate_signals: (CandidateSignalView)[];
   recommended_tests: (unknown)[];
   evidence_figures: (FigureView)[];
@@ -897,19 +912,6 @@ export interface TestEvidence {
   fail_rate_signal?: number | null;
   fail_rate_control?: number | null;
   details?: { [key: string]: unknown };
-}
-
-/**
- * A proposal recovered from the judge's raw reply after the parser
- * rejected it. Shown for audit only; it never reached M4.
- */
-export interface UnparsedProposal {
-  statement: string;
-  plain_statement: string;
-  failure_mode: string;
-  test_design: string;
-  expected_association: string;
-  accepted_by_pipeline: boolean;
 }
 
 /**

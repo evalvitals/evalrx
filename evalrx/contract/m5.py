@@ -130,9 +130,7 @@ class FixAttemptWire(WireModel):
                     "sees R3 in the sweep can find R3's card and know it is the same repair.\n\n"
                     "This exists because `name` cannot do the job. Consumers that numbered rows "
                     "by list position gave the same repair two different numbers in the two "
-                    "lists, which is worse than no number at all. Empty means the producer "
-                    "assigned none; a consumer may then number by position, but only within one "
-                    "list and never as a cross-list identity.",
+                    "lists, which is worse than no number at all.",
     )
     name: str = Field(
         description="Machine slug, e.g. `audio_evidence_then_answer`. It is the JOIN KEY — "

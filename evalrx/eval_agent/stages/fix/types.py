@@ -177,7 +177,7 @@ class FixOutcome:
                     "source": v.candidate.source,
                     "payload": v.candidate.payload,
                     # Self-contained attempt folder (see RunContext.new_trial) —
-                    # None when no RunContext is in play (legacy flat layout).
+                    # None when no RunContext is in play.
                     "trial_root": (str(v.candidate.trial.root) if v.candidate.trial else None),
                     "n_pairs": v.n_pairs,
                     "n_baseline_correct": v.n_baseline_correct,

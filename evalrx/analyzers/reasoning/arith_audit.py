@@ -78,6 +78,10 @@ class ArithmeticAudit(Analyzer):
     requires = frozenset()
     applies_to_modalities = frozenset({"text", "image"})
 
+    rel_tol: float
+    generate_missing: bool
+    max_cases: int
+
     def __init__(
         self,
         rel_tol: float = 1e-6,

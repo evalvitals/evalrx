@@ -74,7 +74,7 @@ def _write(path: Path, payload) -> None:
 
 
 def make_run(root: Path, *, signal_values=None, m4_effect=-0.42, n_broken=1) -> Path:
-    """Write a run directory in the RunLoggerV2 shape _common/runner.py +
+    """Write a run directory in the RunLogger shape _common/runner.py +
     RunContext produce: run.json (run-wide events + manifest) plus one JSON
     document per stage under M1..M5, no run_log.jsonl / manifest.json /
     report/*.json siblings."""

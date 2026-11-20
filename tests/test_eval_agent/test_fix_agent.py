@@ -2065,8 +2065,10 @@ def test_min_tier_filters_cheaper_candidates_for_one_ladder_station():
 
     assert out.attempted
     assert {v.candidate.tier for v in out.attempted} == {FixTier.L2_SCAFFOLD}
-    assert len(judge.prompts) == 1
+    # One L2 request, sent back once because the answer held no JSON.
+    assert len(judge.prompts) == 2
     assert "L2" in judge.prompts[0]
+    assert "I refuse to answer in JSON." in judge.prompts[1]
 
 
 def test_no_rubric_cases_yield_recommendation_not_crash():
@@ -2109,12 +2111,12 @@ def test_broken_cases_counted_and_net_negative_not_fixed():
 
 
 def test_outcome_serializes_and_logs(tmp_path):
-    from evalrx.eval_agent import RunLoggerV2
+    from evalrx.eval_agent import RunLogger
 
     judge = ScriptedJudge(
         json.dumps([{"name": "careful", "prompt_template": "Look carefully. {prompt}"}])
     )
-    logger = RunLoggerV2(tmp_path / "logs", observability_mode="offline")
+    logger = RunLogger(tmp_path / "logs", observability_mode="offline")
     agent = FixAgent(judge=judge, max_tier="L1", run_logger=logger)
     out = agent.propose_and_validate(BaselineFailsModel(), _gold_yes_batch(), [_hyp("x")])
     d = out.to_dict()
@@ -2129,14 +2131,14 @@ def test_outcome_serializes_and_logs(tmp_path):
 
 
 def test_run_fix_on_loop_report():
-    from evalrx.eval_agent import VLDiagnoseLoop, VLDiagnoseReport
+    from evalrx.eval_agent import AutoDiagnoseReport, VLDiagnoseLoop
     from evalrx.eval_agent.hypothesis import HypothesisStatus
     from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTestResult
     from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
     h = _hyp("prompt phrasing underspecifies the task")
     h.status = HypothesisStatus.SUPPORTED
-    report = VLDiagnoseReport(
+    report = AutoDiagnoseReport(
         cycles=1,
         stopped_by="max_cycles",
         verified_hypotheses=[
@@ -2447,9 +2449,9 @@ class CodeWritingJudge(Model):
 
 def test_fix_agent_coded_candidate_fixes_and_logs(tmp_path):
     pytest.importorskip("PIL")
-    from evalrx.eval_agent import RunLoggerV2
+    from evalrx.eval_agent import RunLogger
 
-    logger = RunLoggerV2(tmp_path / "logs", observability_mode="offline")
+    logger = RunLogger(tmp_path / "logs", observability_mode="offline")
     agent = FixAgent(
         judge=CodeWritingJudge(), max_tier="L2", run_logger=logger, exec_timeout_sec=30
     )
@@ -3246,9 +3248,9 @@ def test_bridged_attend_enables_coded_l3a(tmp_path):
 
 def test_declarative_candidate_gets_record_and_result_but_no_workspace(tmp_path):
     """A template/spec candidate never touches a sandbox — its trial folder
-    never gets a workspace/ subdir. Under V2 there is no per-trial
-    record.md/result.json either (that was a V1-only artifact); the same
-    outcome data lives inline in M5/log.json's "fix" entry instead."""
+    never gets a workspace/ subdir. There is no per-trial
+    record.md/result.json either; the outcome data lives inline in
+    M5/log.json's "fix" entry."""
     from evalrx.eval_agent.run_context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
@@ -3284,8 +3286,8 @@ def test_deduped_candidate_in_round_two_leaves_no_trial_folder(tmp_path):
     """A judge that keeps proposing the SAME failing candidate is deduped
     before a trial is ever allocated for it — round 2 must not produce a
     second (duplicate) attempt. A declarative candidate's trial is never
-    materialized on disk at all under V2 (lazy, and record.md/result.json
-    are V1-only artifacts), so the dedup guarantee is checked against the
+    materialized on disk at all (it is lazy, and nothing writes a
+    record.md/result.json), so the dedup guarantee is checked against the
     returned attempt list and the inlined M5/log.json record instead of a
     directory listing."""
     from evalrx.eval_agent.run_context import RunContext
@@ -3409,9 +3411,8 @@ def test_two_coded_fix_attempts_get_separate_trial_workspaces(tmp_path):
     ctx.finalize()
     assert not runtime_root.exists()
 
-    # Each attempt's own outcome — not a shared/overwritten one. Under V2
-    # there's no per-trial record.md/result.json (V1-only); the same data is
-    # inlined per-candidate in M5/log.json's "fix" entry instead.
+    # Each attempt's own outcome — not a shared/overwritten one. It is
+    # inlined per-candidate in M5/log.json's "fix" entry.
     fix = json.loads((tmp_path / "run1" / "M5" / "log.json").read_text())["fix"][-1]
     coded_entries = [a for a in fix["attempted"] if a["kind"] == "code"]
     assert len(coded_entries) == 2
@@ -3870,9 +3871,9 @@ def test_a_coded_pipeline_that_reads_baseline_output_needs_no_repair_round(tmp_p
     the first attempt, the host states the support threshold it enforces, the
     guard anchors every case on its record, the frozen control still holds,
     and no repair round is spent."""
-    from evalrx.eval_agent import RunLoggerV2
+    from evalrx.eval_agent import RunLogger
 
-    logger = RunLoggerV2(tmp_path / "logs", observability_mode="offline")
+    logger = RunLogger(tmp_path / "logs", observability_mode="offline")
     judge = _BaselineOutputJudge()
     agent = FixAgent(
         judge=judge, max_tier="L2", run_logger=logger, exec_timeout_sec=30,

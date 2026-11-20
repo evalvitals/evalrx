@@ -27,7 +27,7 @@ def find_decoder_layers(model: Any, num_hidden_layers: int | None = None) -> tup
     import torch.nn as nn
 
     if num_hidden_layers is None:
-        cfg = getattr(model, "config", None)
+        cfg: Any = getattr(model, "config", None)
         text_cfg = cfg.get_text_config() if hasattr(cfg, "get_text_config") else cfg
         num_hidden_layers = getattr(text_cfg, "num_hidden_layers", None)
 

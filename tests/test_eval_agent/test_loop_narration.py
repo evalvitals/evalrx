@@ -1,5 +1,5 @@
 """Regression coverage for the M1-M5 loop's live terminal narration
-(RunLoggerV2's `narrate=True` -> LoopNarrator)."""
+(RunLogger's `narrate=True` -> LoopNarrator)."""
 
 from __future__ import annotations
 

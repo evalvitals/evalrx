@@ -93,6 +93,14 @@ class ContaminationProbe(Analyzer):
     requires = frozenset({Capability.GENERATE})
     applies_to_modalities = frozenset({"text", "image"})
 
+    dataset_name: str
+    split: str
+    split_frac: float
+    ngram: int
+    flag_threshold: float
+    ask_provenance: bool
+    max_cases: int
+
     def __init__(
         self,
         dataset_name: str = "the evaluation",

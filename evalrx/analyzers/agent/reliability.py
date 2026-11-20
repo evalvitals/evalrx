@@ -82,6 +82,9 @@ class ReliabilityProbe(Analyzer):
     requires = frozenset()  # the injected runner encapsulates the model
     applies_to_modalities = frozenset({"text", "image"})
 
+    k: int
+    max_cases: Optional[int]
+
     def __init__(
         self,
         runs_fn: Callable[["FailureCase", int], "list[Trajectory]"],

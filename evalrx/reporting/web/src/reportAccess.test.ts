@@ -14,7 +14,6 @@ import {
   plural,
   pointsGap,
   restAfterFirstSentence,
-  stageCode,
   stageDetail,
   stripMarkdown,
 } from "./reportAccess";
@@ -149,8 +148,6 @@ describe("numbers", () => {
     expect(chartPercent(0.256)).toBe("25.6%");
     expect(chartPercent(null)).toBe("0.0%");
     expect(chartPercent("x")).toBe("—");
-    expect(stageCode("m4")).toBe("m4");
-    expect(stageCode(undefined)).toBe("");
   });
 
   it("colours outcome slices by meaning, not position", () => {

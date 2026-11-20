@@ -250,7 +250,6 @@ def _run_smoke_test(args: argparse.Namespace) -> None:
         ProbingSchema,
         RunContext,
         StatsAnalysisAgent,
-        StatsToolAgent,
         VLDiagnoseLoop,
     )
 
@@ -354,7 +353,7 @@ def _run_smoke_test(args: argparse.Namespace) -> None:
             target_modalities=frozenset({"text", "audio"}),
         ),
         probe_agent=_SmokeProbe(),
-        stats_agent=StatsAnalysisAgent(stats_tool_agent=StatsToolAgent(max_tools=3)),
+        stats_agent=StatsAnalysisAgent(),
         diagnosis_agent=_SmokeDiagnosisAgent(),
         hypothesis_tester=HypothesisTester(min_effect=0.05),
         fix_agent=FixAgent(
@@ -568,14 +567,13 @@ def _run_tcd_confirmation(args: argparse.Namespace) -> int:
         ebh_survivors=[candidate.name] if validation.fixed else [],
     )
     ctx.logger.log_fix(outcome)
-    ctx.publish_report(example_dir=HERE)
+    ctx.publish_report()
     ctx.finalize()
     from evalrx.reporting.static_export import export_static_report
 
     report_html_path = Path(args.run_dir).resolve() / "report.html"
     export_static_report(
         ctx.root,
-        example_dir=HERE,
         out_path=report_html_path,
         embed_media="all" if args.report_media == "inline" else "none",
     )
@@ -737,6 +735,7 @@ def main() -> int:
         DiagnosisAgent,
         FixAgent,
         HypothesisTester,
+        ModelKind,
         ProbeAgent,
         RunContext,
         StatsAnalysisAgent,
@@ -767,7 +766,7 @@ def main() -> int:
 
     # M1 pinned static selection -- see PINNED_M1_ANALYZERS' comment above for why.
     probe_agent = ProbeAgent(
-        probe=StrategyProbe(priority_override={k: PINNED_M1_ANALYZERS for k in ("vlm", "agent", "llm")}),
+        probe=StrategyProbe(priority_override={kind: PINNED_M1_ANALYZERS for kind in ModelKind}),
         judge=None,
         max_analyzers=args.max_analyzers,
     )
@@ -854,7 +853,7 @@ def main() -> int:
     ctx.write_diagnose_report(report, cases)
 
     print(f"\n{'='*64}\nLOOP RESULT  stopped_by={report.stopped_by}  cycles={report.cycles}\n{'='*64}")
-    print(f"  total hypotheses proposed : {len(report.all_hypotheses)}")
+    print(f"  total hypotheses proposed : {len(report.final_hypotheses)}")
     print(f"  verified (protocol-consistent + statistically supported): "
           f"{len(report.verified_hypotheses)}")
     for vr in report.verified_hypotheses:
@@ -904,14 +903,13 @@ def main() -> int:
         else:
             print(f"  VERDICT    : not fixed; already at the highest tier ({args.fix_max_tier})")
 
-    loop.publish_report(example_dir=HERE)
+    loop.publish_report()
     ctx.finalize()
     from evalrx.reporting.static_export import export_static_report
 
     report_html_path = Path(args.run_dir).resolve() / "report.html"
     export_static_report(
         ctx.root,
-        example_dir=HERE,
         out_path=report_html_path,
         embed_media="all" if args.report_media == "inline" else "none",
     )

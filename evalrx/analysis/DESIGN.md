@@ -18,7 +18,7 @@
 ```
 M1 ProbeAgent      analyzers → probe_results（Result.findings["per_case"] 是关键载体）
   → M2 StatsAnalysisAgent   在「全部 per_case 信号」上跑已验证工具族
-                            → e-BH → corrected_rejections.rejected_tools + conclusion/evidence
+                            → e-BH → corrected_rejections.rejected_result_keys + conclusion/evidence
   → M3 DiagnosisAgent       读 M2 conclusion/evidence + findings → 提可证伪假设
   → M4 HypothesisTester     检验每个假设
   → M5 SurgeryAgent + FixAgent  设计实验、修复；配对 e-value、候选族 e-BH、留出 CONFIRM
@@ -26,8 +26,8 @@ M1 ProbeAgent      analyzers → probe_results（Result.findings["per_case"] 是
 
 为什么不能删 M2、为什么 LAMBDA 必须在 M2 **上游**：
 
-1. **M2 的信号族只从 `per_case` 构造**（`build_stats_input`，[stats_tools.py](stats_tools.py)）。**一个信号若不在某 analyzer 的 `per_case` 里，永远进不了 M2 family、拿不到 e-value、永不出现在 `rejected_tools`。**
-2. **M4 不自洽，gated on M2**（`_decisive`，[hypothesis_tester.py:324-343](../eval_agent/stages/hypothesis_tester.py)）：带 e-value 的结果只有 `tool ∈ rejected_tools` 才算 decisive。
+1. **M2 的信号族只从 `per_case` 构造**（`build_stats_input`，[stats_tools.py](stats_tools.py)）。**一个信号若不在某 analyzer 的 `per_case` 里，永远进不了 M2 family、拿不到 e-value、永不出现在 `rejected_result_keys`。**
+2. **M4 不自洽，gated on M2**（`_decisive`，[hypothesis_tester.py:324-343](../eval_agent/stages/hypothesis_tester.py)）：只有多重性校正后仍被拒绝的结果（`fdr_corrected`，或 `analysis_key ∈ rejected_result_keys`）才算 decisive。
 3. **M3 优先读 M2 的 conclusion/evidence**（[diagnosis.py:402-411](../eval_agent/stages/diagnosis.py)）。
 
 → 推论：若 LAMBDA 只在 M2 **之后**提假设，它发现的任何新信号永远拿不到 e-value，M4 判非 decisive，假设全塌成 INCONCLUSIVE。**必须在 M2 跑之前把信号桥接进它的族。**
@@ -50,7 +50,7 @@ M1 ProbeAgent      analyzers → probe_results（Result.findings["per_case"] 是
    ▼                                  ▼
 CONFIRM split ── ③ M2 = 防火墙（保留，信号族扩大）：validated catalog 跑
                     「catalog 信号 + 桥接来的 LAMBDA 信号」→ e-BH FDR
-                    → rejected_tools + conclusion/evidence  【盲于、先于 M3，在 CONFIRM 上】
+                    → rejected_result_keys + conclusion/evidence  【盲于、先于 M3，在 CONFIRM 上】
                                        ▼
                  ④ M3 = 提议者（增强）：读 (a) M2 survivor+evidence（什么真）
                     + (b) LAMBDA observations/charts（机制语言）→ 提可证伪假设
@@ -88,7 +88,7 @@ def compile_recipe(recipe, records) -> dict[str, float]:
     产物进 Result.findings["per_case"] → build_stats_input 自动收进 inp.per_case。"""
 ```
 
-**注册进 M2**：编译出的信号塞进合成 analyzer 的 per_case finding → 扩展 `default_plan` 为新信号加一条已验证工具 → 在 CONFIRM split 上跑 `fdr_correct`，把【catalog 信号 + 桥接信号】放进**同一个 e-BH family**（"多提候选→多付多重性"自动成立）→ M4 `_decisive` 不变。
+**注册进 M2**：编译出的信号塞进合成 analyzer 的 per_case finding → 扩展 `plan_stats_input` 为新信号加一条已验证工具 → 在 CONFIRM split 上跑 `fdr_correct`，把【catalog 信号 + 桥接信号】放进**同一个 e-BH family**（"多提候选→多付多重性"自动成立）→ M4 `_decisive` 不变。
 
 **关键不变量**：信号在 **EXPLORE split** 被发现/选中，在 **CONFIRM split** 被编译求值 + 确证；case id 不相交。
 

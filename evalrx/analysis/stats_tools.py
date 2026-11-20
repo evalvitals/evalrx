@@ -13,7 +13,8 @@ The flow is:
    ``CaseBatch`` into a single :class:`StatsInput` (per-case signals, labels,
    scalar metrics, optional strategy groups).
 2. The agent picks tool names from :data:`STATS_TOOL_CATALOG` (LLM-guided) or
-   falls back to :func:`default_plan` (deterministic).
+   falls back to :func:`~evalrx.analysis.planner.plan_stats_input`
+   (deterministic).
 3. Each ``(tool, config)`` runs via :func:`run_stats_tool`, returning a uniform
    :class:`StatsToolResult` (effect, CI, e-value, reject, underpowered).
 4. :func:`fdr_correct` applies e-BH across all tools that produced an e-value so
@@ -1085,34 +1086,14 @@ def run_stats_tool(name: str, inp: StatsInput, config: dict | None = None) -> St
 
 
 # ---------------------------------------------------------------------------
-# Deterministic planner (fallback when no judge / LLM selection fails)
-# ---------------------------------------------------------------------------
-
-def default_plan(
-    inp: StatsInput,
-    max_signals: int | None = None,
-) -> list[tuple[str, dict, str]]:
-    """Deterministic ``[(tool, config, rationale)]`` plan from the data shape.
-
-    The implementation delegates to the generic M2 planner so per-case signals
-    are ranked by testability instead of original column order. ``max_signals``
-    remains for backward compatibility; ``None`` means test every ranked signal.
-    """
-    from evalrx.analysis.planner import plan_stats_input
-
-    return [item.as_legacy_tuple() for item in plan_stats_input(inp, max_signals=max_signals)]
-
-
-# ---------------------------------------------------------------------------
 # Multiple-testing correction + visualization
 # ---------------------------------------------------------------------------
 
 def fdr_correct(results: list[StatsToolResult], alpha: float = 0.05) -> dict[str, Any]:
     """Apply multiplicity correction across all supported result families.
 
-    e-values use e-BH; p-values use BH. The returned ``rejected_tools`` field is
-    preserved for existing M1-M4 consumers, while ``rejected_result_keys`` and
-    ``families`` expose the precise generalized-M2 family membership.
+    e-values use e-BH; p-values use BH. ``rejected_result_keys`` names each
+    surviving result and ``families`` the family it was corrected in.
     """
     return correct_results(results, alpha=alpha)
 

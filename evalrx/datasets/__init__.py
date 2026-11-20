@@ -2,7 +2,6 @@
 
 Text QA: ``LLMQADataset``.  Image+text QA: ``VLMQADataset`` and the
 ``TextVQASizeDataset`` / ``Spatial457Dataset`` / ``VQARADDataset`` benchmarks.
-``PureQADataset`` is a back-compat alias of ``LLMQADataset``.
 """
 
 from evalrx.datasets.base import (
@@ -14,7 +13,7 @@ from evalrx.datasets.base import (
     read_jsonl,
 )
 from evalrx.datasets.gui_os import GUIOSDataset
-from evalrx.datasets.llm_qa import LLMQADataset, PureQADataset
+from evalrx.datasets.llm_qa import LLMQADataset
 from evalrx.datasets.vlm_qa import (
     Spatial457Dataset,
     TextVQASizeDataset,
@@ -30,7 +29,6 @@ __all__ = [
     "TextVQASizeDataset",
     "Spatial457Dataset",
     "VQARADDataset",
-    "PureQADataset",
     "WebSearchQADataset",
     "GUIOSDataset",
     "cases_from_records",

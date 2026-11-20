@@ -76,7 +76,7 @@ pass a constructed analyzer through `overrides={name: analyzer}`.
 
 ### In the agentic loop
 
-`AgenticDiagnoseLoop` gains one tool and extends another:
+The judge-decided mode (`JudgePolicy`) gains one tool and extends another:
 
 | Tool | Arguments | Effect |
 |---|---|---|

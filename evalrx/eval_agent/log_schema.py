@@ -2,7 +2,7 @@
 
 A run's events (``run_start``, ``probe``, ``diagnosis``, ...) are the
 contract between a diagnosis run and everything downstream (dashboards,
-parsers, the agent's own memory) — RunLoggerV2 stores them bucketed into
+parsers, the agent's own memory) — RunLogger stores them bucketed into
 ``run.json`` + per-stage ``M<n>/log.json`` rather than a flat JSONL file, but
 each individual event has this same shape wherever it lives. Until this
 module existed that contract lived only in docstrings + a table in
@@ -19,8 +19,8 @@ This module is that contract, as code:
   ``run_log.schema.json`` (shipped as package data) so non-Python consumers can
   validate too; :func:`load_schema` reads it and a drift test keeps the two in
   lock-step.
-* :func:`validate_event` / :func:`iter_log_errors` validate real log lines.
-  They need the ``jsonschema`` package (a *dev*/optional dep, not core) and
+* :func:`validate_event` validates one logged event.
+  It needs the ``jsonschema`` package (a *dev*/optional dep, not core) and
   raise a clear, actionable error if it is missing rather than failing obscurely.
 
 Design note — the schema is intentionally **permissive**: it pins the common
@@ -58,9 +58,14 @@ from typing import Any
 #     pre-rename logs.
 # v6: folded in the bucketed-storage events (`model_call`, `diagnose_report`,
 #     `unrouted`) and the `stage`/`event_seq`/`span_id` envelope fields that
-#     were previously a separate, RunLoggerV2-only schema layered on top of
+#     were previously a separate, RunLogger-only schema layered on top of
 #     this one — there is now one event schema, not a base plus an overlay.
-RUN_LOG_SCHEMA_VERSION = 6
+# v7: `run_end`, written when the logger closes: the run-level completion
+#     signal. `loop_end` ends M1-M4 only; M5 and the fix step log after it.
+# v8: `analysis` no longer carries `stats_tool_results` / `visualizations`
+#     (summaries from a retired tool layer); `stats_results` and `figures`
+#     hold the same information.
+RUN_LOG_SCHEMA_VERSION = 8
 
 #: The event types a run logs.
 EVENT_TYPES: tuple[str, ...] = (
@@ -73,6 +78,7 @@ EVENT_TYPES: tuple[str, ...] = (
     "experiment",
     "fix",
     "loop_end",
+    "run_end",
     "tool_codegen",
     "tool_registry",
     "agent_decision",
@@ -101,19 +107,8 @@ _HYPOTHESIS = {
     },
 }
 
-_JUDGE_IO = {
-    "type": "object",
-    "properties": {
-        "prompt_path": {"type": "string"},
-        "prompt_chars": {"type": "integer"},
-        "raw_path": {"type": "string"},
-        "raw_chars": {"type": "integer"},
-    },
-}
-
-# An M2 stats field is either its raw value (object/array) or, once it exceeds
-# the inline-size threshold, an externalized {path, n_items, bytes} pointer.
-_INLINE_OR_EXTERNAL = {"type": ["object", "array"]}
+# An M2 stats field: a list of rows, or one object.
+_ROWS_OR_OBJECT = {"type": ["object", "array"]}
 
 # Per-event field schemas + the fields each event always carries -------------
 # (event, schema_version, ts, trace_id come from the shared envelope.)
@@ -129,7 +124,7 @@ _EVENTS: dict[str, dict[str, Any]] = {
             "label_distribution": {"type": "object"},
             "n_cases": {"type": "integer"},
             "model": {"type": "string"},
-            # AgenticDiagnoseLoop only: the decision judge (distinct from the M3
+            # JudgePolicy runs only: the decision judge (distinct from the M3
             # stage judge already covered by "judge") and its action-turn budget.
             "decision_judge": {"type": "string"},
             "max_actions": {"type": "integer"},
@@ -145,17 +140,13 @@ _EVENTS: dict[str, dict[str, Any]] = {
             "artifact_paths": {"type": "object"},
             # Additive M1 fields (permissive schema): result_paths (per-analyzer
             # complete result json), failed_analyzers (selected-but-errored),
-            # selected_analyzers — see RunLoggerV2.log_probe.
+            # selected_analyzers — see RunLogger.log_probe.
             "selection_rationale": {"type": "string"},
-            "judge_io": _JUDGE_IO,
             "duration_sec": {"type": "number"},
-            # Every generate/forward/logprobs/chat call an analyzer made against
-            # the target model this cycle (see model_instrumentation.py); full
-            # verbatim records live in the sibling model_calls.jsonl this points
-            # to, kept out of this event so an analyzer making dozens of calls
-            # per case doesn't drown out the cycle-level narrative.
+            # How many generate/forward/logprobs/chat calls the analyzers made
+            # against the target model this cycle (see model_instrumentation.py);
+            # each call is its own ``model_call`` event.
             "n_model_calls": {"type": "integer"},
-            "model_calls_path": {"type": "string"},
         },
     },
     "analysis": {
@@ -167,13 +158,10 @@ _EVENTS: dict[str, dict[str, Any]] = {
             "narrative": {"type": "string"},
             "conclusion": {"type": "string"},
             "evidence_chain": {"type": "array"},
-            "stats_tool_results": _INLINE_OR_EXTERNAL,
-            "stats_plan": _INLINE_OR_EXTERNAL,
-            "stats_results": _INLINE_OR_EXTERNAL,
-            "corrected_rejections": _INLINE_OR_EXTERNAL,
-            "visualizations": {"type": "array"},
+            "stats_plan": _ROWS_OR_OBJECT,
+            "stats_results": _ROWS_OR_OBJECT,
+            "corrected_rejections": _ROWS_OR_OBJECT,
             "figures": {"type": "array"},
-            "judge_io": _JUDGE_IO,
             "duration_sec": {"type": "number"},
         },
     },
@@ -219,7 +207,6 @@ _EVENTS: dict[str, dict[str, Any]] = {
             # Whether a (clustered, descriptive-only) FailureModeReport was
             # shown to M3 — additive field, no schema version bump needed.
             "failure_modes_used": {"type": "boolean"},
-            "judge_io": _JUDGE_IO,
             "duration_sec": {"type": "number"},
         },
     },
@@ -237,7 +224,6 @@ _EVENTS: dict[str, dict[str, Any]] = {
             "duration_sec": {"type": "number"},
             # Additive: M4 protocol-consistency judge prompt/response, persisted
             # under prompts/ (same pattern as probe/analysis/diagnosis).
-            "judge_io": _JUDGE_IO,
         },
     },
     "experiment": {
@@ -253,17 +239,13 @@ _EVENTS: dict[str, dict[str, Any]] = {
             "returncode": {"type": ["integer", "null"]},
             "timed_out": {"type": ["boolean", "null"]},
             "llm_calls": {"type": ["integer", "null"]},
-            "code_paths": {"type": "object"},
-            "output_paths": {"type": "object"},
             "workspace_snapshot": {"type": ["object", "null"]},
-            "record": {"type": "string"},
         },
     },
     "fix": {
         "required": ["cycle", "module"],
         "properties": {
             "module": {"type": "string"},
-            "record": {"type": "string"},
         },
     },
     "loop_end": {
@@ -281,6 +263,7 @@ _EVENTS: dict[str, dict[str, Any]] = {
             "verified_hypotheses": {"type": "array"},
         },
     },
+    "run_end": {"required": [], "properties": {}},
     "tool_codegen": {
         "required": ["cycle", "module", "tool_name", "need", "source", "ok"],
         "properties": {
@@ -290,7 +273,6 @@ _EVENTS: dict[str, dict[str, Any]] = {
             "source": {"type": "string"},
             "ok": {"type": "boolean"},
             "error": {"type": ["string", "null"]},
-            "code_paths": {"type": "object"},
         },
     },
     "tool_registry": {
@@ -311,7 +293,6 @@ _EVENTS: dict[str, dict[str, Any]] = {
             "valid": {"type": "boolean"},
             "repair_attempts": {"type": "integer"},
             "fallback_used": {"type": "boolean"},
-            "judge_io": _JUDGE_IO,
             "duration_sec": {"type": "number"},
         },
     },
@@ -461,7 +442,7 @@ def _validator(schema: dict[str, Any] | None = None):
         import jsonschema
     except ImportError as exc:  # pragma: no cover - exercised via message only
         raise ImportError(
-            "validating run_log.jsonl needs the 'jsonschema' package — "
+            "validating a run log needs the 'jsonschema' package — "
             "install it with `pip install jsonschema` or `pip install evalrx[dev]`."
         ) from exc
     schema = schema if schema is not None else build_schema()
@@ -473,25 +454,3 @@ def _validator(schema: dict[str, Any] | None = None):
 def validate_event(event: dict[str, Any], *, schema: dict[str, Any] | None = None) -> None:
     """Validate a single decoded event; raise ``jsonschema.ValidationError`` if bad."""
     _validator(schema).validate(event)
-
-
-def iter_log_errors(path: str | Path, *, schema: dict[str, Any] | None = None):
-    """Yield ``(line_number, message)`` for every invalid line in a JSONL log.
-
-    A convenience for CI / downstream consumers: parse-and-validate a whole
-    ``run_log.jsonl`` in one call.  Lines that aren't valid JSON are reported
-    too.  An empty iterator means the file fully conforms.
-    """
-    validator = _validator(schema)
-    with open(path, encoding="utf-8") as fh:
-        for i, line in enumerate(fh, start=1):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError as exc:
-                yield i, f"invalid JSON: {exc}"
-                continue
-            for err in validator.iter_errors(event):
-                yield i, err.message

@@ -22,7 +22,6 @@ from evalrx.core.case import CaseBatch, FailureCase, Inputs  # noqa: E402
 from evalrx.core.registry import registry  # noqa: E402
 from evalrx.eval_agent.stages.probe import (  # noqa: E402
     _FAILURE_MODE_TO_ANALYZERS,
-    _PRIORITY,
     _SLOT_PRIORITY,
     StrategyProbe,
 )
@@ -48,7 +47,6 @@ def test_every_routed_analyzer_is_registered():
     tables = {
         **{f"failure_mode:{k}": v for k, v in _FAILURE_MODE_TO_ANALYZERS.items()},
         **{f"slot:{k}": v for k, v in _SLOT_PRIORITY.items()},
-        **{f"kind:{k}": v for k, v in _PRIORITY.items()},
     }
     unknown = {where: sorted(set(names) - registered) for where, names in tables.items()
                if set(names) - registered}

@@ -99,22 +99,19 @@ def test_default_score_word_boundary():
 
 
 def test_stats_layer_runs_paired_contrasts():
-    from evalrx.analysis.stats_tools import (
-        build_stats_input,
-        default_plan,
-        run_stats_tool,
-    )
+    from evalrx.analysis.planner import plan_stats_input
+    from evalrx.analysis.stats_tools import build_stats_input, run_stats_tool
 
     batch = _batch()
     res = PromptContrastAnalyzer().run(InterventionModel(), batch)
     inp = build_stats_input({"prompt_contrast": res}, batch)
     assert set(inp.groups) == {"baseline", "describe_first", "sensitive"}
 
-    plan = default_plan(inp)
-    tools = [t for t, _, _ in plan]
+    plan = plan_stats_input(inp)
+    tools = [item.tool for item in plan]
     assert "friedman_nemenyi" in tools
     # Pairwise paired contrasts against the baseline strategy.
-    pairs = [c["strategies"] for t, c, _ in plan if t == "mcnemar_evalue"]
+    pairs = [item.config["strategies"] for item in plan if item.tool == "mcnemar_evalue"]
     assert ["baseline", "describe_first"] in pairs
     assert ["baseline", "sensitive"] in pairs
 

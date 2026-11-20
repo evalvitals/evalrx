@@ -12,7 +12,7 @@ Flow::
       -> HypothesisAgent.propose        # M3: falsifiable hypotheses from M2's takeaways
       -> render_chart_specs             # spec + CSV -> PNG, host-side
       -> write_report_artifacts         # report.json + figures/ + tables/ + code
-      -> build_html_report              # report.html (opened when asked)
+      -> write_report                   # report.html (opened when asked)
 """
 
 from __future__ import annotations
@@ -224,14 +224,11 @@ def run_explore(
                 json.dumps(split_meta, indent=1), encoding="utf-8"
             )
 
-    # The HTML report is the canonical visualization artifact.  Generate it
-    # even when the caller does not immediately open a browser so every
+    # The report is written even when no browser is opened, so every
     # completed exploratory run is portable and reviewable.
-    from evalrx.reporting.html_report import build_html_report, open_in_browser
+    from evalrx.reporting.static_export import write_report
 
-    written = build_html_report(out_dir, out_path=out_dir / "report.html")
-    if open_report:
-        open_in_browser(written)
+    write_report(out_dir, open_report=open_report)
     return 0 if report.ok else 1
 
 

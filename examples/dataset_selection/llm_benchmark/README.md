@@ -30,7 +30,7 @@ git clone <你的远端地址> evalsmith
 cd evalsmith/evalrx          # 有 pyproject.toml 的那一层
 
 # (a) 评测环境 —— 跑本目录的脚本
-python3 -m venv .venv            # 需要 python >= 3.10
+python3 -m venv .venv            # 需要 python >= 3.11
 .venv/bin/pip install -U pip
 .venv/bin/pip install -e ".[stats,viz,ui]"
 .venv/bin/pip install requests
@@ -101,7 +101,7 @@ GPU 空闲显存够不够这个尺寸、磁盘够不够放权重、datasets-serv
 以及数据集名能否解析。**每条 FAIL 都直接给出该敲的安装命令。**
 
 ```
-  OK    python 3.12.13 (>=3.10)
+  OK    python 3.12.13 (>=3.11)
   FAIL  missing module statsmodels — needed for M2 statistics
         -> pip install -e ".[stats]"
   OK    claude CLI 2.1.181 (Claude Code)
@@ -811,7 +811,7 @@ outputs/
         │   ├── figures/*.png      # host 从 spec + csv 渲染的图(M3 看到的就是这些)
         │   ├── analysis.py        # coder 生成的分析代码(可审计、可重跑)
         │   └── sandbox/           # 该步的工作目录
-        └── logs/                  # RunLoggerV2:M1-M5 逐阶段轨迹(run.json + M<n>/log.json,无 run_log.jsonl)
+        └── logs/                  # RunLogger:M1-M5 逐阶段轨迹(run.json + M<n>/log.json,无 run_log.jsonl)
             ├── run.json           # 运行级事件(run_start / cases / diagnose_reports / …)
             ├── M1/log.json … M5/log.json   # 每阶段一个文件;`explore` 事件在 M2 里(计数 + 路径,描述性)
             ├── artifacts/         # M2 统计结果 JSON(c0_m2_stats_results.json 等)

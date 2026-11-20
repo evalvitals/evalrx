@@ -24,7 +24,7 @@ References:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from evalrx.core.analyzer import Analyzer
 from evalrx.core.capability import Capability
@@ -98,6 +98,14 @@ class TunedLensAnalyzer(Analyzer):
         "tl_kl_mid": ("Mid-stack disagreement", "Tuned-lens KL divergence from the final distribution, averaged over the middle third of the layers."),
     }
 
+    train_tokens: int
+    steps: int
+    batch_size: int
+    lr: float
+    seed: int
+    translators_path: 'str | None'
+    max_cases: int
+
     def __init__(self, train_tokens: int = 4096, steps: int = 200, batch_size: int = 256,
                  lr: float = 1e-3, seed: int = 0, translators_path: "str | None" = None,
                  max_cases: int = 0) -> None:
@@ -135,7 +143,7 @@ class TunedLensAnalyzer(Analyzer):
             for layer, h in enumerate(hidden):
                 train[layer].append(h[pick].detach().float().cpu())
             last_states.append((case.id, [h[-1].detach().float().cpu() for h in hidden]))
-        data = [torch.cat(chunks) for chunks in train]
+        data = [torch.cat(chunks) for chunks in cast("list[list]", train)]  # rows is non-empty
         n_layers = len(data) - 1           # entries 0..L-1 premature, L = final (post-norm)
         dim = data[0].shape[1]
         apply_norm = _functional_norm(norm, data[0][:1].to(device))

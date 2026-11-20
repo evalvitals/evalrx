@@ -17,6 +17,7 @@ from evalrx.reporting.dynamic import (
     report_is_current,
 )
 from evalrx.reporting.server import _resolve_media, _resolve_report_root
+from evalrx.term_links import hyperlink
 
 EmbedMedia = Literal["representative", "all", "none"]
 
@@ -25,7 +26,6 @@ def export_static_report(
     run_dir: str | Path,
     *,
     out_path: str | Path | None = None,
-    example_dir: str | Path | None = None,
     embed_media: EmbedMedia = "representative",
     model: object | None = None,
     audio_bitrate: str | None = "48k",
@@ -38,7 +38,7 @@ def export_static_report(
     # that drove the run). One resolver for both entry points.
     root = _resolve_report_root(Path(run_dir).resolve())
     if model is not None or not report_is_current(root):
-        publish_report(root, example_dir=example_dir, model=model)
+        publish_report(root, model=model)
     data, layout = load_published_report(root)
     _embed_media(root, data, mode=embed_media, audio_bitrate=audio_bitrate)
     _embed_stage_figures(root, data)
@@ -53,6 +53,30 @@ def export_static_report(
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(html, encoding="utf-8")
     return destination
+
+
+def write_report(out_dir: Path, *, open_report: bool = False) -> Path | None:
+    """Write ``out_dir/report.html`` and open it when asked.
+
+    An installed package carries the renderer; a source checkout that has not
+    built it gets a note instead of a failed run, since the outputs are intact.
+    """
+    try:
+        written = export_static_report(out_dir, out_path=out_dir / "report.html")
+    except FileNotFoundError as exc:
+        print(f"report.html not written: {exc}")
+        return None
+    if open_report:
+        open_in_browser(written)
+    return written
+
+
+def open_in_browser(report: Path) -> None:
+    """Open a written report. It is self-contained, so no server is needed."""
+    import webbrowser
+
+    print(f"Opening report: {hyperlink(report.as_uri())}")
+    webbrowser.open(report.as_uri())
 
 
 #: Lossless audio the runs record (16 kHz mono WAV, ~380 KB per 10 s clip).

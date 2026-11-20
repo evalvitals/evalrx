@@ -26,7 +26,7 @@ from evalrx.core.case import Inputs
 from evalrx.core.model import Model, TokenLogprob, Trace
 from evalrx.core.spec import AttnSemantics
 from evalrx.core.tool import ChatTurn
-from evalrx.models._media import AUDIO_SAMPLE_RATE, resolve_audio, resolve_image
+from evalrx.models._media import AUDIO_SAMPLE_RATE, resolve_audio
 from evalrx.models.backends.base import Backend, RuntimeConfig
 from evalrx.models.backends.hf._util import (  # noqa: F401
     _check_audio_duration,
@@ -48,19 +48,13 @@ _CAPTURE_FLAGS = {
 }
 
 
-# Media resolution lives in evalrx.models._media (shared with jax_local); the
-# private names stay bound here for existing callers and tests.
-_resolve_image = resolve_image
-_resolve_audio = resolve_audio
-
-
 class HFLocalModel(ContrastiveDecodingMixin, SpecialistRepairsMixin, Model):
     """A locally-loaded HF model, constructed from a :class:`ModelSpec`."""
 
     def __init__(self, spec, runtime: RuntimeConfig) -> None:
         self.spec = spec
         self.runtime = runtime
-        self._hf = None  # (model, processor) — lazy
+        self._hf: tuple[Any, Any] | None = None  # (model, processor) — lazy
         self._ifcd_editors: dict[str, Any] = {}
         self._detect_engines: dict[str, Any] = {}
         self._audio_text_engines: dict[tuple[str, str], Any] = {}
@@ -186,7 +180,7 @@ class HFLocalModel(ContrastiveDecodingMixin, SpecialistRepairsMixin, Model):
                 kwargs.setdefault("return_audio", False)
             return original_generate(*args, **kwargs)
 
-        _generate_without_talker._evalrx_talker_suppressed = True
+        setattr(_generate_without_talker, "_evalrx_talker_suppressed", True)
         model.generate = _generate_without_talker
 
     @staticmethod
@@ -533,7 +527,7 @@ class HFLocalModel(ContrastiveDecodingMixin, SpecialistRepairsMixin, Model):
         audios: list = []
         if self.spec.audio is not None and audio is not None:
             raw_audios = list(audio) if isinstance(audio, (list, tuple)) else [audio]
-            audios = [_resolve_audio(a) for a in raw_audios]
+            audios = [resolve_audio(a) for a in raw_audios]
             # Audio blocks precede the text block, matching the image/video
             # convention above; order must match the ``audio=`` list below.
             content = [{"type": "audio"} for _ in audios] + content

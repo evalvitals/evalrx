@@ -69,18 +69,19 @@ def test_skipped_stage_keeps_its_pipeline_stage_in_the_envelope():
 
 
 def test_backfill_dry_run_preserves_existing_trace_and_order(tmp_path):
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.run_logger import RunLogger
     from evalrx.observability import backfill_run_to_langfuse
 
     trace_id = "00000000-0000-0000-0000-000000000001"
-    logger = RunLoggerV2(tmp_path, trace_id=trace_id, observability_mode="offline")
+    logger = RunLogger(tmp_path, trace_id=trace_id, observability_mode="offline")
     logger.log_run_start({})
     logger._append_stage("M2", "analysis", {})
     logger.close()
 
     summary = backfill_run_to_langfuse(tmp_path, dry_run=True)
 
-    assert summary == {"trace_id": trace_id, "events": 2, "pending": 2, "published": 0}
+    # run_start, analysis, and the run_end close() writes.
+    assert summary == {"trace_id": trace_id, "events": 3, "pending": 3, "published": 0}
 
 
 def test_tracer_flushes_events_through_langfuse_client(tmp_path):

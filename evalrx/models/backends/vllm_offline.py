@@ -30,7 +30,7 @@ class VLLMOfflineModel(Model):
     def __init__(self, spec, runtime: RuntimeConfig) -> None:
         self.spec = spec
         self.runtime = runtime
-        self._llm = None  # lazy vllm.LLM
+        self._llm: Any = None  # lazy vllm.LLM
         caps = {Capability.GENERATE, Capability.LOGPROBS}
         if spec.tool_calling:  # conditional, like hf_local: needs a tool chat template
             caps.add(Capability.TOOL_CALLS)

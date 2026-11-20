@@ -98,6 +98,9 @@ class TrajectoryRubricJudge(Analyzer):
     requires_trajectories = True
     applies_to_modalities = frozenset({"text", "image"})
 
+    max_cases: Optional[int]
+    annotate: bool
+
     def __init__(self, judge: Any, max_cases: Optional[int] = None, annotate: bool = True) -> None:
         super().__init__(max_cases=max_cases, annotate=annotate)
         if judge is None or not hasattr(judge, "generate"):

@@ -145,11 +145,6 @@ def compare_paired_rates(
     )
 
 
-def ab_test(success_a: Sequence, success_b: Sequence, **kwargs) -> StatResult:
-    """Back-compat alias: pass per-example success vectors (bools/0-1)."""
-    return compare(success_a, success_b, **kwargs)
-
-
 @dataclass
 class MultiCompareResult:
     """Omnibus (Friedman) + post-hoc (Nemenyi) verdict for >2 strategies."""

@@ -6,10 +6,10 @@ import os
 import pathlib
 import re
 import shutil
-import subprocess
 import tempfile
-import warnings
 from pathlib import Path
+
+from evalrx.agent_runtime.judges._cli import read_reply, run_cli
 
 AGY_ERROR_MARKERS = (
     "RESOURCE_EXHAUSTED",
@@ -143,40 +143,16 @@ class AgyModel:
             if self._effort:
                 cmd += ["--effort", self._effort]
 
-            try:
-                proc = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    timeout=self._timeout_sec,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    env={**os.environ},
-                )
-            except subprocess.TimeoutExpired as exc:
-                raise RuntimeError(
-                    f"AgyModel: agy timed out after {self._timeout_sec}s"
-                ) from exc
-
-            output = proc.stdout.strip()
-            if proc.returncode != 0 and not output:
-                # Startup errors (e.g. an unsupported model) are on stderr;
-                # background quota logs can misleadingly say "not logged in"
-                # even when API-key authentication is configured correctly.
-                reason = (proc.stderr or "").strip()[:600] or scan_agy_log(log_path)
-                raise RuntimeError(f"AgyModel: agy exited {proc.returncode}: {reason}")
-
-            output = re.sub(r"<think>.*?</think>", "", output, flags=re.DOTALL).strip()
-            if not output:
-                reason = scan_agy_log(log_path)
-                warnings.warn(
-                    "AgyModel: agy returned an empty response"
-                    + (f" -- {reason}" if reason else "")
-                    + ". agy is likely rate-limited or quota-exhausted; the caller "
-                    "will fall back to a non-LLM path.",
-                    stacklevel=2,
-                )
-            return output
+            name = f"AgyModel: {Path(self._binary).name}"
+            cwd = Path(workspace_dir or tempfile.mkdtemp(prefix="agy_ws_"))
+            workspace_dir = str(cwd)
+            run = run_cli(name, cmd, cwd=cwd, timeout_sec=self._timeout_sec)
+            output = re.sub(r"<think>.*?</think>", "", run.stdout, flags=re.DOTALL)
+            # Startup errors (e.g. an unsupported model) are on stderr;
+            # background quota logs can misleadingly say "not logged in"
+            # even when API-key authentication is configured correctly.
+            reason = (run.stderr or "").strip()[:600] if run.returncode != 0 else ""
+            return read_reply(name, run, output, failure_reason=reason or scan_agy_log(log_path))
         finally:
             safe_unlink(log_path)
             if workspace_dir:

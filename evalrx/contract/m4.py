@@ -54,10 +54,13 @@ class HypothesisTestInput(WireModel):
 # Output
 # ---------------------------------------------------------------------------
 
+EvidenceSource = Literal["m2_stats_results", "fallback_per_case", "none"]
+
+
 class TestEvidence(WireModel):
     """The statistics behind one verdict, with its provenance."""
 
-    source: Literal["m2_stats_results", "fallback_per_case", "none"] = "none"
+    source: EvidenceSource = "none"
     chosen_tool: str | None = None
     routed_by: str = Field(default="", description="How test_design resolved to this result.")
     consulted_tools: list[str] = Field(default_factory=list)

@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import numpy as np
 
+from evalrx.analysis.planner import plan_stats_input
 from evalrx.analysis.stats_tools import (
     StatsInput,
     build_stats_input,
-    default_plan,
     run_stats_tool,
 )
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
@@ -101,7 +101,7 @@ class TestBuildStatsInputMaps:
         assert "relative_attention.map" in inp.per_case_vectors
         assert set(inp.per_case_vectors["relative_attention.map"]) == set(maps)
 
-    def test_default_plan_includes_decoding_when_maps_present(self):
+    def test_plan_includes_decoding_when_maps_present(self):
         inp = _maps(structured=True)
-        tools = [t for t, _, _ in default_plan(inp)]
+        tools = [item.tool for item in plan_stats_input(inp)]
         assert "attention_decoding" in tools

@@ -45,7 +45,7 @@ from evalrx.eval_agent.prompts.probe_generator import (
 if TYPE_CHECKING:
     from evalrx.agent_runtime.cli_types import CliAgentConfig
     from evalrx.core.case import CaseBatch
-    from evalrx.core.model import Model
+    from evalrx.core.model import Judge, Model
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +82,7 @@ class ProbeGenerator:
 
     def __init__(
         self,
-        judge: "Model | None" = None,
+        judge: "Judge | None" = None,
         cli_config: "CliAgentConfig | None" = None,
         sandbox: "ExperimentSandbox | None" = None,
         timeout_sec: int = 60,
@@ -188,7 +188,7 @@ class ProbeGenerator:
         selected = list(cases)
         if self._max_cases > 0:  # 0 = every case
             selected = selected[: self._max_cases]
-        if getattr(self.run_logger, "preserve_full_model_io", False):
+        if self.run_logger is not None:
             from evalrx.eval_agent.model_instrumentation import InstrumentedModel
 
             model = InstrumentedModel(

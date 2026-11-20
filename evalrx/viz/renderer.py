@@ -22,7 +22,7 @@ import csv
 import logging
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence, cast
 
 from evalrx.viz.labels import display_name
 from evalrx.viz.style import (
@@ -268,18 +268,17 @@ def _render_one(plt, spec, rows, x, y, out_dir, idx, style) -> Path:
     if kind not in _KINDS:
         kind = "bar"
     xs_raw = [r.get(x, "") for r in rows]
-    ys = [_to_float(r.get(y, "")) for r in rows]
-    keep = [i for i, yv in enumerate(ys) if yv is not None]
+    ys_raw = [_to_float(r.get(y, "")) for r in rows]
+    keep = [i for i, yv in enumerate(ys_raw) if yv is not None]
     if not keep:
         raise ValueError(f"y column {y!r} has no numeric values")
     rows = [rows[i] for i in keep]
     xs_raw = [xs_raw[i] for i in keep]
-    ys = [ys[i] for i in keep]
+    ys = [yv for yv in ys_raw if yv is not None]
     xs_num = [_to_float(v) for v in xs_raw]
     x_is_num = all(v is not None for v in xs_num)
-    ns = _n_values(rows, y)
+    ns: Sequence[float | None] | None = _n_values(rows, y)
     scale = _rate_scale(y, ys)
-    rate = scale is not None
     rc = (style or {}).get("rc", {})
     colors = (style or {}).get("colors") or NATURE_COLORS_FALLBACK
     accent = SEMANTIC_PALETTE["ACCENT"]
@@ -391,7 +390,7 @@ def _render_one(plt, spec, rows, x, y, out_dir, idx, style) -> Path:
             if kind in {"bar", "line", "timeseries"}:
                 ax.grid(axis="y", linewidth=0.6, alpha=0.25, zorder=0)
                 ax.set_axisbelow(True)
-            if rate and kind != "scatter":
+            if scale is not None and kind != "scatter":
                 from matplotlib.ticker import PercentFormatter
                 ax.yaxis.set_major_formatter(PercentFormatter(scale, decimals=0))
             ax.set_xlabel(xlabel)
@@ -413,7 +412,7 @@ def _n_values(rows, y) -> "list[float] | None":
         if cand in cols and cand != y:
             vals = [_to_float(r.get(cand, "")) for r in rows]
             if all(v is not None for v in vals):
-                return vals
+                return cast("list[float]", vals)
     return None
 
 
@@ -424,7 +423,7 @@ def _ci_values(rows) -> "tuple[list[float], list[float]] | None":
             los = [_to_float(r.get(lo, "")) for r in rows]
             his = [_to_float(r.get(hi, "")) for r in rows]
             if all(v is not None for v in los + his):
-                return los, his
+                return cast("list[float]", los), cast("list[float]", his)
     return None
 
 
@@ -457,7 +456,7 @@ def _numerator_values(rows, y, ns) -> "list[float] | None":
             continue
         vals = [_to_float(r.get(col, "")) for r in rows]
         if all(v is not None and 0 <= v <= n for v, n in zip(vals, ns)):
-            return vals
+            return cast("list[float]", vals)
     return None
 
 

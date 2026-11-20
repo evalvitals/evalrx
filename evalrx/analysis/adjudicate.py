@@ -90,14 +90,15 @@ def adjudicate_signals(
             family_key[i] = key
             family.append(
                 StatsToolResult(
-                    tool=key, e_value=e_value, effect=effect, ci=ci, reject=bool(reject)
+                    tool="candidate_signal", analysis_key=key,
+                    e_value=e_value, effect=effect, ci=ci, reject=bool(reject),
                 )
             )
 
     # 2) ONE e-BH family across the e-value-bearing candidates (the multiplicity
     #    firewall). `fdr_correct` only considers results with an e-value.
     fdr = fdr_correct(family, alpha=alpha)
-    rejected_keys = set(fdr.get("rejected_tools", []))
+    rejected_keys = set(fdr.get("rejected_result_keys", []))
 
     # 3) Final reject per candidate.
     for i, c in enumerate(candidates):

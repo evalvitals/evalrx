@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { JSONUIProvider, Renderer } from "@json-render/react";
-import { Activity, Bot, FolderClock, Moon, Sun } from "lucide-react";
+import { Activity, Bot, Columns2, FolderClock, Moon, Sun } from "lucide-react";
 import { applyTheme, initialTheme, type Theme } from "./theme";
 import { registry, ReportProviders } from "./reportCatalog";
 import type { LayoutEnvelope, ReportData } from "./types";
@@ -11,8 +11,10 @@ import { RunsPanel } from "./runsPanel";
 import { CasesView } from "./casesView";
 import { DebugView } from "./debugView";
 import { EvidenceView } from "./evidenceView";
+import { CompareView } from "./compareView";
 import { navigate, parseRoute, runFromHash, withRun, type Route } from "./route";
 import { api, RunIdContext } from "./api";
+import { runStatus } from "./runStatus";
 
 type Payload = { data: ReportData; layout: LayoutEnvelope };
 
@@ -44,7 +46,29 @@ export function App() {
   // Empty when no server holds the run (an export, or an archive read in the
   // static build).
   const [runId, setRunId] = useState("");
+  // The server's name for that run (its folder), to tell two runs of one
+  // model on one dataset apart.
+  const [runLabel, setRunLabel] = useState("");
   useEffect(() => applyTheme(theme), [theme]);
+  // A run still being written is followed: the server streams an event each
+  // time its log grows, and the report on screen is swapped for the new one
+  // in place, on whatever view the reader is on.
+  const following = Boolean(runId && payload && !payload.data.setting.finished);
+  useEffect(() => {
+    if (!following) return;
+    const source = new EventSource(api.live(runId));
+    const refresh = () =>
+      fetch(api.report(runId))
+        .then((res) => (res.ok ? res.json() : null))
+        .then((run) => run && setPayload({ data: run.data, layout: run.layout }))
+        .catch(() => undefined);
+    source.addEventListener("update", refresh);
+    source.addEventListener("done", () => {
+      source.close();
+      refresh();
+    });
+    return () => source.close();
+  }, [following, runId]);
   useEffect(() => {
     const follow = () => setRoute(parseRoute(window.location.hash));
     window.addEventListener("hashchange", follow);
@@ -74,6 +98,7 @@ export function App() {
         const run = await res.json();
         setPayload({ data: run.data, layout: run.layout });
         setRunId(id);
+        setRunLabel(run.label ?? "");
         setActiveRoot(run.root ?? null);
         if (id !== named) {
           // Another run than the hash named: its view of that run means nothing here.
@@ -94,6 +119,7 @@ export function App() {
   const load = (run: UploadedRun, root: string | null = null) => {
     setPayload({ data: run.data, layout: run.layout });
     setRunId(run.id || "");
+    setRunLabel(run.label || "");
     setNeedsRun(false);
     setError("");
     navigate({ view: "overview" }, { run: run.id ?? null });
@@ -123,7 +149,7 @@ export function App() {
     // opens the same way whether it was found on the overview, a stage
     // brief or the full record, and the detail views all return past the
     // topbar below.
-    renderReport(payload, route, embedded, load)
+    renderReport(payload, route, embedded, load, { id: runId, label: runLabel })
   );
   return (
     <>
@@ -167,8 +193,22 @@ function renderReport(
   route: Route,
   embedded: boolean,
   load: (run: UploadedRun, root?: string | null) => void,
+  run: { id: string; label: string },
 ) {
+  const runId = run.id;
   const back = () => navigate({ view: "overview" });
+  if (route.view === "compare" && runId) {
+    return (
+      <CompareView
+        data={payload.data}
+        run={run}
+        otherId={route.with}
+        back={back}
+        navigate={navigate}
+        open={load}
+      />
+    );
+  }
   if (route.view === "evidence") {
     return <EvidenceView data={payload.data} route={route} back={back} navigate={navigate} />;
   }
@@ -187,15 +227,22 @@ function renderReport(
           <strong>EvalRX</strong>
         </a>
         {!embedded && <RunSwitch onLoaded={load} />}
+        {runId && (
+          <a
+            className="compare-toggle"
+            href={withRun("#/compare", runId)}
+            title="Compare this run with another"
+          >
+            <Columns2 size={13} /> Compare
+          </a>
+        )}
         {payload.data.setting.diagnosed_by && (
           <div className="run-agent" title="The agent that drove this run">
             <Bot size={13} />
             {payload.data.setting.diagnosed_by}
           </div>
         )}
-        <div>
-          <span className="live-dot" /> report complete
-        </div>
+        <RunStatusBadge setting={payload.data.setting} />
         <code>{payload.data.trace_id.slice(0, 8)}</code>
       </div>
       <ReportProviders data={payload.data} navigate={navigate}>
@@ -209,5 +256,21 @@ function renderReport(
         <small>Layout: {payload.layout.generated_by.mode}</small>
       </footer>
     </>
+  );
+}
+
+/** The run's state in the top bar, re-read each minute so "quiet" can arrive. */
+function RunStatusBadge({ setting }: { setting: ReportData["setting"] }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (setting.finished) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, [setting.finished]);
+  const status = runStatus(setting, now);
+  return (
+    <div className={`run-status run-status-${status.state}`}>
+      <span className={`live-dot${status.state === "live" ? " pulse" : ""}`} /> {status.label}
+    </div>
   );
 }

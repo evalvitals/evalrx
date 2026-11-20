@@ -51,12 +51,12 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional, cast
 
 from evalrx.eval_agent.stages.fix.tools import apply_image_ops, score_to_bool
 
 if TYPE_CHECKING:
-    from evalrx.core.case import CaseBatch
+    from evalrx.core.case import CaseBatch, FailureCase
     from evalrx.core.model import Model
 
 logger = logging.getLogger(__name__)
@@ -330,7 +330,8 @@ def run_coded_pipeline(
             # sampling the record is the frozen baseline arm the paired test
             # compares against, so replaying it keeps anchor and baseline
             # identical (a resample could drift from both).
-            reply: "dict[str, Any]" = {"output": str(case.observed)}
+            # _replayable_direct is False for a missing case.
+            reply: "dict[str, Any]" = {"output": str(cast("FailureCase", case).observed)}
             with records_lock:
                 res.n_replayed += 1
         else:
@@ -658,7 +659,7 @@ def _service_call(
             gen_kwargs["max_tokens"] = int(max_tokens_floor)
         # dataclasses.replace keeps .video/.audio (a bare Inputs(prompt=,
         # image=) dropped them — the same modality bug run_pipeline had).
-        if inp is not None and dataclasses.is_dataclass(inp):
+        if dataclasses.is_dataclass(inp) and not isinstance(inp, type):
             new_inputs = dataclasses.replace(inp, prompt=str(prompt), image=image)
         else:
             new_inputs = inputs_cls(prompt=str(prompt), image=image)

@@ -1,19 +1,19 @@
 """Live per-stage terminal narration for the M1-M5 diagnosis loop
-(:class:`~evalrx.eval_agent.run_logger_v2.RunLoggerV2`).
+(:class:`~evalrx.eval_agent.run_logger.RunLogger`).
 
 Sibling of :class:`evalrx.analysis.narration.TerminalNarrator` (built for
 the `evalrx explore`/`run-codebase` CLI pipeline) — same visual grammar
 ("M2  explore ············ ...") and the same non-simulated promise: every
-count here comes from the real event RunLoggerV2 just logged, nothing is
+count here comes from the real event RunLogger just logged, nothing is
 invented. The two narrators don't share code (small, deliberate style-block
 duplication below) because their event shapes differ: EventSink emits
-started/completed pairs, RunLoggerV2 emits one already-finished record per
+started/completed pairs, RunLogger emits one already-finished record per
 stage occurrence, so this one always prints exactly one line per event
 instead of a running/completed pair.
 
-Opt in on any ``RunLoggerV2``::
+Opt in on any ``RunLogger``::
 
-    RunLoggerV2(run_dir=out / "logs", narrate=True)
+    RunLogger(run_dir=out / "logs", narrate=True)
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ _STAGE_LABELS = {
 # `stage` argument there -- only on_run_start/on_run_event use this label.
 _RUN_LABEL = "loop"
 
-# Event keys worth a narrated line. Everything else RunLoggerV2 logs
+# Event keys worth a narrated line. Everything else RunLogger logs
 # (model_call, tool_codegen, tool_registry, agent_decision/tool, cases,
 # report_published, diagnose_reports) is real detail too, but at a finer
 # grain than "what stage is the loop on" — narrating all of it would bury
@@ -67,7 +67,7 @@ def _or_na(value: Any) -> Any:
 
 
 class LoopNarrator:
-    """Prints one real, aligned line per M1-M5 event, as RunLoggerV2 logs it."""
+    """Prints one real, aligned line per M1-M5 event, as RunLogger logs it."""
 
     LABEL_WIDTH = 12
 
@@ -87,7 +87,7 @@ class LoopNarrator:
     def _print(self, key: str, detail: str) -> None:
         print(self._row(key, detail), file=self.stream, flush=True)
 
-    # -- stage events (M1-M5), from RunLoggerV2._append_stage -------------
+    # -- stage events (M1-M5), from RunLogger._append_stage -------------
 
     def on_event(self, stage: str, key: str, record: dict[str, Any]) -> None:
         if key == "model_calls" and record.get("error"):
@@ -173,7 +173,7 @@ class LoopNarrator:
         return (f"{self._c(_DIM, tier)} {name}  {mark} {eff_str} "
                 f"(n_fixed={_or_na(attempt.get('n_fixed'))}, n_broken={_or_na(attempt.get('n_broken'))})")
 
-    # -- run-level events, from RunLoggerV2._append_run / log_run_start ---
+    # -- run-level events, from RunLogger._append_run / log_run_start ---
 
     def on_run_start(self, entry: dict[str, Any]) -> None:
         model = entry.get("model") or "target model"

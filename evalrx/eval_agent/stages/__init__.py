@@ -22,8 +22,6 @@ M2 — Analysis (statistical interpretation)
                                             adds LLM-written conclusion + evidence chain
                        StatsAnalysisReport  AnalysisReport subclass — adds conclusion,
                                             evidence_chain, qualitative_findings, protocol
-  stats_tool_agent.py  StatsToolAgent       selects/runs deterministic exploratory
-                                            stats tools and visualization specs
   stats_tools.py       STATS_TOOL_CATALOG   signal/label association, McNemar+e-value,
                                             Friedman, single-rate e-value, rank corr
   stats_tool_generator.py StatsToolGenerator  LLM/CLI writes a new stats script when
@@ -31,7 +29,7 @@ M2 — Analysis (statistical interpretation)
 
 M3 — Diagnosis (hypothesis generation)
   diagnosis.py    DiagnosisAgent   LLM judge reads AnalysisReport → Hypothesis list;
-                                   falls back to threshold-derived hypotheses on NO_ISSUE
+                                   falls back to threshold-derived hypotheses on an empty proposal
 
 M5 — Surgery (fix proposal + execution)
   surgery.py           SurgeryAgent       four strategies: verify_fn → analyzer_params →

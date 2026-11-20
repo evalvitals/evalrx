@@ -20,8 +20,6 @@ Grade the hypothesis STRICTLY against this held-out evidence:
 - "not_testable": these observational statistics cannot decide the claim at
   all (e.g. causal direction); it needs an intervention/surgery experiment.
 
-Reply with ONLY a JSON object:
-{{"verdict": "supported|partial|refuted|not_testable",
-  "reasoning": "<2-3 sentences citing the held-out numbers>",
-  "needs_surgery": true/false}}
+Give the verdict, 2-3 sentences of reasoning citing the held-out numbers, and
+whether the claim needs an intervention (surgery) experiment.
 """

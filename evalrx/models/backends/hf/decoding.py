@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import math
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from evalrx.core.capability import Capability
 from evalrx.core.case import Inputs
@@ -30,11 +30,34 @@ from evalrx.models.backends.hf._util import (  # noqa: F401
     _read_nested_attr,
 )
 
+if TYPE_CHECKING:
+    from evalrx.core.model import Trace
+    from evalrx.core.spec import ModelSpec
+    from evalrx.models.backends.base import RuntimeConfig
+    from evalrx.models.backends.hf.model import HFLocalModel
+
 logger = logging.getLogger(__name__)
 
 
 class ContrastiveDecodingMixin:
     """L3a decoding-time repairs (see the module docstring)."""
+
+    if TYPE_CHECKING:
+        # Provided by the host model (HFLocalModel), which this mixin is written for.
+        spec: ModelSpec
+        runtime: RuntimeConfig
+        _ifcd_editors: dict[str, Any]
+        @property
+        def _loaded(self) -> tuple[Any, Any]: ...
+
+        @staticmethod
+        def _as_prompt(inputs: Any) -> str: ...
+
+        def _encode_vlm(self, inputs: Any, model: Any, processor: Any) -> Any: ...
+
+        def generate(self, inputs: Any, **kwargs: Any) -> str: ...
+
+        def forward(self, inputs: Any, capture: set[Capability], spec: Any = None) -> Trace: ...
 
     def paper_method_fidelity(self, method: str) -> str:
         """Declare whether a paper-method adapter is exact or architecture-adapted.
@@ -246,26 +269,6 @@ class ContrastiveDecodingMixin:
         return tok.decode(_new_tokens(out[0], enc["input_ids"][0]), skip_special_tokens=True)
 
 
-    def _vcd_next_token_logits(
-        self,
-        inputs: Any,
-        *,
-        noise_step: int,
-        noise_seed: int,
-    ) -> tuple[Any, Any]:
-        """Return clean/noisy next-token logits for the legacy binary route."""
-        import torch
-
-        model, _ = self._loaded
-        enc, noisy_enc = self._vcd_encodings(
-            inputs, noise_step=noise_step, noise_seed=noise_seed
-        )
-        with torch.no_grad():
-            clean = model(**enc).logits[0, -1]
-            noisy = model(**noisy_enc).logits[0, -1]
-        return clean, noisy
-
-
     def generate_vcd(
         self,
         inputs: Any,
@@ -458,7 +461,7 @@ class ContrastiveDecodingMixin:
             for answer in ids
             if clean_scores[answer] >= cutoff
         }
-        return max(scores or clean_scores, key=(scores or clean_scores).get)
+        return max(scores or clean_scores, key=(scores or clean_scores).__getitem__)
 
 
     def generate_vicrop(self, inputs: Any, *, layer: int | float = 14) -> str:
@@ -468,7 +471,7 @@ class ContrastiveDecodingMixin:
             raise ValueError(f"{self.spec.key}: ViCrop is only native on the LLaVA executor")
         from evalrx.models.paper_methods.vicrop import generate
 
-        return generate(self, inputs, layer=layer)
+        return generate(cast("HFLocalModel", self), inputs, layer=layer)  # the mixin's only host
 
 
     def generate_opera_binary(
@@ -838,7 +841,7 @@ class ContrastiveDecodingMixin:
             raise ValueError(f"{self.spec.key}: ViCrop is only native on the LLaVA executor")
         from evalrx.models.paper_methods.vicrop import prepare_views
 
-        image, crop, fused_prompt = prepare_views(self, inputs, layer=layer)
+        image, crop, fused_prompt = prepare_views(cast("HFLocalModel", self), inputs, layer=layer)  # the mixin's only host
         fused = self.generate(Inputs(fused_prompt, [image, crop]))
         crop_only_prompt = (
             "The image is a task-relative crop selected from a larger scene. "

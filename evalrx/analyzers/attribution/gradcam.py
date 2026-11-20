@@ -30,7 +30,7 @@ References:
 from __future__ import annotations
 
 from collections import Counter
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from evalrx.core.analyzer import Analyzer
 from evalrx.core.capability import Capability
@@ -73,6 +73,10 @@ class GradCAMAnalyzer(Analyzer):
         "gc_center_offset": ("Grad-CAM off-centre", "Distance of the map's centre of mass from the image centre (0 = centre, 1 = corner)."),
         "gc_edge_mass": ("Grad-CAM on border", "Share of the map on the outermost ring of patches."),
     }
+
+    layer: 'int | float'
+    target: str
+    max_cases: int
 
     def __init__(self, layer: "int | float" = 0.5, target: str = "prediction", max_cases: int = 0) -> None:
         super().__init__(layer=layer, target=target, max_cases=max_cases)
@@ -145,7 +149,7 @@ class GradCAMAnalyzer(Analyzer):
         if not per_case:
             raise ValueError(f"{self.name}: no case could be analysed (skipped: {dict(skipped)})")
         artifacts: dict[str, Any] = {
-            "spatial_map": per_case_maps[first_id].astype(np.float64),
+            "spatial_map": per_case_maps[cast(str, first_id)].astype(np.float64),  # set with the first row
             "per_case_maps": per_case_maps,
         }
         group_artifacts, group_findings = group_maps(per_case_maps, cases)

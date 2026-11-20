@@ -1,4 +1,4 @@
-"""End-to-end smoke test for AgenticDiagnoseLoop — the judge-decided mode.
+"""End-to-end smoke test for VLDiagnoseLoop under a JudgePolicy — the judge-decided mode.
 
 Mirrors test_agent_launch_smoke.py's fixtures (a synthetic attention signal
 that discriminates FAIL/PASS perfectly), but drives the loop via a scripted
@@ -14,13 +14,14 @@ import json
 from evalrx.core.capability import Capability
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.core.result import Result
-from evalrx.eval_agent import AgenticDiagnoseLoop, DiagnosisAgent, HypothesisTester
+from evalrx.eval_agent import DiagnosisAgent, HypothesisTester, JudgePolicy, VLDiagnoseLoop
 from evalrx.eval_agent.log_schema import validate_event
 from evalrx.eval_agent.run_context import RunContext
 from evalrx.eval_agent.stages.probe_agent import ProbeAgent
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
-from evalrx.reporting.run_events import read_v2_events
+from evalrx.reporting.run_events import read_run_events
 from tests.conftest import FakeModel
+from tests.judge_replies import hypothesis, keep_all, proposal
 
 
 class _ScriptedM3Judge(FakeModel):
@@ -35,14 +36,12 @@ class _ScriptedM3Judge(FakeModel):
         prompt = str(inputs)
         self.calls.append(prompt)
         if "adversarial ML reviewer" in prompt:
-            return (
-                "KEEP: Failure is driven by an attention signal present on failing cases.\n"
-                "REASON: evidence directly supports this claim"
-            )
-        return json.dumps([{
-            "hypothesis": "Failure is driven by an attention signal present on failing cases.",
-            "failure_mode": "attention",
-        }])
+            return keep_all(1)
+        return proposal(hypothesis(
+            "Failure is driven by an attention signal present on failing cases.",
+            "attention",
+            plain="The model looks at the wrong part of the input on the cases it gets wrong.",
+        ))
 
 
 class _ScriptedActionJudge(FakeModel):
@@ -110,16 +109,15 @@ def _protocol() -> ExperimentProtocol:
 
 def _build_loop(tmp_path, action_judge, *, max_actions=10):
     ctx = RunContext(tmp_path / "run", verbose=False)
-    loop = AgenticDiagnoseLoop(
+    loop = VLDiagnoseLoop(
         model=FakeModel(
             capabilities={Capability.GENERATE, Capability.ATTENTION}, modalities={"text"},
         ),
         protocol=_protocol(),
-        judge=action_judge,
+        policy=JudgePolicy(action_judge, max_actions=max_actions),
         probe_agent=_SignalProbe(max_analyzers=1),
         diagnosis_agent=DiagnosisAgent(judge=_ScriptedM3Judge()),
         hypothesis_tester=HypothesisTester(min_effect=0.05),
-        max_actions=max_actions,
         run_logger=ctx.logger,
     )
     return ctx, loop
@@ -133,7 +131,7 @@ def test_agentic_loop_reaches_a_supported_hypothesis_via_scripted_actions(tmp_pa
 
     assert report.stopped_by == "agent_stop"
     assert len(action_judge.calls) == 5  # exactly the scripted sequence, no repairs
-    assert [h.predicted_failure_mode for h in report.all_hypotheses] == ["attention"]
+    assert [h.predicted_failure_mode for h in report.final_hypotheses] == ["attention"]
     assert len(report.all_test_results) == 1
     assert report.all_test_results[0].status.value == "supported"
     assert report.all_test_results[0].effect_size == 1.0
@@ -144,7 +142,7 @@ def test_agentic_loop_reaches_a_supported_hypothesis_via_scripted_actions(tmp_pa
     # probe/analysis/diagnosis/surgery events from the wrapped M1-M4 stages,
     # bracketed by run_start/loop_end so the dashboard can show run provenance.
     ctx.finalize()
-    lines = read_v2_events(ctx.root)
+    lines = read_run_events(ctx.root)
     for event in lines:
         validate_event(event)
     events = {line["event"] for line in lines}
@@ -175,14 +173,13 @@ def test_agentic_loop_wires_cluster_failures_into_the_m3_prompt(tmp_path):
     action_judge = _ScriptedActionJudge(sequence)
     m3_judge = _ScriptedM3Judge()
     ctx = RunContext(tmp_path / "run", verbose=False)
-    loop = AgenticDiagnoseLoop(
+    loop = VLDiagnoseLoop(
         model=FakeModel(capabilities={Capability.GENERATE, Capability.ATTENTION}, modalities={"text"}),
         protocol=_protocol(),
-        judge=action_judge,
+        policy=JudgePolicy(action_judge, max_actions=10),
         probe_agent=_SignalProbe(max_analyzers=1),
         diagnosis_agent=DiagnosisAgent(judge=m3_judge),
         hypothesis_tester=HypothesisTester(min_effect=0.05),
-        max_actions=10,
         run_logger=ctx.logger,
     )
 
@@ -224,12 +221,12 @@ def test_benchmark_controller_cannot_open_confirmation_or_repair(tmp_path):
         '{"tool":"stop","params":{"resolved":false,"reason":"done"},"rationale":"done"}',
     ])
     ctx, loop = _build_loop(tmp_path, judge)
-    loop._registry_factory = _benchmark_agentic_registry
+    loop.policy.registry_factory = _benchmark_agentic_registry
     loop.confirm_split = 0.5
     report = loop.run(_cases())
     assert report.stopped_by == "agent_stop"
     ctx.finalize()
-    events = read_v2_events(ctx.root)
+    events = read_run_events(ctx.root)
     tools = [e for e in events if e["event"] == "agent_tool"]
     assert len(judge.calls) == 2  # forbidden action is rejected before dispatch
     assert all(e["tool"] != "run_fix" for e in tools)

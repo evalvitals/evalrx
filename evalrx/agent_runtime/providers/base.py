@@ -5,7 +5,13 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from evalrx.agent_runtime.cli_runtime import ProcessRun, SubprocessRunner, collect_py_files
+from evalrx.agent_runtime.cli_runtime import (
+    LIMIT_NOTICE,
+    NOTICE_MAX_CHARS,
+    ProcessRun,
+    SubprocessRunner,
+    collect_py_files,
+)
 from evalrx.agent_runtime.cli_transcript import RAW_OUTPUT_CAP
 from evalrx.agent_runtime.cli_types import CliAgentResult
 from evalrx.agent_runtime.skill_audit import build_agent_audit
@@ -91,9 +97,14 @@ class CliAgentBase:
 
     def _build_result(self, workdir: Path, run: ProcessRun) -> CliAgentResult:
         files = collect_py_files(workdir)
+        raw_output, usage = self._postprocess_output(run.stdout)
+        # The CLIs print a limit notice, exit 0, where the session would be.
+        tail = raw_output.strip()[-NOTICE_MAX_CHARS:]
         error: str | None = None
         if run.timed_out:
             error = f"[TIMEOUT] agent killed after {run.elapsed_sec:.0f}s"
+        elif not files and LIMIT_NOTICE.search(tail):
+            error = f"account limit reached: {tail!r}"
         elif run.returncode != 0 and not files:
             error = f"Exited {run.returncode}: {run.stderr[:500]}"
 
@@ -110,7 +121,6 @@ class CliAgentBase:
             except OSError:
                 logger.debug("could not persist raw agent stream for %s", self._provider_name)
 
-        raw_output, usage = self._postprocess_output(run.stdout)
         audit = build_agent_audit(
             provider=self._provider_name,
             skills=self._skills,

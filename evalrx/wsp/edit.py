@@ -109,7 +109,7 @@ class TensorEdit:
             self.values = self.values.reshape(-1)
         if (self.index is None) != (self.values is None):
             raise ValueError(f"{self.name}: index and values must be given together")
-        if self.index is not None and len(self.index) != len(self.values):
+        if self.index is not None and self.values is not None and len(self.index) != len(self.values):
             raise ValueError(f"{self.name}: index and values differ in length")
         if (self.a is None) != (self.b is None):
             raise ValueError(f"{self.name}: low-rank factors a and b must be given together")
@@ -163,11 +163,11 @@ class TensorEdit:
                     raise ValueError(f"{self.name}: column index out of range")
                 sub = w[:, cols]
                 w[:, cols] = sub - self.alpha * torch.outer(u, u @ sub)
-        if self.a is not None:
+        if self.a is not None and self.b is not None:
             w = w + (t(self.a) @ t(self.b)).reshape(w.shape)
         if self.delta is not None:
             w = w + t(self.delta).reshape(w.shape)
-        if self.index is not None:
+        if self.index is not None and self.values is not None:
             flat = w.reshape(-1).clone()
             idx = torch.from_numpy(self.index).to(dev)
             if int(idx.max()) >= flat.numel() or int(idx.min()) < 0:
@@ -261,7 +261,10 @@ class WeightEdit:
         for key, w0 in base.items():
             if key not in edited:
                 continue
-            d = _f32(edited[key]).astype(np.float64) - _f32(w0).astype(np.float64)
+            new, old = _f32(edited[key]), _f32(w0)
+            if new is None or old is None:
+                continue
+            d = new.astype(np.float64) - old.astype(np.float64)
             if d.shape and float(np.abs(d).max(initial=0.0)) > atol:
                 tensors.append(TensorEdit(name=key, form="delta", delta=d.astype(np.float32),
                                           shape=tuple(d.shape)))
@@ -284,7 +287,7 @@ class WeightEdit:
     def save(self, directory: str) -> str:
         """Write ``manifest.json`` + ``edit.npz`` to *directory*; return the directory."""
         os.makedirs(directory, exist_ok=True)
-        arrays: dict[str, np.ndarray] = {}
+        arrays: dict[str, Any] = {}
         manifest: dict[str, Any] = {
             "format": "evalrx.weight_edit", "version": FORMAT_VERSION,
             "name": self.name, "metadata": self.metadata, "tensors": [],

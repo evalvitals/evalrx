@@ -82,6 +82,11 @@ class ModalityAblationAnalyzer(Analyzer):
     #: the analyzer would report a grounding rate over zero probes.
     requires_modalities = frozenset(MEDIA_SLOTS)
 
+    mode: str
+    slots: 'tuple[str, ...] | None'
+    score_fn: Optional[Callable[['FailureCase', str], Optional[bool]]]
+    max_cases: int
+
     def __init__(
         self,
         mode: str = "drop",
@@ -147,7 +152,7 @@ class ModalityAblationAnalyzer(Analyzer):
 
             row: dict[str, Any] = {"sample_id": case.id}
             for slot in self._slots_of(case):
-                donor = self._donor(selected, slot, case) if self.mode == "swap" else None
+                donor: Any = self._donor(selected, slot, case) if self.mode == "swap" else None
                 # swap with no donor degrades to drop rather than skipping: the
                 # weaker evidence is still evidence, and silently probing nothing
                 # would look identical to a fully-grounded model.

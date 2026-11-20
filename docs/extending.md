@@ -51,7 +51,7 @@ Guidelines:
 - If an artifact is a 2-D spatial map over a case's image (e.g. an attention
   heatmap), add `overlay()` / `image_overlays(fig_dir, stem_prefix)` methods to
   your `Result` subclass (see `RelativeAttentionResult` in
-  `analyzers/attention/relative_attn.py`). `RunLoggerV2` calls `image_overlays()`
+  `analyzers/attention/relative_attn.py`). `RunLogger` calls `image_overlays()`
   on any `Result` that defines it — no per-analyzer wiring needed to get the
   overlay PNGs into `M1/artifacts/` alongside the bare heatmap.
 
@@ -224,31 +224,48 @@ loop  = VLDiagnoseLoop(model=my_model, protocol=protocol,
                        diagnosis_agent=DiagnosisAgent(judge=judge))
 ```
 
-The judge receives a JSON dump of all analyzer findings and must reply with lines
-of the form `HYPOTHESIS: ...` / `FAILURE_MODE: ...` (one pair per hypothesis) or
-`NO_ISSUE`.  You can use `evalrx.eval_agent.diagnosis._DIAGNOSE_PROMPT` as a
-starting point and override it by subclassing `DiagnosisAgent`:
+The judge receives a JSON dump of all analyzer findings and answers with JSON.
+M3 does not parse text: it calls `evalrx.agent_runtime.judge_call.ask_judge`, which
+appends the JSON Schema of the output model to the prompt and validates the reply
+against it. The proposer's answer is a `Proposal` (up to three hypotheses, each with
+`hypothesis`, `plain_statement`, a snake_case `failure_mode`, and optional `test` and
+`expected_association`; an empty list means no problem was found). The adversarial
+critic's answer is a `Review` (`keep`/`reject` plus a reason per numbered hypothesis).
+An invalid reply is sent back once with the validation errors; if the second one is
+invalid too, `ask_judge` raises `JudgeOutputError` (a judge that raises gives
+`JudgeCallError`), and the loop logs the exchanges and retries M3.
+
+You can use `evalrx.eval_agent.prompts.diagnosis._DIAGNOSE_PROMPT` as a starting
+point and override it by subclassing `DiagnosisAgent`. `diagnose` takes the M2
+report (an `AnalysisReport`; `raw_results` holds each analyzer's `Result`) and the
+earlier cycles' summary:
 
 ```python
-from evalrx.eval_agent.diagnosis import DiagnosisAgent, _parse_hypotheses, DiagnosisResult
+from evalrx.agent_runtime.judge_call import ask_judge
+from evalrx.eval_agent.hypothesis import Hypothesis
+from evalrx.eval_agent.stages.diagnosis import DiagnosisAgent, DiagnosisResult, Proposal
 import json
 
 class MyDiagnosisAgent(DiagnosisAgent):
     _PROMPT = "Your custom prompt with {model_name} and {findings_json}."
 
-    def diagnose(self, results, model_name):
-        summary = {name: r.findings for name, r in results.items()}
-        raw = self.judge.generate(
-            self._PROMPT.format(
-                model_name=model_name,
-                findings_json=json.dumps(summary, indent=2, default=str),
-            )
+    def diagnose(self, analysis, prior_cycles=None):
+        summary = {name: r.findings for name, r in analysis.raw_results.items()}
+        prompt = self._PROMPT.format(
+            model_name=analysis.model_name,
+            findings_json=json.dumps(summary, indent=2, default=str),
         )
+        reply = ask_judge(self.judge, prompt, Proposal, role="diagnosis_judge")
         return DiagnosisResult(
-            model_name=model_name,
-            hypotheses=_parse_hypotheses(str(raw), model_name),
+            model_name=analysis.model_name,
+            hypotheses=[
+                Hypothesis(statement=d.hypothesis, target_model=analysis.model_name,
+                           predicted_failure_mode=d.failure_mode,
+                           plain_statement=d.plain_statement, test_design=d.test)
+                for d in reply.output.hypotheses
+            ],
             findings_summary=summary,
-            raw_judge_output=str(raw),
+            raw_judge_output=reply.raw,
         )
 ```
 
@@ -317,7 +334,7 @@ analyzer off a batch with no audio in it.
 
 The recommended way to persist a run is `RunContext` — it owns the whole
 output directory and hands every producer its subdirectory, including a
-bound `RunLoggerV2`, always: `run.json` plus one `M1/log.json`..`M5/log.json`
+bound `RunLogger`, always: `run.json` plus one `M1/log.json`..`M5/log.json`
 per stage. See [Architecture](architecture.md)'s "RunContext" section for the
 full layout.
 
@@ -337,22 +354,22 @@ with RunContext("runs/exp_01") as ctx:
 ```
 
 If you only want the event log and artifact sink — without `RunContext`'s
-figures/contract/per-trial layout — construct `RunLoggerV2` standalone:
+figures/contract/per-trial layout — construct `RunLogger` standalone:
 
 ```python
-from evalrx.eval_agent import DiagnosisAgent, RunLoggerV2, VLDiagnoseLoop
+from evalrx.eval_agent import DiagnosisAgent, RunLogger, VLDiagnoseLoop
 
 loop = VLDiagnoseLoop(
     model=model,
     protocol=protocol,
     diagnosis_agent=DiagnosisAgent(),
-    run_logger=RunLoggerV2("runs/exp_01"),   # explicit path
-    # run_logger=RunLoggerV2()              # auto: runs/<YYYYMMDD_HHMMSS>/
+    run_logger=RunLogger("runs/exp_01"),   # explicit path
+    # run_logger=RunLogger()              # auto: runs/<YYYYMMDD_HHMMSS>/
 )
 report = loop.run(cases)
 ```
 
-Output layout (standalone `RunLoggerV2`, no `RunContext`):
+Output layout (standalone `RunLogger`, no `RunContext`):
 
 ```text
 runs/exp_01/
@@ -381,20 +398,21 @@ sequence assigned under the logger's lock), and stage-specific fields:
 | `M3/log.json["diagnosis"]` | `hypotheses`, `raw_judge_output` (full LLM response) |
 | `M4/log.json["surgery"]` | `hypothesis`, `status`, `fixed`, `evidence`, `n_refocused_cases` |
 | `run.json["loop_end"]` | `cycles`, `resolved`, `final_hypotheses` |
+| `run.json["run_end"]` | envelope only — written when the logger closes (schema 7) |
 
 The full, authoritative field contract is the published JSON Schema
 (`evalrx/eval_agent/run_log.schema.json`, from `log_schema.py`); validate one
 event with `from evalrx.eval_agent import validate_event` (needs the
 optional `jsonschema` dep). See `docs/architecture.md` for details, and
-`evalrx.reporting.run_events.read_v2_events(root)` for a flat, ordered view
+`evalrx.reporting.run_events.read_run_events(root)` for a flat, ordered view
 across every stage at once — the shape most downstream code wants instead of
 reading each `M<n>/log.json` file directly.
 
-`RunLoggerV2` is also a context manager, which ensures every document is
+`RunLogger` is also a context manager, which ensures every document is
 closed even if the loop raises:
 
 ```python
-with RunLoggerV2("runs/exp_01") as logger:
+with RunLogger("runs/exp_01") as logger:
     loop = VLDiagnoseLoop(model=model, protocol=protocol, run_logger=logger)
     loop.run(cases)
 ```

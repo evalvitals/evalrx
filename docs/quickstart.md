@@ -496,8 +496,8 @@ print(mr.significant_pairs)  # [("A", "B"), ...] — pairs that pass Nemenyi CD
 ## VLDiagnoseLoop — Automated Failure Attribution (Current)
 
 `VLDiagnoseLoop` is the diagnosis loop for VL and LLM tasks
-([`AgenticDiagnoseLoop`](#agentic-diagnosis-loop) drives the same stages from a
-judge-decided action loop):
+(with [`policy=JudgePolicy(judge)`](#agentic-diagnosis-loop) a judge picks each
+next stage instead of the fixed cycle):
 
 ```text
 M1  ProbeAgent         protocol-guided analyzer selection + execute
@@ -516,7 +516,7 @@ for the stage contracts, M1's two-tier analyzer selection, and what M2/M4 ask.
 ```python
 from evalrx import compose
 from evalrx.core.capability import Capability
-from evalrx.eval_agent import VLDiagnoseLoop, AgyModel, RunLoggerV2
+from evalrx.eval_agent import VLDiagnoseLoop, AgyModel, RunLogger
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 from evalrx.eval_agent.stages.probe_agent import ProbeAgent
 from evalrx.analysis.stats_agent import StatsAnalysisAgent
@@ -539,7 +539,7 @@ loop = VLDiagnoseLoop(
     diagnosis_agent=DiagnosisAgent(judge=judge),
     max_cycles=3,
     protocol=protocol,
-    run_logger=RunLoggerV2(),
+    run_logger=RunLogger(),
 )
 report = loop.run(failure_cases)
 
@@ -549,7 +549,7 @@ print(report.final_hypotheses)   # list[Hypothesis] — status SUPPORTED/REFUTED
 fix = loop.run_m5(report, failure_cases)   # post-loop fix proposal
 ```
 
-`RunLoggerV2()` above writes just its own `run.json` + `M<n>/log.json` files at
+`RunLogger()` above writes just its own `run.json` + `M<n>/log.json` files at
 the given (or auto-generated) path — no other producer's output directory.
 For a full managed output directory — figures, per-trial fix/experiment
 sandboxes, contract export — construct a `RunContext` and pass
@@ -574,11 +574,11 @@ protocol = ExperimentProtocol(
 
 <a id="agentic-diagnosis-loop"></a>
 
-## AgenticDiagnoseLoop — Judge-Decided M1-M4 (Alternative to the Fixed Cycle)
+## JudgePolicy — Judge-Decided M1-M4 (Alternative to the Fixed Cycle)
 
 `VLDiagnoseLoop` above always runs M1→M2→M3→M4 in the same order every cycle.
-`AgenticDiagnoseLoop` wraps the identical stages, confirm-split, and post-loop
-`run_m5`/`run_fix` — but a CLI judge decides which tool to call next each
+Given `policy=JudgePolicy(judge)`, the same loop keeps its stages, confirm-split
+and post-loop `run_m5`/`run_fix` — but a CLI judge decides which tool to call next each
 turn (probe, run stats, explore the raw data, cluster failure modes, search
 for new failure cases via a Macro/Micro MCTS probe search, propose
 hypotheses, test one, fix, or stop), instead of a fixed sequence. The host — not the judge —
@@ -588,21 +588,23 @@ actually been tested and is statistically supported and protocol-consistent;
 an early attempt is rejected and fed back to the judge.
 
 ```python
-from evalrx.eval_agent import AgenticDiagnoseLoop, ClaudeModel
+from evalrx.eval_agent import ClaudeModel, JudgePolicy, VLDiagnoseLoop
 
-loop = AgenticDiagnoseLoop(
+loop = VLDiagnoseLoop(
     model=model,
     protocol=protocol,
-    judge=ClaudeModel(),        # the decision judge — any CLI-backed Model
-    max_actions=12,             # hard cap on judge decision turns
-    run_logger=RunLoggerV2(),
+    policy=JudgePolicy(
+        ClaudeModel(),          # the decision judge — any CLI-backed Model
+        max_actions=12,         # hard cap on judge decision turns
+    ),
+    run_logger=RunLogger(),
 )
-report = loop.run(failure_cases)   # same VLDiagnoseReport shape as VLDiagnoseLoop
+report = loop.run(failure_cases)   # the same AutoDiagnoseReport as the fixed cycle
 ```
 
 `report.stopped_by` is one of `agent_stop` / `max_actions` / `budget` /
-`time_budget` / `invalid_actions` (three consecutive unparseable judge
-responses, even after a repair prompt). Two event types — `agent_decision`
+`time_budget` / `invalid_actions` (three consecutive turns where the judge gave
+no valid action, even after its validation errors were sent back). Two event types — `agent_decision`
 (the chosen tool + rationale) and `agent_tool` (the dispatch layer's
 accept/reject outcome) — sit inside `run.json`, alongside the reused
 `probe`/`analysis`/`diagnosis`/`surgery` events from the wrapped stages

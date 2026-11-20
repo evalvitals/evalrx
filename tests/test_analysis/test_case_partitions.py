@@ -9,7 +9,7 @@ from ``run_start``'s explore count and the order the cases were logged in.
 from __future__ import annotations
 
 from evalrx.core import CaseBatch, FailureCase, Label
-from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+from evalrx.eval_agent.run_logger import RunLogger
 from evalrx.reporting.dynamic import build_report_data
 
 
@@ -21,7 +21,7 @@ def _case(i: int) -> FailureCase:
 
 
 def _write_run(root, *, n_explore: int, batches) -> None:
-    logger = RunLoggerV2(root)
+    logger = RunLogger(root)
     logger.log_run_start({"model": "m", "benchmark_name": "b", "n_cases": n_explore})
     for cases, split in batches:
         logger.log_cases(CaseBatch(cases), split=split)
@@ -47,30 +47,11 @@ def test_tagged_records_are_read_as_recorded(tmp_path):
     assert [(r["code"], r["label"], r["n"]) for r in rows] == [
         ("E", "Explore", 3), ("H", "Held-out", 2), ("C", "Confirm", 1),
     ]
-    assert not any(r["inferred"] for r in rows)
     # The sheet's headline counts come from the same table, not from the
     # length of the case-record list (which holds every partition).
     headline = data["case_study"]["headline"] if data.get("case_study") else None
     if headline:
         assert (headline["n_explore"], headline["n_heldout"]) == (3, 3)
-
-
-def test_an_untagged_two_way_run_is_inferred_from_the_record_order(tmp_path):
-    # Logged the way run() logs: explore first, then the withheld pool, with
-    # run_start counting only the explore partition.
-    _write_run(tmp_path, n_explore=2, batches=[
-        ([_case(0), _case(1)], None),
-        ([_case(2), _case(3), _case(4)], None),
-    ])
-    data = build_report_data(tmp_path)
-    assert _by_split(data) == {"explore": ["c0", "c1"], "confirm": ["c2", "c3", "c4"]}
-    rows = data["setting"]["partitions"]
-    # One withheld pool served as both the held-out and the confirm set, and it
-    # is named for both: the batch figure draws this row once, so a label of
-    # just "Held-out" would leave the confirm set with no size anywhere.
-    assert [(r["code"], r["label"], r["n"], r["inferred"]) for r in rows] == [
-        ("E", "Explore", 2, True), ("H/C", "Held-out / Confirm", 3, True),
-    ]
 
 
 def test_a_run_without_a_split_shows_no_partitions(tmp_path):

@@ -112,7 +112,9 @@ def _draw_windows(spec: Spec, want: int, seed: int, n_windows: Optional[int],
     keep = spec.row_filter or (lambda row: True)
     #: windows that came back unknown after all retries — reported alongside the
     #: band so a thin sample is never read as a measured one
-    fetch_rows.last_failed_windows = 0
+    # A diagnostic counter callers read off the function (band_locate.py); mypy
+    # cannot model attributes set on a function.
+    fetch_rows.last_failed_windows = 0  # type: ignore[attr-defined]
     rng = random.Random(seed)
     # over-fetch: the adapter drops ungradable rows on top of the filter
     target = want * max(1, spec.fetch_multiplier)
@@ -147,7 +149,7 @@ def _draw_windows(spec: Spec, want: int, seed: int, n_windows: Optional[int],
         seen_offsets.add(offset)
         page = get_page(offset, min(per_window, total - offset))
         if page is None:
-            fetch_rows.last_failed_windows += 1
+            fetch_rows.last_failed_windows += 1  # type: ignore[attr-defined]
             continue
         for key, row in page:
             if key is None:

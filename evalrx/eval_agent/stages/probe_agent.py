@@ -58,7 +58,7 @@ from evalrx.eval_agent.stages.probe import ModelKind, StrategyProbe, get_analyze
 if TYPE_CHECKING:
     from evalrx.core.analyzer import Analyzer
     from evalrx.core.case import CaseBatch
-    from evalrx.core.model import Model
+    from evalrx.core.model import Judge, Model
     from evalrx.core.result import Result
     from evalrx.eval_agent.stages.protocol import ExperimentProtocol, ProbingSchema
 
@@ -67,7 +67,7 @@ logger = logging.getLogger(__name__)
 # Capabilities that a containerised (API-based) model can satisfy.
 _BLACKBOX_CAPS = frozenset({Capability.GENERATE, Capability.LOGPROBS, Capability.TOOL_CALLS})
 
-def _is_blackbox_compatible(analyzer_cls: type) -> bool:
+def _is_blackbox_compatible(analyzer_cls: "type[Analyzer]") -> bool:
     """True when the analyzer's requires are all satisfiable by a black-box API model."""
     return analyzer_cls.requires <= _BLACKBOX_CAPS
 
@@ -102,7 +102,7 @@ class ProbeAgent:
     def __init__(
         self,
         probe: StrategyProbe | None = None,
-        judge: "Model | None" = None,
+        judge: "Judge | None" = None,
         runner: ExperimentRunner | None = None,
         max_analyzers: int | None = None,
         analyzer_overrides: dict[str, "Analyzer"] | None = None,

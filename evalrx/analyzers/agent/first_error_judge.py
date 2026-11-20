@@ -27,7 +27,7 @@ from evalrx.core.result import Result
 
 if TYPE_CHECKING:
     from evalrx.core.case import CaseBatch, Trajectory
-    from evalrx.core.model import Model
+    from evalrx.core.model import Judge, Model
 
 _PROMPT = """You are debugging an AI agent trajectory. The agent failed to achieve the goal.
 Goal: {goal}
@@ -65,7 +65,9 @@ class FirstErrorJudge(Analyzer):
     requires_trajectories = True
     applies_to_modalities = frozenset({"text", "image"})  # trajectory analysis is modality-agnostic
 
-    def __init__(self, judge: Optional["Model"] = None) -> None:
+    judge: Optional['Model']
+
+    def __init__(self, judge: Optional["Judge"] = None) -> None:
         super().__init__(judge=judge)
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:

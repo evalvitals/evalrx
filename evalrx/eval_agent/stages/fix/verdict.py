@@ -8,7 +8,7 @@ escalate the intervention tier).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from evalrx.eval_agent.stages.fix.internals import INTERNALS_PRIMITIVES
 from evalrx.eval_agent.stages.fix.repair_catalog import discover_methods, supports_tier
@@ -47,7 +47,8 @@ def ebh_survivors(tested: "list[FixValidation]", alpha: float) -> "set[int]":
     """
     if not tested:
         return set()
-    evalues = [float(v.e_value) for v in tested]
+    # Callers pass only validations that carry an e-value.
+    evalues = [float(cast(float, v.e_value)) for v in tested]
     return {id(tested[i]) for i in ebh(evalues, alpha=alpha)}
 
 

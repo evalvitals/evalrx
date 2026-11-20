@@ -45,10 +45,6 @@ def _slot_player(slot: str) -> str:
     return f"__{slot}__"
 
 
-#: Kept for backwards compatibility with callers that imported the old constant.
-_IMAGE = _slot_player("image")
-
-
 @register_analyzer("mm_shap")
 class MMShapAnalyzer(Analyzer):
     """Per-modality Shapley contribution + the MM-SHAP media-reliance scores."""
@@ -74,6 +70,12 @@ class MMShapAnalyzer(Analyzer):
     #: Needs at least one media slot filled — with none, every player is a word
     #: and the "modality contribution" it reports is a text-only tautology.
     requires_modalities = frozenset(MEDIA_SLOTS)
+
+    score_fn: Optional[Callable[[Inputs], float]]
+    n_samples: int
+    mask_token: str
+    top_k: int
+    seed: int
 
     def __init__(
         self,

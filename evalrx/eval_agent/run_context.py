@@ -8,8 +8,8 @@ experiment code into an ephemeral temp dir.  ``RunContext`` replaces that
 gluing with one library-owned object that owns the whole run directory and
 hands every producer its subdirectory.
 
-The logger is :class:`~evalrx.eval_agent.run_logger_v2.RunLoggerV2` (see
-``evalrx/eval_agent/RUN_LOGGER_V2.md``): one ``run.json`` plus one
+The logger is :class:`~evalrx.eval_agent.run_logger.RunLogger` (see
+``evalrx/eval_agent/RUN_LOGGER.md``): one ``run.json`` plus one
 ``M1/log.json``..``M5/log.json`` per stage, no flat event file, no persisted
 ``prompts/``/``experiments/``/``tools/``/``workspace/``/``fixes/`` — generated
 text/code is captured inline into the relevant stage's JSON via an ephemeral
@@ -48,16 +48,16 @@ Usage::
 
 from __future__ import annotations
 
-import json
 import re
 import shutil
 import tempfile
+from collections.abc import Sized
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.run_logger import RunLogger
 
 
 class Trial:
@@ -97,14 +97,6 @@ class Trial:
         else:
             path.write_text(content, encoding="utf-8")
         return path
-
-    def write_record(self, markdown: str) -> Path:
-        """Write the human-readable summary to ``<trial>/record.md``."""
-        return self.write("record.md", markdown)
-
-    def write_result(self, data: "dict[str, Any]") -> Path:
-        """Write the machine-readable outcome to ``<trial>/result.json``."""
-        return self.write("result.json", json.dumps(data, indent=2, default=str))
 
     def __repr__(self) -> str:
         return f"Trial(root={str(self.root)!r})"
@@ -155,7 +147,7 @@ class RunContext:
         self._verbose = verbose
         self._narrate = narrate
         self._observability_mode = observability_mode
-        self._logger: "RunLoggerV2 | None" = None
+        self._logger: "RunLogger | None" = None
         self._workdir_seq = 0
         self._trial_seq: "dict[str, int]" = {}
         self._runtime_root: "Path | None" = None
@@ -205,12 +197,12 @@ class RunContext:
     # ------------------------------------------------------------------
 
     @property
-    def logger(self) -> "RunLoggerV2":
+    def logger(self) -> "RunLogger":
         """The logger bound to this context (created on first use)."""
         if self._logger is None:
-            from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+            from evalrx.eval_agent.run_logger import RunLogger
 
-            self._logger = RunLoggerV2(
+            self._logger = RunLogger(
                 run_dir=self.root, verbose=self._verbose, narrate=self._narrate,
                 observability_mode=self._observability_mode,
                 context=self,
@@ -273,33 +265,25 @@ class RunContext:
     def write_diagnose_report(
         self,
         report: Any,
-        cases: "list[Any]",
+        cases: "Sized",
         *,
         discovery: "list[dict[str, Any]] | None" = None,
     ) -> None:
         """Inline the standard post-diagnosis report into ``run.json``.
 
-        *report* is an :class:`AutoDiagnoseReport` (both loops return
-        this one unified class — ``VLDiagnoseReport`` is an alias for it).
+        *report* is an :class:`AutoDiagnoseReport` (both loops return it).
         *discovery* (optional) is a list of already-serialised case rows —
         examples that compute task-specific columns (e.g. parsed yes/no)
         build the rows themselves. Delegates to
-        :meth:`~evalrx.eval_agent.run_logger_v2.RunLoggerV2.log_diagnose_report`.
+        :meth:`~evalrx.eval_agent.run_logger.RunLogger.log_diagnose_report`.
         """
         self.logger.log_diagnose_report(report, cases, discovery=discovery)
 
-    def publish_report(
-        self,
-        *,
-        model: "Any | None" = None,
-        example_dir: "str | Path | None" = None,
-    ) -> "Any":
+    def publish_report(self, *, model: "Any | None" = None) -> "Any":
         """Publish the dynamic report after all diagnostic/fix stages finish."""
         from evalrx.reporting.dynamic import publish_report
 
-        return publish_report(
-            self.root, example_dir=example_dir, model=model, run_logger=self._logger,
-        )
+        return publish_report(self.root, model=model, run_logger=self._logger)
 
     # ------------------------------------------------------------------
     # Lifecycle

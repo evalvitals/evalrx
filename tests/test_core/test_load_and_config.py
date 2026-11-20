@@ -11,7 +11,7 @@ import pytest
 
 from evalrx.config import ModelConfig, load_config
 from evalrx.core import Capability, CapabilityError
-from evalrx.models import load, load_model, resolve_spec_key
+from evalrx.models import load, load_model
 from evalrx.models.backends.api import APIModel
 from evalrx.models.backends.hf.model import HFLocalModel
 
@@ -23,14 +23,8 @@ def test_load_spec_key_returns_hf_local():
     assert {Capability.GENERATE, Capability.ATTENTION, Capability.HIDDEN_STATES} <= model.capabilities
 
 
-def test_load_alias_resolves():
-    assert resolve_spec_key("qwen") == "qwen2.5-7b-instruct"
-    model = load("qwen")
-    assert model.spec.key == "qwen2.5-7b-instruct"
-
-
 def test_load_unknown_key_raises():
-    with pytest.raises(ValueError, match="Unknown model"):
+    with pytest.raises(KeyError, match="Unknown model spec 'not-a-real-model'"):
         load("not-a-real-model")
 
 
@@ -59,7 +53,7 @@ def test_load_checkpoint_override():
 # -- load_model(ModelConfig) ------------------------------------------
 
 def test_load_model_from_config():
-    model = load_model(ModelConfig(name="qwen"))
+    model = load_model(ModelConfig(name="qwen2.5-7b-instruct"))
     assert isinstance(model, HFLocalModel)
     assert model.spec.key == "qwen2.5-7b-instruct"
 
@@ -71,7 +65,7 @@ def test_load_model_backend_and_want_from_config():
 
 
 def test_load_model_unknown_raises():
-    with pytest.raises(ValueError, match="Unknown model"):
+    with pytest.raises(KeyError, match="Unknown model spec 'nope'"):
         load_model(ModelConfig(name="nope"))
 
 

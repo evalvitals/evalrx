@@ -92,6 +92,10 @@ class CalibrationAnalyzer(Analyzer):
     requires = frozenset({Capability.GENERATE})
     applies_to_modalities = frozenset({"text", "image"})
 
+    n_bins: int
+    max_cases: int
+    elicit: str
+
     def __init__(self, n_bins: int = 10, max_cases: int = 0, elicit: str = _ELICIT) -> None:
         super().__init__(n_bins=max(2, int(n_bins)), max_cases=max_cases, elicit=elicit)
 

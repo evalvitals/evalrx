@@ -77,6 +77,11 @@ class SelfCheckConsistencyAnalyzer(Analyzer):
     requires = frozenset({Capability.GENERATE})
     applies_to_modalities = frozenset({"text", "image"})
 
+    n_samples: int
+    gen_kwargs: dict[str, Any]
+    max_cases: int
+    min_sentence_chars: int
+
     def __init__(
         self,
         n_samples: int = 4,

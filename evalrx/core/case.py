@@ -432,6 +432,7 @@ def as_casebatch(
         return CaseBatch([FailureCase(inputs=Inputs(prompt=data.goal), trajectory=data)])
     if isinstance(data, Iterable):
         batch = CaseBatch()
+        item: Any  # elements are validated by the recursive call
         for item in data:
             # flatten via single-item normalisation
             for case in as_casebatch(item):

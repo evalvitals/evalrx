@@ -24,6 +24,7 @@ from evalrx.eval_agent import (
 )
 from evalrx.eval_agent.hypothesis import Hypothesis
 from tests.conftest import FakeModel
+from tests.judge_replies import hypothesis, keep_all, proposal
 
 # ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -325,31 +326,34 @@ def _make_report(severity="high") -> AnalysisReport:
     )
 
 
-def test_unparsed_judge_text_falls_back_loudly_but_no_issue_quietly(caplog):
+def test_unparsed_judge_text_raises_after_one_retry_and_no_problem_still_falls_back():
     """gemma-4-e2b/bbh_causal_judgement (2026-08-22): the judge wrote three
-    hypotheses in a label format the parser missed and the run silently diagnosed
-    an analysis-module template. The fallback stays (M5 still needs a hypothesis)
-    but a parse miss must be visible; a genuine NO_ISSUE verdict stays quiet."""
-    import logging
+    hypotheses in a format the old text parser missed and the run silently
+    diagnosed an analysis-module template. An unreadable answer is now sent back
+    once with the validation errors and then raised, with every exchange, for the
+    loop to log and retry; a genuine "no problem" (an empty proposal) with
+    medium/high M2 findings still yields one template hypothesis per finding."""
+    import pytest
 
-    with caplog.at_level(logging.WARNING, logger="evalrx.eval_agent.stages.diagnosis"):
-        judge = ScriptedModel(answers=["Three rich paragraphs of diagnosis without any label lines."],
-                              capabilities={Capability.GENERATE})
-        diag = DiagnosisAgent(judge=judge).diagnose(_make_report())
+    from evalrx.agent_runtime.judge_call import JudgeOutputError
+
+    judge = ScriptedModel(answers=["Three rich paragraphs of diagnosis without any JSON."],
+                          capabilities={Capability.GENERATE})
+    with pytest.raises(JudgeOutputError) as err:
+        DiagnosisAgent(judge=judge).diagnose(_make_report())
+    assert judge._i == 2
+    assert [e.role for e in err.value.exchanges] == ["diagnosis_judge", "diagnosis_judge"]
+
+    judge = ScriptedModel(answers=[proposal()], capabilities={Capability.GENERATE})
+    diag = DiagnosisAgent(judge=judge).diagnose(_make_report())
     assert len(diag.hypotheses) == 1 and diag.hypotheses[0].predicted_failure_mode == "attention_sink"
-    assert any("parsed to zero hypotheses" in r.message for r in caplog.records)
-
-    caplog.clear()
-    with caplog.at_level(logging.WARNING, logger="evalrx.eval_agent.stages.diagnosis"):
-        judge = ScriptedModel(answers=["NO_ISSUE"], capabilities={Capability.GENERATE})
-        diag = DiagnosisAgent(judge=judge).diagnose(_make_report())
-    assert len(diag.hypotheses) == 1                     # the NO_ISSUE fallback is by design
-    assert not any("parsed to zero" in r.message for r in caplog.records)
+    assert diag.proposed_hypotheses == []          # the template is not the judge's proposal
+    assert judge._i == 1                           # nothing to review, so no critic call
 
 
 def test_diagnosis_parses_hypothesis_from_report():
     judge = ScriptedModel(
-        answers=["HYPOTHESIS: model over-attends to BOS\nFAILURE_MODE: attention_sink\n"],
+        answers=[proposal(hypothesis("model over-attends to BOS", "attention_sink")), keep_all(1)],
         capabilities={Capability.GENERATE},
     )
     diag = DiagnosisAgent(judge=judge).diagnose(_make_report())
@@ -360,20 +364,10 @@ def test_diagnosis_parses_hypothesis_from_report():
 
 
 def test_diagnosis_no_issue_returns_empty():
-    judge = ScriptedModel(answers=["NO_ISSUE"], capabilities={Capability.GENERATE})
+    judge = ScriptedModel(answers=[proposal()], capabilities={Capability.GENERATE})
     diag = DiagnosisAgent(judge=judge).diagnose(_make_report(severity="none"))
     assert diag.hypotheses == []
-    assert "NO_ISSUE" in diag.raw_judge_output
-
-
-def test_diagnosis_backward_compat_accepts_results_dict():
-    """Passing a raw results dict (old API) still works via AnalysisModule wrapping."""
-    from evalrx.analyzers.attention.summary import AttentionAnalyzer
-    model = FakeModel()
-    results = {"attention": AttentionAnalyzer().run(model, "probe")}
-    judge = ScriptedModel(answers=["NO_ISSUE"], capabilities={Capability.GENERATE})
-    diag = DiagnosisAgent(judge=judge).diagnose(results, model_name="m")
-    assert isinstance(diag, DiagnosisResult)
+    assert diag.raw_judge_output == proposal()
 
 
 def test_diagnosis_prompt_includes_severity_and_narrative():
@@ -382,7 +376,7 @@ def test_diagnosis_prompt_includes_severity_and_narrative():
     class CapturingModel(FakeModel):
         def generate(self, inputs, **kw):
             captured.append(str(inputs))
-            return "NO_ISSUE"
+            return proposal()
 
     DiagnosisAgent(judge=CapturingModel(capabilities={Capability.GENERATE})).diagnose(
         _make_report("high")
@@ -499,9 +493,9 @@ def test_m5_experiment_gets_its_own_trial_with_kept_sandbox(tmp_path):
         # the whole point of giving the experiment its own durable folder,
         # not one shared/overwritten sandbox. Checked before finalize(),
         # which inlines and deletes the ephemeral runtime tree trials live
-        # under — V2 keeps no per-trial main.py/record.md on disk at all
-        # (that was a V1-only artifact); the generated code is captured
-        # inline into M5/log.json's "experiment" entry instead.
+        # under — no per-trial main.py/record.md stays on disk; the
+        # generated code is captured inline into M5/log.json's "experiment"
+        # entry instead.
         assert list((p / "workspace").glob("exp_*.py")), \
             f"sandbox script should be kept in {p / 'workspace'}"
 

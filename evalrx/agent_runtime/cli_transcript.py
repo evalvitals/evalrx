@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 RAW_OUTPUT_CAP = 3000
 STREAM_TEXT_CAP = 4000
@@ -71,7 +72,7 @@ def render_claude_stream(stdout: str) -> tuple[str, dict | None]:
 
     out: list[str] = []
     usage: dict | None = None
-    tool_seq: dict[str, int] = {}
+    tool_seq: dict[Any, int] = {}
     step = 0
 
     for event in events:

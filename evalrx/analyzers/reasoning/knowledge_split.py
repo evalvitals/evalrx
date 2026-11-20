@@ -80,6 +80,10 @@ class KnowledgeReasoningSplit(Analyzer):
     requires = frozenset({Capability.GENERATE})
     applies_to_modalities = frozenset({"text", "image"})
 
+    use_context: bool
+    context_keys: tuple
+    max_cases: int
+
     def __init__(
         self,
         use_context: bool = True,

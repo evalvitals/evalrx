@@ -3,12 +3,23 @@
 from __future__ import annotations
 
 import os
+import re
 import signal
 import subprocess
 import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+
+#: Limit notices the coding CLIs print on stdout, exit 0, in place of an answer.
+LIMIT_NOTICE = re.compile(
+    r"hit your (monthly |weekly |session |daily )?(spend|usage|rate) limit|"
+    r"(spend|usage) limit (reached|exceeded)|out of (extra )?usage|"
+    r"limit resets", re.I)
+
+#: A real answer is never this short AND a limit notice; for a coding agent's
+#: session, how much of its end is read for one.
+NOTICE_MAX_CHARS = 400
 
 
 @dataclass(frozen=True)
@@ -46,7 +57,14 @@ def collect_py_files(workdir: Path) -> dict[str, str]:
 class SubprocessRunner:
     """Run CLI agents in a workdir with timeout and environment normalization."""
 
-    def run(self, cmd: list[str], workdir: Path, timeout_sec: int) -> ProcessRun:
+    def run(
+        self, cmd: list[str], workdir: Path, timeout_sec: int, *, stdin_text: str | None = None,
+    ) -> ProcessRun:
+        """Run *cmd* in *workdir*; on timeout, kill its whole process group.
+
+        *stdin_text* is written to the process's stdin (prompts too large for
+        an argv entry); without it stdin is at EOF.
+        """
         workdir.mkdir(parents=True, exist_ok=True)
         start = time.monotonic()
         timed_out = False
@@ -63,7 +81,7 @@ class SubprocessRunner:
             # interactive continuation protocol, so leave stdin at EOF.  If
             # inherited from the parent it remains open and Codex idles until
             # the wall-clock timeout, withholding its generated artifacts.
-            stdin=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL if stdin_text is None else subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=workdir,
@@ -72,7 +90,10 @@ class SubprocessRunner:
         )
 
         try:
-            stdout_bytes, stderr_bytes = proc.communicate(timeout=timeout_sec)
+            stdout_bytes, stderr_bytes = proc.communicate(
+                input=None if stdin_text is None else stdin_text.encode("utf-8", errors="replace"),
+                timeout=timeout_sec,
+            )
         except subprocess.TimeoutExpired:
             timed_out = True
             try:

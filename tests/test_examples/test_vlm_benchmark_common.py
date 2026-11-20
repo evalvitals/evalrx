@@ -35,7 +35,7 @@ def test_examples_choose_their_model_through_the_config():
     import re
     from pathlib import Path
 
-    from evalrx.models import resolve_spec_key
+    from evalrx.specs import REGISTRY
 
     common = _module()
     assert common.BenchmarkConfig.model == "qwen2.5-vl-7b-instruct"  # the default
@@ -44,6 +44,6 @@ def test_examples_choose_their_model_through_the_config():
         src = (root / example / "run.py").read_text()
         key = re.search(r'model="([^"]+)"', src).group(1)
         assert key == "qwen3.5-2b-vl"
-        assert resolve_spec_key(key) == key  # a registered spec, not an alias
+        assert key in REGISTRY
     for example in ("chartqa_qwen2_5_vl", "spatial457_qwen2_5_vl"):
         assert 'model=' not in (root / example / "run.py").read_text()

@@ -24,10 +24,11 @@ hypotheses then carry ``verdict="not_judged"``.
 
 from __future__ import annotations
 
-import json
-import re
-from typing import Any
+from typing import Any, Literal
 
+from pydantic import BaseModel
+
+from evalrx.agent_runtime.judge_call import JudgeError, ask_judge
 from evalrx.analysis.adjudicate import adjudicate_signals
 from evalrx.analysis.explorer import CandidateSignal
 from evalrx.analysis.fused_pipeline import _split_records
@@ -130,15 +131,10 @@ def _holdout_sufficient(
     return {"kind": "two_group", "a": a, "b": b}
 
 
-def _judge_json(text: str) -> "dict[str, Any] | None":
-    m = re.search(r"\{.*\}", text, re.S)
-    if not m:
-        return None
-    try:
-        parsed = json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return None
-    return parsed if isinstance(parsed, dict) else None
+class _HoldoutVerdict(BaseModel):
+    verdict: Literal["supported", "partial", "refuted", "not_testable"]
+    reasoning: str
+    needs_surgery: bool = False
 
 
 def holdout_confirm(
@@ -228,13 +224,13 @@ def holdout_confirm(
     meta = adjudicate_signals(candidates, alpha=alpha, split_label="held_out")
     by_name = {c.name: c for c in candidates}
     for entry in signal_verdicts:
-        cand = by_name.get(str(entry.get("name")))
-        if entry.get("status") == "adjudicated" and cand is not None:
+        adjudicated = by_name.get(str(entry.get("name")))
+        if entry.get("status") == "adjudicated" and adjudicated is not None:
             entry.update(
-                reject=bool(cand.reject),
-                effect=cand.effect,
-                ci=cand.ci,
-                fdr_corrected=bool(cand.fdr_corrected),
+                reject=bool(adjudicated.reject),
+                effect=adjudicated.effect,
+                ci=adjudicated.ci,
+                fdr_corrected=bool(adjudicated.fdr_corrected),
             )
 
     # ── 2. LLM judge per hypothesis, grounded in the held-out table ─────────
@@ -263,23 +259,14 @@ def holdout_confirm(
             evidence=evidence,
         )
         try:
-            raw = judge.generate(prompt) or ""
-        except Exception as exc:  # noqa: BLE001 — judge outage must not sink the verdicts
-            raw = ""
-            verdict["judge_error"] = str(exc)
-        parsed = _judge_json(raw)
-        if parsed and parsed.get("verdict") in {"supported", "partial", "refuted", "not_testable"}:
-            verdict.update(
-                verdict=parsed["verdict"],
-                reasoning=str(parsed.get("reasoning", "")),
-                needs_surgery=bool(parsed.get("needs_surgery", False)),
-            )
+            graded = ask_judge(judge, prompt, _HoldoutVerdict, role="holdout_judge").output
+        except JudgeError as exc:  # a judge outage must not sink the signal verdicts
+            # "not_testable" would be a claim about the hypothesis; the judge made none.
+            verdict.update(verdict="not_judged", reasoning="", needs_surgery=True,
+                           judge_error=str(exc))
         else:
-            verdict.update(
-                verdict="not_testable",
-                reasoning="judge output unparseable — defaulting to not_testable",
-                needs_surgery=True,
-            )
+            verdict.update(verdict=graded.verdict, reasoning=graded.reasoning,
+                           needs_surgery=graded.needs_surgery)
         hypothesis_verdicts.append(verdict)
 
     return {

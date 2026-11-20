@@ -3,7 +3,7 @@
 ``Inputs.image`` / ``Inputs.audio`` hold either a decoded object (PIL image,
 mono waveform) or a path / URL the backend resolves. Both ``hf_local`` and
 ``jax_local`` need the same resolution, so it lives here rather than in either
-backend module. ``hf_local`` re-exports the historical private names.
+backend module.
 """
 
 from __future__ import annotations

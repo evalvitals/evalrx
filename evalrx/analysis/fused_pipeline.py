@@ -24,9 +24,8 @@ One pass that DISCOVERS freely and CONFIRMS rigorously, with the two split apart
    dropped and nothing is over-claimed.
 
 Multiplicity note: paired/e-value tools use e-BH and marginal p-value tools use
-BH. The report exposes both legacy ``rejected_tools`` and precise
-``rejected_result_keys`` so M1-M4 remains compatible while standalone M2 can
-audit the exact tested family.
+BH. The report's ``rejected_result_keys`` name each surviving result, so the
+exact tested family can be audited.
 """
 
 from __future__ import annotations
@@ -202,7 +201,7 @@ def run_fused_analysis(
     )
     held_out = confirm_rows is not None
     confirm_label = "held_out" if held_out else "in_sample"
-    if not held_out:
+    if confirm_rows is None:
         confirm_rows = explore_rows  # in-sample fallback (small batch)
 
     report = FusedReport(question=question)
@@ -317,7 +316,6 @@ def run_fused_analysis(
     )
     report.conclusion = getattr(confirm_report, "conclusion", "")
     corrected = getattr(confirm_report, "corrected_rejections", {}) or {}
-    rejected_tools = set(corrected.get("rejected_tools", []))
     rejected_result_keys = set(corrected.get("rejected_result_keys", []))
 
     # ── 5. Assemble per-signal verdicts (provenance-tagged) ──
@@ -333,7 +331,6 @@ def run_fused_analysis(
                 suggested_test=_suggested_test(origin, explorer_named),
                 recipe=recipe_by_name.get(origin),
                 result=result,
-                rejected_tools=rejected_tools,
                 rejected_result_keys=rejected_result_keys,
                 confirmed_on=confirm_label,
             )
@@ -366,7 +363,6 @@ def run_fused_analysis(
         "method": corrected.get("method", "e-BH"),
         "alpha": corrected.get("alpha"),
         "n_in_family": corrected.get("n_tested", 0),
-        "rejected_tools": sorted(rejected_tools),
         "rejected_result_keys": sorted(rejected_result_keys),
         "families": corrected.get("families", {}),
         "n_signals_tested": len(confirm_inp.per_case),
@@ -418,7 +414,6 @@ def _fused_signal(
     suggested_test: str,
     recipe: dict[str, Any] | None,
     result: Any,
-    rejected_tools: set[str],
     rejected_result_keys: set[str],
     confirmed_on: str,
 ) -> FusedSignal:
@@ -442,10 +437,8 @@ def _fused_signal(
     fs.underpowered = bool(getattr(result, "underpowered", False))
     fs.reject = bool(getattr(result, "reject", False))
     fs.correction_method = getattr(result, "correction_method", None)
-    result_key = getattr(result, "analysis_key", None)
     fs.fdr_corrected = bool(getattr(result, "fdr_corrected", False)) or (
-        (result_key in rejected_result_keys)
-        or (getattr(result, "tool", "") in rejected_tools and fs.e_value is not None)
+        getattr(result, "analysis_key", None) in rejected_result_keys
     )
     if fs.fdr_corrected:
         fs.reject = True
@@ -477,8 +470,9 @@ def _describe(
     bridged_keys: set[str],
 ) -> str:
     c = explorer_named.get(origin) or explorer_named.get(name)
-    if c is not None and getattr(c, "rationale", ""):
-        return c.rationale
+    rationale = getattr(c, "rationale", "") if c is not None else ""
+    if rationale:
+        return rationale
     if name in bridged_keys:
         return "bridged explorer signal"
     return "existing per-case column"

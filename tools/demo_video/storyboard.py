@@ -3,7 +3,7 @@
 
 Two input shapes, both real runs — nothing here invents numbers:
 
-* ``--run-dir DIR`` — a live RunLoggerV2 output (``logs/run.json`` +
+* ``--run-dir DIR`` — a live RunLogger output (``logs/run.json`` +
   ``logs/M*/log.json``). Every narrated line comes from the real
   ``LoopNarrator`` fed the logged records, exactly as
   ``examples/benchmark/tools/replay_narrate.py`` does, so durations are the
@@ -328,7 +328,7 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     source = ap.add_mutually_exclusive_group(required=True)
     source.add_argument("--report", type=Path, help="exported report .html")
-    source.add_argument("--run-dir", type=Path, help="RunLoggerV2 run directory")
+    source.add_argument("--run-dir", type=Path, help="RunLogger run directory")
     source.add_argument("--transcript", type=Path,
                         help="saved terminal transcript of a narrated run")
     ap.add_argument("--out", type=Path, required=True, help="storyboard .json to write")

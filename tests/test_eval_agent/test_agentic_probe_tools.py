@@ -12,14 +12,14 @@ import json
 
 from evalrx.core.capability import Capability
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
-from evalrx.eval_agent import AgenticDiagnoseLoop, DiagnosisAgent, HypothesisTester
+from evalrx.eval_agent import DiagnosisAgent, HypothesisTester, JudgePolicy, VLDiagnoseLoop
 from evalrx.eval_agent.agentic.actions import Action
 from evalrx.eval_agent.agentic.board import EvidenceBoard
 from evalrx.eval_agent.agentic.tools import (
     _requested_probes,
-    _RunState,
     build_default_registry,
 )
+from evalrx.eval_agent.policy import RunState
 from evalrx.eval_agent.run_context import RunContext
 from evalrx.eval_agent.stages.probe_agent import ProbeAgent
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
@@ -59,20 +59,21 @@ def _cases() -> CaseBatch:
 
 def _setup(tmp_path, model=None, judge=None):
     ctx = RunContext(tmp_path / "run", verbose=False)
-    loop = AgenticDiagnoseLoop(
+    judge = judge or _Judge()
+    loop = VLDiagnoseLoop(
         model=model or _CountingModel(capabilities=_WHITEBOX, modalities={"text"}),
         protocol=ExperimentProtocol(
             description="probe tool test", task_domain="test",
             failure_patterns="none", target_modalities=frozenset({"text"}),
         ),
-        judge=judge or _Judge(),
+        policy=JudgePolicy(judge),
         probe_agent=ProbeAgent(max_workers=1, max_analyzers=2),
         diagnosis_agent=DiagnosisAgent(judge=_Judge()),
         hypothesis_tester=HypothesisTester(min_effect=0.05),
         run_logger=ctx.logger,
     )
     data = _cases()
-    state = _RunState(original_data=data, data=data)
+    state = RunState(original_data=data, data=data, judge=judge)
     return loop, state, build_default_registry(loop, state), EvidenceBoard()
 
 

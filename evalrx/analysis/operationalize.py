@@ -32,7 +32,7 @@ import logging
 import operator
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -109,9 +109,13 @@ _CMP_OPS = {
     ast.Eq: operator.eq,
     ast.NotEq: operator.ne,
 }
-_UNARY_OPS = {ast.UAdd: operator.pos, ast.USub: operator.neg, ast.Not: operator.not_}
+_UNARY_OPS: dict[type[ast.unaryop], Callable[[Any], Any]] = {
+    ast.UAdd: operator.pos, ast.USub: operator.neg, ast.Not: operator.not_,
+}
 # The ONLY callables a recipe may invoke. All pure, total, side-effect free.
-_FUNCS = {"abs": abs, "min": min, "max": max, "float": float, "int": int, "len": len}
+_FUNCS: dict[str, Callable[..., Any]] = {
+    "abs": abs, "min": min, "max": max, "float": float, "int": int, "len": len,
+}
 
 # AST node types the validator permits (anything else is rejected outright).
 _ALLOWED_NODES = (

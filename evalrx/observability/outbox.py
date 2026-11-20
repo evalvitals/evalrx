@@ -1,9 +1,9 @@
 """Durable, idempotent delivery queue for EvalRX observability events.
 
-The outbox is deliberately a delivery mechanism, not another long-term run
-format.  A JSONL run log remains available during the migration, while this
-SQLite database makes an interrupted or temporarily disconnected Langfuse
-session resumable without dropping the events that happened in between.
+The outbox is a delivery mechanism, not another run format: the run log is
+the record.  This SQLite database makes an interrupted or temporarily
+disconnected Langfuse session resumable without dropping the events that
+happened in between.
 """
 
 from __future__ import annotations

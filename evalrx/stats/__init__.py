@@ -8,7 +8,6 @@ are exported too: McNemar (paired binary), clustered bootstrap CI, e-values
 from evalrx.stats.api import (
     MultiCompareResult,
     StatResult,
-    ab_test,
     compare,
     compare_multiple,
     compare_paired_rates,
@@ -19,7 +18,7 @@ from evalrx.stats.evalue import e_value_test, evalue_bernoulli, evalue_bounded_m
 from evalrx.stats.friedman import chi2_sf, friedman_test, nemenyi_cd, nemenyi_pairs
 from evalrx.stats.mcnemar import mcnemar
 from evalrx.stats.multiplicity import MultiplicityReport, bh, correct_results
-from evalrx.stats.subset_sampling import kendall_tau, sample_subset, stratified_subset
+from evalrx.stats.subset_sampling import kendall_tau, stratified_subset
 
 __all__ = [
     "compare",
@@ -27,7 +26,6 @@ __all__ = [
     "compare_multiple",
     "compare_paired_rates",
     "MultiCompareResult",
-    "ab_test",
     "mcnemar",
     "clustered_bootstrap_diff",
     "evalue_bernoulli",
@@ -43,5 +41,4 @@ __all__ = [
     "MultiplicityReport",
     "stratified_subset",
     "kendall_tau",
-    "sample_subset",
 ]

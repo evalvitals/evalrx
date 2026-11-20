@@ -104,6 +104,9 @@ class CoTFaithfulnessAnalyzer(Analyzer):
     requires = frozenset({Capability.GENERATE})
     applies_to_modalities = frozenset({"text", "image"})
 
+    truncation_fracs: tuple
+    max_cases: int
+
     def __init__(
         self,
         truncation_fracs: tuple = (0.25, 0.5, 0.75),

@@ -8,6 +8,8 @@ these cases are typically driven by an Agent and analysed at the trajectory leve
 
 from __future__ import annotations
 
+from typing import Any
+
 from evalrx.core.case import CaseBatch
 from evalrx.datasets.base import Dataset, cases_from_records, read_jsonl
 
@@ -31,7 +33,7 @@ class GUIOSDataset(Dataset):
     ) -> None:
         self._records = records
         self._path = path
-        self._keys = dict(prompt_key=prompt_key, answer_key="expected_state", image_key=image_key)
+        self._keys: dict[str, Any] = dict(prompt_key=prompt_key, answer_key="expected_state", image_key=image_key)
 
     @classmethod
     def from_records(cls, records: list[dict], **keys) -> "GUIOSDataset":

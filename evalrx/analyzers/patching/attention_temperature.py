@@ -83,6 +83,14 @@ class AttentionTemperatureAnalyzer(Analyzer):
         "tt_media_entropy": ("Focus inside the media", "Normalized entropy of the answer position's attention distribution over the media tokens in the edited layers (1 = spread evenly, 0 = one token)."),
     }
 
+    sharp: float
+    flat: float
+    scope: str
+    band: str
+    target: str
+    fidelity_rtol: float
+    max_cases: int
+
     def __init__(self, sharp: float = 0.5, flat: float = 2.0, scope: str = "within",
                  band: str = "all", target: str = "prediction", fidelity_rtol: float = 1e-2,
                  max_cases: int = 0) -> None:

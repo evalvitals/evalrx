@@ -38,20 +38,19 @@ HOW TO WRITE FOR THEM:
   more often on" or "is linked with", never "causes" or "explains", unless an
   intervention actually tested it.
 
-Based on the protocol and the findings above, write:
+Based on the protocol and the findings above, give:
 
-CONCLUSION: <one paragraph. FIRST sentence: what is going wrong, in plain words,
-  no numbers. Then the evidence for it, with counts. Then what this evidence
-  does NOT settle. If the model looks healthy given the protocol, say that
-  plainly in the first sentence.>
-EVIDENCE_CHAIN:
-- <step 1: which measurement first caught your attention — say what it measures
-  in words, not just its identifier — and why it stood out>
-- <step 2: how it connects to the protocol's stated failure patterns>
-- <step 3: any corroborating or contradicting signals from other analyzers>
-QUALITATIVE:
-- <observation 1: a pattern not captured by numbers alone>
-- <observation 2: anything unexpected or surprising>
+- conclusion: one paragraph. FIRST sentence: what is going wrong, in plain
+  words, no numbers. Then the evidence for it, with counts. Then what this
+  evidence does NOT settle. If the model looks healthy given the protocol, say
+  that plainly in the first sentence.
+- evidence_chain: the steps, in order —
+  1. which measurement first caught your attention (say what it measures in
+     words, not just its identifier) and why it stood out;
+  2. how it connects to the protocol's stated failure patterns;
+  3. any corroborating or contradicting signals from other analyzers.
+- qualitative: patterns not captured by numbers alone, and anything unexpected
+  or surprising.
 
 Keep each bullet to one sentence."""
 
@@ -68,5 +67,4 @@ Data shape available for testing:
 {data_shape}
 
 Pick the tools whose data requirements are satisfied and that best test the \
-protocol's question. Return ONLY a JSON object, no other text:
-{{"tools": ["name1", "name2", ...], "rationale": "one sentence"}}"""
+protocol's question, with a one-sentence rationale."""

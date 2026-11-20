@@ -46,6 +46,13 @@ class RISEAnalyzer(Analyzer):
     requires = frozenset({Capability.GENERATE})
     applies_to_modalities = frozenset({"text"})
 
+    score_fn: Optional[Callable[[str], float]]
+    n_masks: int
+    keep_prob: float
+    mask_token: str
+    top_k: int
+    seed: int
+
     def __init__(
         self,
         score_fn: Optional[Callable[[str], float]] = None,

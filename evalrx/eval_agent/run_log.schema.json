@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://evalrx.dev/schemas/run_log.schema.json",
   "title": "EvalRX run event",
-  "description": "One logged event, wherever a run stores it (run.json / M<n>/log.json). Discriminated on `event`; matches schema_version 6. Permissive: extra (additive) fields are allowed.",
+  "description": "One logged event, wherever a run stores it (run.json / M<n>/log.json). Discriminated on `event`; matches schema_version 8. Permissive: extra (additive) fields are allowed.",
   "$defs": {
     "envelope": {
       "type": "object",
@@ -28,6 +28,7 @@
             "experiment",
             "fix",
             "loop_end",
+            "run_end",
             "tool_codegen",
             "tool_registry",
             "agent_decision",
@@ -41,7 +42,7 @@
           ]
         },
         "schema_version": {
-          "const": 6
+          "const": 8
         },
         "ts": {
           "type": "string",
@@ -150,31 +151,11 @@
             "selection_rationale": {
               "type": "string"
             },
-            "judge_io": {
-              "type": "object",
-              "properties": {
-                "prompt_path": {
-                  "type": "string"
-                },
-                "prompt_chars": {
-                  "type": "integer"
-                },
-                "raw_path": {
-                  "type": "string"
-                },
-                "raw_chars": {
-                  "type": "integer"
-                }
-              }
-            },
             "duration_sec": {
               "type": "number"
             },
             "n_model_calls": {
               "type": "integer"
-            },
-            "model_calls_path": {
-              "type": "string"
             }
           },
           "required": [
@@ -219,12 +200,6 @@
             "evidence_chain": {
               "type": "array"
             },
-            "stats_tool_results": {
-              "type": [
-                "object",
-                "array"
-              ]
-            },
             "stats_plan": {
               "type": [
                 "object",
@@ -243,28 +218,8 @@
                 "array"
               ]
             },
-            "visualizations": {
-              "type": "array"
-            },
             "figures": {
               "type": "array"
-            },
-            "judge_io": {
-              "type": "object",
-              "properties": {
-                "prompt_path": {
-                  "type": "string"
-                },
-                "prompt_chars": {
-                  "type": "integer"
-                },
-                "raw_path": {
-                  "type": "string"
-                },
-                "raw_chars": {
-                  "type": "integer"
-                }
-              }
             },
             "duration_sec": {
               "type": "number"
@@ -440,23 +395,6 @@
             "failure_modes_used": {
               "type": "boolean"
             },
-            "judge_io": {
-              "type": "object",
-              "properties": {
-                "prompt_path": {
-                  "type": "string"
-                },
-                "prompt_chars": {
-                  "type": "integer"
-                },
-                "raw_path": {
-                  "type": "string"
-                },
-                "raw_chars": {
-                  "type": "integer"
-                }
-              }
-            },
             "duration_sec": {
               "type": "number"
             }
@@ -521,23 +459,6 @@
             },
             "duration_sec": {
               "type": "number"
-            },
-            "judge_io": {
-              "type": "object",
-              "properties": {
-                "prompt_path": {
-                  "type": "string"
-                },
-                "prompt_chars": {
-                  "type": "integer"
-                },
-                "raw_path": {
-                  "type": "string"
-                },
-                "raw_chars": {
-                  "type": "integer"
-                }
-              }
             }
           },
           "required": [
@@ -614,20 +535,11 @@
                 "null"
               ]
             },
-            "code_paths": {
-              "type": "object"
-            },
-            "output_paths": {
-              "type": "object"
-            },
             "workspace_snapshot": {
               "type": [
                 "object",
                 "null"
               ]
-            },
-            "record": {
-              "type": "string"
             }
           },
           "required": [
@@ -654,9 +566,6 @@
               "const": "fix"
             },
             "module": {
-              "type": "string"
-            },
-            "record": {
               "type": "string"
             }
           },
@@ -755,6 +664,24 @@
         }
       ]
     },
+    "run_end": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/envelope"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "const": "run_end"
+            }
+          },
+          "required": [
+            "event"
+          ]
+        }
+      ]
+    },
     "tool_codegen": {
       "allOf": [
         {
@@ -786,9 +713,6 @@
                 "string",
                 "null"
               ]
-            },
-            "code_paths": {
-              "type": "object"
             }
           },
           "required": [
@@ -865,23 +789,6 @@
             },
             "fallback_used": {
               "type": "boolean"
-            },
-            "judge_io": {
-              "type": "object",
-              "properties": {
-                "prompt_path": {
-                  "type": "string"
-                },
-                "prompt_chars": {
-                  "type": "integer"
-                },
-                "raw_path": {
-                  "type": "string"
-                },
-                "raw_chars": {
-                  "type": "integer"
-                }
-              }
             },
             "duration_sec": {
               "type": "number"
@@ -1180,6 +1087,9 @@
     },
     {
       "$ref": "#/$defs/loop_end"
+    },
+    {
+      "$ref": "#/$defs/run_end"
     },
     {
       "$ref": "#/$defs/tool_codegen"

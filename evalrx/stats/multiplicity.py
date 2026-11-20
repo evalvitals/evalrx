@@ -37,7 +37,6 @@ class MultiplicityReport:
     method: str
     alpha: float
     n_tested: int
-    rejected_tools: list[str] = field(default_factory=list)
     rejected_result_keys: list[str] = field(default_factory=list)
     families: dict[str, dict[str, Any]] = field(default_factory=dict)
     note: str = ""
@@ -47,7 +46,6 @@ class MultiplicityReport:
             "method": self.method,
             "alpha": self.alpha,
             "n_tested": self.n_tested,
-            "rejected_tools": self.rejected_tools,
             "rejected_result_keys": self.rejected_result_keys,
             "families": self.families,
         }
@@ -138,7 +136,6 @@ def correct_results(results: list[Any], *, alpha: float = 0.05) -> dict[str, Any
             result.fdr_corrected = False
             result.correction_method = "BH"
 
-    rejected_tools = sorted({str(getattr(results[i], "tool", "")) for i in rejected_indices})
     rejected_keys = [_result_key(results[i], i) for i in sorted(rejected_indices)]
     n_tested = len(e_family) + len(p_family)
     method = (
@@ -152,7 +149,6 @@ def correct_results(results: list[Any], *, alpha: float = 0.05) -> dict[str, Any
         method=method,
         alpha=alpha,
         n_tested=n_tested,
-        rejected_tools=rejected_tools,
         rejected_result_keys=rejected_keys,
         families=family_reports,
         note=note,

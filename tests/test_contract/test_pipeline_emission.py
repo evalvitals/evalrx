@@ -19,7 +19,8 @@ from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.eval_agent import DiagnosisAgent, RunContext, VLDiagnoseLoop
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 from tests.conftest import FakeModel
-from tests.test_eval_agent.test_vl_diagnose import ScriptedModel
+from tests.judge_replies import hypothesis, proposal
+from tests.test_eval_agent.test_vl_diagnose import M3Judge
 
 pytest.importorskip("pydantic")
 
@@ -51,10 +52,9 @@ def _batch(n_fail: int = 3, n_pass: int = 3, **slots) -> CaseBatch:
 
 
 def _judge() -> DiagnosisAgent:
-    return DiagnosisAgent(judge=ScriptedModel([
-        '[{"hypothesis": "The model ignores the modality under test.", '
-        '"failure_mode": "attention", "test": "attention.entropy"}]'
-    ]))
+    return DiagnosisAgent(judge=M3Judge(proposal(hypothesis(
+        "The model ignores the modality under test.", "attention", test="attention.entropy",
+    ))))
 
 
 def _run(tmp_path, model, cases) -> "tuple[dict, RunContext]":

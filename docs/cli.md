@@ -114,7 +114,7 @@ set.
 | `--model` (`--coder-model`) | backend default | Model name passed to the coding agent. |
 | `--max-rows` / `--max-files` | `2000` / `200` | Sampling caps for large inputs. |
 | `--timeout-sec` / `--max-attempts` | `120` / `2` | Per-attempt timeout and repair-retry budget. |
-| `--serve-report` | off | Open the run's static `report.html` in a browser when it finishes. |
+| `--serve-report` | off | Open the run's `report.html` in a browser when it finishes. |
 | `--skill DIR` (repeatable) | — | Agent-Skill directory to style agent-authored figures. Implies `--allow-skills`. |
 | `--no-skills` | off | Skip the package's bundled skills (e.g. `nature-figure`). |
 | `--no-hypotheses` | off | Skip M3 — stop after M2's takeaways. |
@@ -124,9 +124,11 @@ set.
 | `--no-narrate` | off | Don't print live per-stage terminal narration (see above). |
 | `--progress-path PATH` | — | Also append durable JSONL progress events to `PATH`, for a separate workbench UI — independent of narration; both can run together. |
 
-An explore output is not an M1–M5 run, so `serve` has nothing to show for it;
-its report is the static `report.html` (`evalrx/reporting/html_report.py`)
-written into `--out`, which opens from disk.
+An explore output renders in the same report as a full run, with M2 and M3
+filled in and the other stages marked not run: `--out` gets a portable
+`report.html` that opens from disk, and `evalrx serve <out>` shows it live.
+A source checkout writes that file only once the renderer is built
+(`npm run build` in `evalrx/reporting/web`); an installed package carries it.
 
 ## `evalrx run-codebase`
 
@@ -171,6 +173,20 @@ evalrx serve --runs-root outputs/     # runs panel over every run under outputs/
 | `--trace-id` | — | Langfuse trace id (required with `--source langfuse`). |
 | `--runs-root` | `run_dir`'s parent | Where the in-page runs panel looks for other experiments. |
 
+A run still being written is followed live: the top bar reads "run in
+progress", and the page swaps in the new report each time the run logs
+something, on whatever view is open, until the run logs its end (`run_end`).
+A run that stops logging without ending reads as unfinished, with how long it
+has been quiet. Such a run is compiled in memory and published into its
+directory only once it ends.
+
+**Compare** in the top bar puts the run on screen beside another the runs
+panel lists (`#/compare/<id>`): their metrics and stage outcomes in one table,
+and the cases both evaluated that passed in one run and failed in the other,
+each a link into the case studio. Runs are joined by case id, and the page
+says when they used different datasets or one is an explore output. A portable
+`report.html` holds a single run, so it has no Compare.
+
 ## `evalrx report`
 
 Exports the same UI `serve` shows, as one portable HTML file — no server
@@ -183,7 +199,6 @@ evalrx report outputs/qwen3.5-2b/chartqa --out chartqa_report.html
 | Flag | Default | Purpose |
 |---|---|---|
 | `run_dir` (positional) | `outputs` | Run directory holding `run.json`/`M1..M5`, or a `logs/` folder. |
-| `--example-dir` | — | Root holding a benchmark/example's `data/` manifest, for legacy runs. |
 | `--out, -o` | `<run_dir>/report.html` | Output HTML path. |
 | `--embed-media` | `representative` | `representative` \| `all` \| `none` — how much image/audio to inline. |
 | `--audio-bitrate` | `48k` | Transcodes inlined lossless audio to mono MP3 via `ffmpeg` (needs `ffmpeg` on `PATH`); `none` inlines the original bytes. |
@@ -200,8 +215,8 @@ HTML file. Useful for pre-warming a run's cache, or in CI.
 evalrx publish-report outputs/qwen3.5-2b/chartqa
 ```
 
-Takes `run_dir` (positional, default `outputs`), `--example-dir`,
-`--source`, `--trace-id` — same meanings as `report`.
+Takes `run_dir` (positional, default `outputs`), `--source`, `--trace-id` —
+same meanings as `report`.
 
 ## `evalrx export-langfuse`
 

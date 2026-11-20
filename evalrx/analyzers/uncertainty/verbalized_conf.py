@@ -40,6 +40,8 @@ class VerbalizedConfidenceAnalyzer(Analyzer):
     requires = frozenset({Capability.GENERATE})
     applies_to_modalities = frozenset({"text", "image"})
 
+    elicit: str
+
     def __init__(self, elicit: str = _DEFAULT_ELICIT) -> None:
         super().__init__(elicit=elicit)
 

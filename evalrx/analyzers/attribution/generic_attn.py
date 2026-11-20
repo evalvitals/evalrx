@@ -82,6 +82,11 @@ class GenericAttentionExplainability(Analyzer):
         "rel_edge_mass": ("Image relevance on border", "Share of image relevance on the outermost ring of patches."),
     }
 
+    target: str
+    top_k: int
+    fidelity_rtol: float
+    max_cases: int
+
     def __init__(self, target: str = "prediction", top_k: int = 10,
                  fidelity_rtol: float = 1e-2, max_cases: int = 0) -> None:
         super().__init__(target=target, top_k=top_k, fidelity_rtol=fidelity_rtol,

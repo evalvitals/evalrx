@@ -48,6 +48,10 @@ class LayerContrastAnalyzer(Analyzer):
     requires = frozenset({Capability.HIDDEN_STATES})
     applies_to_modalities = frozenset({"text", "image"})
 
+    pos: int
+    skip_first_frac: float
+    max_cases: int
+
     def __init__(self, pos: int = -1, skip_first_frac: float = 0.25, max_cases: int = 0) -> None:
         super().__init__(pos=pos, skip_first_frac=float(skip_first_frac), max_cases=max_cases)
 

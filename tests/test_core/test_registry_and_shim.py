@@ -18,13 +18,6 @@ def test_models_live_in_specs():
     assert "qwen2.5-7b-instruct" in list_specs()
 
 
-def test_registry_models_is_deprecated_shim():
-    # registry.models still works but warns and delegates to specs.
-    with pytest.warns(DeprecationWarning):
-        names = registry.models.list()
-    assert "qwen2.5-7b-instruct" in names
-
-
 def test_analyzers_registered():
     names = registry.analyzers.list()
     assert "attention" in names

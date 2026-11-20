@@ -44,6 +44,8 @@ class LoopDetector(Analyzer):
     requires_trajectories = True
     applies_to_modalities = frozenset({"text", "image"})  # trajectory analysis is modality-agnostic
 
+    min_repeats: int
+
     def __init__(self, min_repeats: int = 2) -> None:
         super().__init__(min_repeats=min_repeats)
 
