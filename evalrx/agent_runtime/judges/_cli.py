@@ -13,20 +13,15 @@ same reading of the result:
 
 from __future__ import annotations
 
-import re
 import warnings
 from pathlib import Path
 
-from evalrx.agent_runtime.cli_runtime import ProcessRun, SubprocessRunner
-
-#: Limit notices the coding CLIs print on stdout, exit 0, in place of an answer.
-LIMIT_NOTICE = re.compile(
-    r"hit your (monthly |weekly |session |daily )?(spend|usage|rate) limit|"
-    r"(spend|usage) limit (reached|exceeded)|out of (extra )?usage|"
-    r"limit resets", re.I)
-
-#: A real judge answer is never this short AND a limit notice.
-_NOTICE_MAX_CHARS = 400
+from evalrx.agent_runtime.cli_runtime import (
+    LIMIT_NOTICE,
+    NOTICE_MAX_CHARS,
+    ProcessRun,
+    SubprocessRunner,
+)
 
 
 def run_cli(
@@ -46,7 +41,7 @@ def read_reply(name: str, run: ProcessRun, output: str, *, failure_reason: str =
     exit (agy keeps its reason in a log file).
     """
     output = output.strip()
-    if len(output) < _NOTICE_MAX_CHARS and LIMIT_NOTICE.search(output):
+    if len(output) < NOTICE_MAX_CHARS and LIMIT_NOTICE.search(output):
         raise RuntimeError(f"{name}: account limit reached, not a judge answer: {output!r}")
     if run.returncode != 0 and not output:
         reason = failure_reason or (run.stderr or run.stdout or "").strip()[-500:]

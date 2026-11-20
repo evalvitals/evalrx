@@ -3,12 +3,23 @@
 from __future__ import annotations
 
 import os
+import re
 import signal
 import subprocess
 import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+
+#: Limit notices the coding CLIs print on stdout, exit 0, in place of an answer.
+LIMIT_NOTICE = re.compile(
+    r"hit your (monthly |weekly |session |daily )?(spend|usage|rate) limit|"
+    r"(spend|usage) limit (reached|exceeded)|out of (extra )?usage|"
+    r"limit resets", re.I)
+
+#: A real answer is never this short AND a limit notice; for a coding agent's
+#: session, how much of its end is read for one.
+NOTICE_MAX_CHARS = 400
 
 
 @dataclass(frozen=True)

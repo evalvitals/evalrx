@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from evalrx.agent_runtime.judges import AgyModel, ClaudeModel, CodexModel
+from evalrx.agent_runtime.providers.base import CliAgentBase
 
 
 def _binary(tmp_path: Path, name: str, body: str) -> str:
@@ -68,3 +69,22 @@ def test_the_prompt_reaches_claude_on_stdin_and_the_cwd_is_not_the_callers(tmp_p
     cwd, prompt = out.split("|", 1)
     assert prompt == "PROMPT"
     assert Path(cwd).resolve() != tmp_path.resolve()
+
+
+class _ScriptAgent(CliAgentBase):
+    _provider_name = "script"
+
+    def _build_cmd(self, prompt: str, workdir: Path) -> list[str]:
+        return [self._binary]
+
+
+def test_a_coding_agent_that_prints_a_limit_notice_reports_it(tmp_path):
+    notice = "echo '[assistant] starting'; echo \"You've hit your usage limit. Limit resets at 5pm.\""
+    result = _ScriptAgent(_binary(tmp_path, "cli", notice)).run("write it", workdir=tmp_path / "w")
+    assert result.error and "account limit reached" in result.error
+
+
+def test_a_coding_agent_that_wrote_files_is_not_read_as_limited(tmp_path):
+    body = "echo 'x = 1' > main.py; echo 'Note: your usage limit resets on Monday.'"
+    result = _ScriptAgent(_binary(tmp_path, "cli", body)).run("write it", workdir=tmp_path / "w")
+    assert result.error is None and "main.py" in result.files

@@ -90,6 +90,9 @@ could be read as the answer.
 processes outlived a plain `subprocess.run` timeout), Claude runs in a
 throwaway directory instead of the caller's, and a limit notice printed as an
 answer raises for every provider, not only Claude.
+A coding agent (`claude_code`, `codex`, ...) that ends its session on a
+limit notice and writes no files now reports `error="account limit reached: ..."`
+instead of no error and no files.
 
 ### Changed — one diagnosis loop; the judge-decided mode is a policy
 
