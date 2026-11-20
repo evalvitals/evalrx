@@ -20,7 +20,8 @@ bash run.sh
 ```
 
 Env overrides: `CODER_PROVIDER` (default `claude_code`), `CODER_MODEL`,
-`OUT_DIR` (default `outputs`), `TIMEOUT_SEC`.
+`OUT_DIR` (default `outputs`), `TIMEOUT_SEC` (default 900: with its skills the
+agent took longer than 300 s to write the analysis on 2026-11-20).
 
 ## What it demonstrates
 
