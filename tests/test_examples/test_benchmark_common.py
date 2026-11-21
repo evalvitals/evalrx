@@ -274,7 +274,7 @@ def test_cli_no_model_paths(common, capsys):
     _, _, _, run = common
     defaults = run.build_parser().parse_args([])
     assert (defaults.judge_provider, defaults.judge_model, defaults.judge_effort) == (
-        "claude", None, "high"
+        "claude", None, "medium"
     )
     assert defaults.held_out is False
     assert defaults.fix_repair_rounds == 2
@@ -304,8 +304,8 @@ def test_leaf_compose_files_cover_every_cell_and_leave_judge_to_cli_default(comm
         svc = services[size.key]
         cmd = svc["command"]
         assert f"--model {size.key}" in cmd and f"--modality {modality}" in cmd
-        # no per-service judge pin: the CLI default (claude / claude-opus-5 /
-        # high) rules, and EXTRA_ARGS can still override per run
+        # no per-service judge pin: the CLI default (claude / sonnet /
+        # medium) rules, and EXTRA_ARGS can still override per run
         assert "--judge-provider" not in cmd
         assert ("--device auto" in cmd) == (size.gpus > 1)
         assert svc["extends"]["file"] == "../../_common/compose/base.yml"

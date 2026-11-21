@@ -28,7 +28,7 @@ to end on 2026-10-02 (256 rows, 2 h 10 min on one shared A100, FIXED +0.211).
 | Docker with the NVIDIA container toolkit, your user in the `docker` group | the cell runs in `evalrx-bench-gemma-jax` | `docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi` |
 | one GPU with about 20 GB free, 35 GB of host RAM | the E2B vlm cell took about 17 GB of the card and peaked at 32.6 GB RSS while loading (the checkpoint is stored float32 and cast after the read); the image sets `XLA_PYTHON_CLIENT_PREALLOCATE=false`, so the run shares a card | `nvidia-smi`, `free -g` |
 | `gsutil` | the checkpoints are public objects in `gs://gemma-data` (no account needed) | `gsutil ls gs://gemma-data/checkpoints/` |
-| the `claude` CLI, logged in | judge and repair coder default to Claude (`claude-opus-5`); Part 2.4 has the alternatives | `claude -p "Reply with exactly OK"` |
+| the `claude` CLI, logged in | judge and repair coder default to Claude (`sonnet`); Part 2.4 has the alternatives | `claude -p "Reply with exactly OK"` |
 | 30 GB of disk | 17 GB checkpoint mirror + 11 GB image | `df -h` |
 
 Nothing from HuggingFace is gated for this cell; the ChartQA parquet is public.
@@ -290,11 +290,11 @@ always the same provider.
 
 | `--judge-provider` | default `--judge-model` | binary in the container | `.env` mounts |
 |---|---|---|---|
-| `claude` (default) | `claude-opus-5` | `claude` | `CLAUDE_PATH`, `CLAUDE_HOME`, `CLAUDE_JSON` |
+| `claude` (default) | `sonnet` | `claude` | `CLAUDE_PATH`, `CLAUDE_HOME`, `CLAUDE_JSON` |
 | `codex` | `gpt-5.6-terra` | `codex` (`node` + the npm package) | `CODEX_NODE`, `CODEX_PACKAGE`, `CODEX_HOME` |
 | `agy` | none, pass one | `agy` (Antigravity CLI) | `AGY_PATH`, `AGY_GEMINI_HOME`, `AGY_CACHE_HOME` |
 
-`--judge-effort` (default `high`) is passed through as `--effort` to Claude and
+`--judge-effort` (default `medium`) is passed through as `--effort` to Claude and
 as `model_reasoning_effort` to Codex. The run opens with one availability probe
 (`Reply with exactly OK`) and stops immediately if the provider returns nothing,
 so a broken login costs seconds, not hours.

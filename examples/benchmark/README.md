@@ -185,7 +185,7 @@ the final significance gate, and the validation data costs no confirm power.
   vLLM endpoint (~29 tok/s on the 2B; ~25 s per causal-judgement item), so the
   llm default is 256 rows, not a census; `--backend endpoint` is the fast path
   when a vLLM server is up.
-* **Judge/coder defaults to Claude `claude-opus-5` at high effort** (CLI
+* **Judge/coder defaults to Claude `sonnet` at medium effort** (CLI
   defaults; the compose commands no longer pin a judge, so `EXTRA_ARGS` can
   still override). `--judge-provider codex` restores Codex `gpt-5.6-terra`;
   the Codex npm package, Node runtime, and authenticated `CODEX_HOME` are

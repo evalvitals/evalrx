@@ -27,9 +27,8 @@ DEFAULT_AGY_CANDIDATES: tuple[str, ...] = (
     "Gemini 3.5 Flash (Low)",
     "Claude Opus 4.6 (Thinking)",
 )
-# Claude judge candidates: the user's session model first (Fable), then
-# cheaper aliases.
-DEFAULT_CLAUDE_CANDIDATES: tuple[str, ...] = ("claude-fable-5", "sonnet", "haiku")
+# Claude judge candidates: the default first, then the cheaper alias.
+DEFAULT_CLAUDE_CANDIDATES: tuple[str, ...] = (ClaudeModel.DEFAULT_MODEL, "haiku")
 
 
 def pick_live_model(

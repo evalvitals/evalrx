@@ -6,6 +6,17 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed — the Claude judge defaults to `sonnet`
+
+`ClaudeModel.DEFAULT_MODEL = "sonnet"` is the one place the default lives. The
+benchmark CLI (`--judge-model` unset) and the judge auto-detection
+(`DEFAULT_CLAUDE_CANDIDATES`) use it; the benchmark's `--judge-effort` default
+goes from `high` to `medium`. Measured on prompts recorded from a real run: a
+28k-character M3 review took 71-124 s on `claude-fable-5` and 5 s on `sonnet`; a
+1.8k-character M4 yes/no took 17 s and 2 s. A 22-minute `qwen_loop_claude` run
+spent about 20 of those minutes in judge stages. Pass `--judge-model` to choose
+a larger model.
+
 ### Changed — `eval_agent` grouped into `loop/` and `runlog/`
 
 The loop and its policies live in `evalrx.eval_agent.loop`, the run directory and

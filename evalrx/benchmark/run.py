@@ -75,8 +75,8 @@ def build_parser(p: argparse.ArgumentParser | None = None) -> argparse.ArgumentP
                         "gemini: leave the API's default level instead of sending the floor)")
     p.add_argument("--judge-provider", choices=["agy", "claude", "codex", "gemini"], default="claude")
     p.add_argument("--judge-model", default=None,
-                   help="default per provider: claude -> claude-opus-5, codex -> gpt-5.6-terra")
-    p.add_argument("--judge-effort", default="high")
+                   help="default per provider: claude -> sonnet, codex -> gpt-5.6-terra")
+    p.add_argument("--judge-effort", default="medium")
     p.add_argument("--coder-provider", choices=["gemini_cli"], default=None,
                    help="Override the coding agent independently of the judge (requires an installed, authenticated CLI)")
     p.add_argument("--coder-model", default=None, help="Model for the coding-agent override")

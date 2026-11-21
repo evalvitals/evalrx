@@ -216,7 +216,7 @@ def build_judge(provider: str, model_name: str, effort: str) -> "Any":
     elif provider == "claude":
         from evalrx.eval_agent import ClaudeModel
 
-        model_name = model_name or "claude-fable-5"
+        model_name = model_name or "sonnet"
         judge = ClaudeModel(model=model_name, effort=effort)
         label = f"claude model={model_name} effort={effort or 'default'}"
         empty_hint = f"claude --model {model_name} returned empty (rate-limited?) -- try --judge-model sonnet or haiku"
@@ -634,7 +634,7 @@ def main() -> int:
     parser.add_argument(
         "--judge-model", default="",
         help="model name passed to the judge CLI. Empty = provider default "
-             "(claude-fable-5 for --judge-provider claude; gpt-5.6-terra for "
+             "(sonnet for --judge-provider claude; gpt-5.6-terra for "
              "--judge-provider codex; agy session default for --judge-provider agy).",
     )
     parser.add_argument("--judge-effort", default="low")

@@ -197,7 +197,7 @@ def load_weights(model, resolved: Resolved, args, task: T.Task):
 def build_judge(args):
     """``(judge, coder_provider, coder_model, coder_extra_args)`` — the same three
     providers as the m1_m5 examples; the benchmark CLI defaults to
-    Claude / claude-opus-5 / high."""
+    Claude / sonnet / medium."""
     if args.judge_provider == "gemini":
         adaptive = getattr(args, "diagnosis_mode", "agentic") == "agentic"
         probe_codegen = adaptive and args.allow_codegen
@@ -219,8 +219,9 @@ def build_judge(args):
         coder = ("antigravity", args.judge_model,
                  (("--effort", args.judge_effort) if args.judge_effort else ()))
     elif args.judge_provider == "claude":
-        name = args.judge_model or "claude-opus-5"
         from evalrx.eval_agent import ClaudeModel
+
+        name = args.judge_model or ClaudeModel.DEFAULT_MODEL
 
         judge = ClaudeModel(model=name, effort=args.judge_effort, timeout_sec=300)
         coder = ("claude_code", name, (("--effort", args.judge_effort) if args.judge_effort else ()))
