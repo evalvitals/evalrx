@@ -552,8 +552,7 @@ class ExploratoryAnalysisAgent:
         )
 
     def _write_input(self, rows: list[dict[str, Any]]) -> None:
-        path = Path(self._sandbox.workdir) / RECORDS_FILENAME
-        path.write_text(json.dumps(rows, default=str), encoding="utf-8")
+        self._sandbox.put(RECORDS_FILENAME, json.dumps(rows, default=str))
 
     def _write_code(self, question: str, profile: dict[str, Any]) -> tuple[str, str]:
         prompt = _GENERATE_PROMPT_RECORDS.format(

@@ -50,19 +50,10 @@ class CaseDiscoveryAgent:
         judge:             Optional LLM judge used when no scorer is supplied.
         generation_kwargs: Extra kwargs forwarded to ``model.generate``.
         include_unknown:   Keep UNKNOWN cases in the returned batch.
-        concurrency:       How many cases may be generated at once.  Only the
-                           ``model.generate`` calls fan out; scoring and
-                           labelling stay sequential and in input order, so the
-                           report is identical whatever this is set to.
-
-                           Values above 1 are honoured ONLY for an API-backed
-                           handle, following the same rule as
-                           :func:`evalrx.models.agent.run_batch`: HTTP is
-                           reentrant, a local backend sharing one GPU is not.
-                           Against a local ``vllm serve`` this is the
-                           difference between one request in flight and a
-                           batch -- the server can only batch what it has been
-                           given.
+        n_samples:         Answers drawn per case; the label is their majority.
+                           One is right for a deterministic model. A sampling
+                           model can answer the same case both ways, so one
+                           answer labels it by chance; use an odd number.
     """
 
     def __init__(
@@ -71,13 +62,15 @@ class CaseDiscoveryAgent:
         judge: "Judge | None" = None,
         generation_kwargs: dict[str, Any] | None = None,
         include_unknown: bool = True,
-        concurrency: int = 1,
+        n_samples: int = 1,
     ) -> None:
+        if n_samples < 1:
+            raise ValueError(f"n_samples must be at least 1, got {n_samples}")
         self.scorer = scorer
         self.judge = judge
         self.generation_kwargs = generation_kwargs or {}
         self.include_unknown = include_unknown
-        self.concurrency = max(1, int(concurrency))
+        self.n_samples = n_samples
 
     def discover(
         self,
@@ -92,23 +85,30 @@ class CaseDiscoveryAgent:
         counts = {Label.PASS: 0, Label.FAIL: 0, Label.UNKNOWN: 0}
         cases = list(candidates)
 
-        for case, observed, gen_error in self._generate(model, cases):
-            try:
-                if gen_error is not None:
-                    raise gen_error
-                case.observed = observed
-                label, reason = self._score_with_reason(case, str(observed), protocol)
-            except Exception as exc:  # noqa: BLE001 - discovery should continue
-                observed = ""
-                label = Label.UNKNOWN
-                reason = "model generation or scoring raised an exception"
-                errors.append(f"{case.id}: {exc}")
-                case.metadata["discovery_error"] = str(exc)
+        for case, answers in zip(cases, self._generate(model, cases)):
+            samples = [self._sample(case, answer, protocol) for answer in answers]
+            n_pass = sum(1 for s in samples if s.label is Label.PASS)
+            n_fail = sum(1 for s in samples if s.label is Label.FAIL)
+            label = (Label.PASS if n_pass > n_fail
+                     else Label.FAIL if n_fail > n_pass else Label.UNKNOWN)
+            # The recorded answer is one that earned the label: analyzers score
+            # ``observed`` and must reach the label the case carries.
+            shown = next((s for s in samples if s.label is label), samples[0])
+            failed = [s.error for s in samples if s.error]
+            errors.extend(f"{case.id}: {error}" for error in failed)
 
+            if shown.observed is not None:
+                case.observed = shown.observed
             case.label = label
-            case.metadata["discovery_observed"] = str(observed)
+            case.metadata["discovery_observed"] = "" if shown.error else str(shown.observed)
             case.metadata["discovery_label"] = label.value
-            case.metadata["discovery_reason"] = reason
+            case.metadata["discovery_reason"] = shown.reason
+            if label is Label.UNKNOWN and failed:
+                case.metadata["discovery_error"] = failed[0]
+            if self.n_samples > 1:
+                case.metadata["discovery_votes"] = {"pass": n_pass, "fail": n_fail}
+                case.metadata["discovery_reason"] = (
+                    f"{n_pass} of {len(samples)} sampled answers passed; {shown.reason}")
             counts[label] += 1
 
             if label != Label.UNKNOWN or self.include_unknown:
@@ -122,59 +122,30 @@ class CaseDiscoveryAgent:
             errors=errors,
         )
 
-    def _generate(
-        self, model: "Model", cases: list[FailureCase]
-    ) -> "list[tuple[FailureCase, Any, Exception | None]]":
-        """``(case, observed, error)`` per case, in input order.
+    def _generate(self, model: "Model", cases: list[FailureCase]) -> "list[list[Any]]":
+        """Each case's ``n_samples`` answers, in case order.
 
-        The exception is carried rather than raised so the caller keeps its one
-        place that turns any failure into an UNKNOWN label -- a case whose
-        generation failed and a case whose scoring failed are the same
-        observation, and both must leave the batch intact.
+        A failed generation is carried as its exception rather than raised, so
+        one bad case leaves the batch intact.
         """
-        workers = self._workers(model, len(cases))
-        if workers <= 1:
-            out: "list[tuple[FailureCase, Any, Exception | None]]" = []
-            for case in cases:
-                try:
-                    out.append((case, model.generate(case.inputs, **self.generation_kwargs), None))
-                except Exception as exc:  # noqa: BLE001
-                    out.append((case, None, exc))
-            return out
+        # One batch call. The backend decides how many run at once: padded
+        # batches on a local model, ``runtime.concurrency`` requests over an API.
+        k = self.n_samples
+        answers = model.try_generate_batch(
+            [case.inputs for case in cases for _ in range(k)], **self.generation_kwargs)
+        return [answers[i * k:(i + 1) * k] for i in range(len(cases))]
 
-        from concurrent.futures import ThreadPoolExecutor
-
-        def _one(case: FailureCase):
-            try:
-                return case, model.generate(case.inputs, **self.generation_kwargs), None
-            except Exception as exc:  # noqa: BLE001
-                return case, None, exc
-
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            return list(pool.map(_one, cases))
-
-    def _workers(self, model: "Model", n_cases: int) -> int:
-        """Concurrency actually allowed for this handle.
-
-        A local backend is silently forced back to 1 rather than warned about:
-        unlike ``run_batch``, nothing here asked for parallelism per case --
-        the caller set one number for a whole run that may mix handles, and a
-        warning per discovery pass would be noise about a setting that is
-        behaving correctly.
-        """
-        if self.concurrency <= 1:
-            return 1
-        from evalrx.models.backends.api import APIModel
-
-        # A deployed-pipeline wrapper (fix_tools.SpecPipelineModel) is exactly
-        # as reentrant as the handle it drives — judge it by its inner model.
-        model = getattr(model, "inner_model", model)
-        # InstrumentedModel is also a transparent proxy; preserve the API
-        # handle's configured discovery concurrency while recording each call.
-        model = getattr(model, "_model", model)
-        if not isinstance(model, APIModel):
-            return 1
-        return min(self.concurrency, max(1, n_cases))
+    def _sample(
+        self, case: FailureCase, answer: Any, protocol: "ExperimentProtocol | None"
+    ) -> "_Sample":
+        """One answer and its label; a failed generation or scoring is UNKNOWN."""
+        if isinstance(answer, Exception):
+            return _Sample(None, Label.UNKNOWN, _FAILED, str(answer))
+        try:
+            label, reason = self._score_with_reason(case, str(answer), protocol)
+        except Exception as exc:  # noqa: BLE001 - discovery should continue
+            return _Sample(answer, Label.UNKNOWN, _FAILED, str(exc))
+        return _Sample(answer, label, reason)
 
     def _score_with_reason(
         self,
@@ -214,6 +185,19 @@ class CaseDiscoveryAgent:
         except JudgeOutputError as exc:
             return Label.UNKNOWN, f"judge gave no valid label ({exc})"
         return _coerce_label(graded.label), graded.reason
+
+
+_FAILED = "model generation or scoring raised an exception"
+
+
+@dataclass
+class _Sample:
+    """One sampled answer of a case and what it scored."""
+
+    observed: Any
+    label: Label
+    reason: str
+    error: str = ""
 
 
 class _CaseLabel(BaseModel):

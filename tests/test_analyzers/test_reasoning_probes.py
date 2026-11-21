@@ -674,8 +674,11 @@ def test_knowledge_split_shares_are_over_classified_failures():
         _case("q2", None, "Paris", Label.FAIL),   # no context -> unclassifiable
     ])
     model = ScriptModel([
-        "Answer: Lyon", "Answer: Lyon", "- a fact", "Answer: Lyon", "Answer: Paris",
-        "Answer: Lyon", "Answer: Lyon", "- a fact", "Answer: Lyon",
+        # both cases' first questions go out together, then their follow-ups
+        "Answer: Lyon", "Answer: Lyon", "- a fact",   # q1: baseline, decomposed, recall
+        "Answer: Lyon", "Answer: Lyon", "- a fact",   # q2
+        "Answer: Lyon", "Answer: Paris",              # q1: from its own facts, open book
+        "Answer: Lyon",                               # q2: from its own facts
     ])
     f = KnowledgeReasoningSplit().run(model, batch).findings
     assert f["n_classified"] == 1 and f["n_unclassified"] == 1

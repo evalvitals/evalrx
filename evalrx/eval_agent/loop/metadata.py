@@ -1,5 +1,5 @@
 """Shared run-provenance and logging-wiring helpers used by both
-``VLDiagnoseLoop`` (loop.py) and its ``JudgePolicy`` (agentic/policy.py).
+``VLDiagnoseLoop`` (loop/diagnose.py) and its ``JudgePolicy`` (loop/judge/policy.py).
 """
 
 from __future__ import annotations

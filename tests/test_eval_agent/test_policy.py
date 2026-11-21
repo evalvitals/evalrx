@@ -8,7 +8,7 @@ from __future__ import annotations
 from evalrx.core.capability import Capability
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.eval_agent import AutoDiagnoseReport, FixedOrderPolicy, JudgePolicy, VLDiagnoseLoop
-from evalrx.eval_agent.run_context import RunContext
+from evalrx.eval_agent.runlog.context import RunContext
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 from evalrx.reporting.run_events import read_run_events
 from tests.conftest import FakeModel
@@ -37,12 +37,12 @@ def test_a_custom_policy_gets_the_loop_and_the_run_bracket(tmp_path):
 
     class OneStep:
         def run(self, loop, data, timings):
-            seen["tokens_reset"] = loop._tokens_used == 0
+            seen["tokens_reset"] = loop.stages().memory.tokens_used == 0
             timings["m1"] = 1.5
             return AutoDiagnoseReport(cycles=1, stopped_by="custom", store=loop.store)
 
     ctx, loop = _loop(tmp_path, policy=OneStep())
-    loop._tokens_used = 99
+    loop.stages().memory.tokens_used = 99
     data = CaseBatch([FailureCase(inputs=Inputs(prompt="q"), label=Label.FAIL)])
 
     report = loop.run(data)

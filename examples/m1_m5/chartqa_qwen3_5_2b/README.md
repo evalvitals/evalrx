@@ -29,9 +29,10 @@ docker compose logs -f
 and, like every analyzer since 2026-08-21, each measures its whole partition
 (no per-analyzer `max_cases` cap).
 
-The compose command pins judge and coder to Claude Opus 5
-(`--judge-provider claude --judge-model claude-opus-5 --judge-effort high`);
-the CLI default provider is `agy`. With no M4-verified hypothesis the run
+The compose command runs judge and coder on Claude at high effort
+(`--judge-provider claude --judge-effort high`), on the package's default
+Claude model (`ClaudeModel.DEFAULT_MODEL`, currently `sonnet`); add
+`--judge-model <name>` to pin another. The CLI default provider is `agy`. With no M4-verified hypothesis the run
 still enters M5 and the fix stage on the best unverified leads
 (`allow_unverified=True` in `vlm_benchmark_common.py`).
 

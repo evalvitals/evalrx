@@ -35,6 +35,12 @@ IMAGES = HERE.parent / "deco_pope" / "data" / "images"   # shared, not copied
 OUT = HERE / "outputs"
 CFG = yaml.safe_load((HERE / "config.yaml").read_text())
 
+# The judge and the coder follow the package default unless config.yaml names a model.
+from evalrx.agent_runtime.judges.claude import ClaudeModel  # noqa: E402
+
+JUDGE_MODEL = str(CFG.get("judge_model") or ClaudeModel.DEFAULT_MODEL)
+CODEGEN_MODEL = str(CFG.get("codegen_model") or ClaudeModel.DEFAULT_MODEL)
+
 
 # ---------------------------------------------------------------------------
 # 1. Frozen manifest -> CaseBatch (mixed PASS/FAIL — M2/M4 need both groups)
@@ -152,7 +158,7 @@ def main() -> None:
     ap.add_argument("--max-analyzers", type=int, default=3)
     ap.add_argument("--smoke-test", action="store_true")
     ap.add_argument("--skip-m5", action="store_true")
-    ap.add_argument("--judge-model", default=CFG.get("judge_model", "claude-opus-4-8"))
+    ap.add_argument("--judge-model", default=JUDGE_MODEL)
     ap.add_argument("--judge-effort", default=CFG.get("judge_effort", "low"))
     ap.add_argument("--max-correct", type=int, default=CFG.get("max_correct", 120),
                     help="cap PASS (correct) cases; every MISS is always kept")
@@ -194,7 +200,7 @@ def main() -> None:
     codegen_effort = str(CFG.get("codegen_effort", "") or "")
     codegen = CliAgentConfig(
         provider="claude_code",
-        model=str(CFG.get("codegen_model", "claude-opus-4-8")),
+        model=CODEGEN_MODEL,
         max_budget_usd=float(CFG.get("codegen_budget_usd", 2.0)),
         timeout_sec=int(CFG.get("codegen_timeout_sec", 240)),
         extra_args=(("--effort", codegen_effort) if codegen_effort else ()),

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import io
 
-from evalrx.eval_agent.narration import LoopNarrator, _supports_color
+from evalrx.eval_agent.runlog.narration import LoopNarrator, _supports_color
 
 
 def _narrator() -> tuple[LoopNarrator, io.StringIO]:

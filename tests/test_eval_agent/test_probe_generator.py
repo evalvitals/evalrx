@@ -157,10 +157,11 @@ def test_runtime_failure_recorded_and_triggers_codegen():
 
 @pytest.mark.parametrize("max_workers", [1, 8])
 def test_whitebox_analyzers_run_serially_not_in_thread_pool(max_workers):
-    """White-box analyzers (GPU forward on the shared model) must run on the
-    calling thread, not the ThreadPoolExecutor — concurrent forwards race on
-    accelerate hooks (meta-tensor errors) and stack activations to OOM
-    (defect 7). Black-box analyzers may still parallelise."""
+    """In-process analyzers run on the calling thread, whatever ``max_workers``
+    says. White-box ones race on accelerate hooks (meta-tensor errors) and stack
+    activations to OOM in threads (defect 7); black-box ones already send their
+    questions to the backend as batches, so threads would only multiply the
+    requests in flight. ``max_workers`` is for Docker-mode analyzers."""
     import threading
 
     from evalrx.core.analyzer import Analyzer
@@ -194,8 +195,8 @@ def test_whitebox_analyzers_run_serially_not_in_thread_pool(max_workers):
     model = RefusingModel(capabilities={Capability.GENERATE, Capability.ATTENTION})
     results = agent.probe(model, _cases())
     assert set(results) == {"wb_a", "bb_b"}
-    assert ran_on["wb_a"] == main_thread        # white-box ran serially
-    assert (ran_on["bb_b"] == main_thread) == (max_workers == 1)
+    assert ran_on["wb_a"] == main_thread
+    assert ran_on["bb_b"] == main_thread
 
 
 def test_failed_analyzers_surface_in_next_selection_prompt():
@@ -217,3 +218,73 @@ def test_failed_analyzers_surface_in_next_selection_prompt():
     agent.probe(model, _cases(), protocol=proto)
     assert "FAILED AT RUNTIME" in captured["prompt"]
     assert "logit_lens" in captured["prompt"]
+
+
+# ── the host's input file survives whatever the code writer does to it ──────
+
+
+class TidyingCoder(ScriptedJudge):
+    """Writes a good probe, having first tried it on made-up cases and removed
+    the input file afterwards: what a coding agent did in 3 of 19 sessions."""
+
+    def __init__(self, code: str, workdir) -> None:
+        super().__init__(code)
+        self._workdir = workdir
+
+    def generate(self, prompt: str, **kw) -> str:
+        path = self._workdir / "m1_probe_input.json"
+        path.write_text('{"cases": [{"id": "invented", "output": "sorry"}]}')
+        path.unlink()
+        return super().generate(prompt, **kw)
+
+
+def test_the_probe_reads_the_real_cases_after_the_coder_deleted_the_input(tmp_path):
+    from evalrx.agent_runtime.sandbox import ExperimentSandbox
+
+    sandbox = ExperimentSandbox(tmp_path)
+    gen = ProbeGenerator(judge=TidyingCoder(_GOOD_PROBE, sandbox.workdir), sandbox=sandbox)
+
+    result, probe = gen.generate("detect refusals", RefusingModel(), _cases(), name="refusal")
+
+    assert probe is not None and result is not None
+    assert [row["sample_id"] for row in result.findings["per_case"]] == ["c0", "c1", "c2", "c3"]
+    assert result.findings["refusal_rate"] == 0.5
+
+
+def test_a_sandbox_input_that_was_overwritten_is_restored_before_the_run(tmp_path):
+    from evalrx.agent_runtime.sandbox import ExperimentSandbox
+
+    sandbox = ExperimentSandbox(tmp_path)
+    sandbox.put("data/in.json", '{"n": 3}')
+    (sandbox.workdir / "data" / "in.json").write_text('{"n": 0}')
+
+    run = sandbox.run('import json; print(json.load(open("data/in.json"))["n"])')
+
+    assert run.ok and run.stdout.strip() == "3"
+
+
+class Events:
+    def __init__(self) -> None:
+        self.codegen: list[dict] = []
+
+    def log_tool_codegen(self, **fields):
+        self.codegen.append(fields)
+
+    def log_model_call(self, **fields):
+        pass
+
+
+@pytest.mark.parametrize("code, reason", [
+    ("raise ValueError('bad column')", "exited with code 1: ValueError: bad column"),
+    (_NO_MARKER_PROBE, "printed no readable PROBE_RESULT_JSON= line"),
+    ("import time; time.sleep(30)", "was killed after 1s"),
+])
+def test_a_failed_probe_run_is_logged_with_what_went_wrong(code, reason):
+    log = Events()
+    gen = ProbeGenerator(judge=ScriptedJudge(code), run_logger=log, timeout_sec=1)
+
+    result, probe = gen.generate("detect refusals", RefusingModel(), _cases())
+
+    assert result is None and probe is None
+    (event,) = log.codegen
+    assert event["ok"] is False and reason in event["error"]

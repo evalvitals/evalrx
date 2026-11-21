@@ -36,7 +36,7 @@ from evalrx.analyzers.reasoning._text import (
     looks_truncated,
     repetition_score,
 )
-from evalrx.core.analyzer import Analyzer
+from evalrx.core.analyzer import Analyzer, Ask, Probe, run_probes
 from evalrx.core.capability import Capability
 from evalrx.core.registry import register_analyzer
 from evalrx.core.result import Result
@@ -116,16 +116,8 @@ class TerminationAudit(Analyzer):
         self.match_fn = match_fn or answer_equal
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
-        per_case: list[dict[str, Any]] = []
-        for case in cases.stratified_head(self.max_cases):
-            text = case.observed
-            if not str(text or "").strip():
-                # no stored output — generate one so the class is about THIS model
-                text = str(model.generate(case.inputs))
-            entry = self._classify(case, text)
-            if self.continue_non_clean and entry["termination_class"] != CLEAN:
-                entry.update(self._continue(model, case, text))
-            per_case.append(entry)
+        per_case = run_probes(
+            model, [self._probe_case(case) for case in cases.stratified_head(self.max_cases)])
 
         n = len(per_case)
         counts = {
@@ -220,11 +212,21 @@ class TerminationAudit(Analyzer):
             "output_words": len(raw.split()),
         }
 
-    def _continue(self, model: "Model", case: "FailureCase", text: Any) -> dict[str, Any]:
-        prompt = (
-            f"{case.inputs.prompt or ''}\n\nPartial response:\n{text}\n\n{_CONTINUE_SUFFIX}"
-        )
-        continuation = str(model.generate(dataclasses.replace(case.inputs, prompt=prompt)))
+    def _probe_case(self, case: "FailureCase") -> Probe[dict[str, Any]]:
+        text = case.observed
+        if not str(text or "").strip():
+            # no stored output — generate one so the class is about THIS model
+            text = str((yield Ask([case.inputs]))[0])
+        entry = self._classify(case, text)
+        if self.continue_non_clean and entry["termination_class"] != CLEAN:
+            prompt = (
+                f"{case.inputs.prompt or ''}\n\nPartial response:\n{text}\n\n{_CONTINUE_SUFFIX}"
+            )
+            (continuation,) = yield Ask([dataclasses.replace(case.inputs, prompt=prompt)])
+            entry.update(self._continued(case, str(continuation)))
+        return entry
+
+    def _continued(self, case: "FailureCase", continuation: str) -> dict[str, Any]:
         out: dict[str, Any] = {
             "continuation_has_answer": int(has_answer_tag(continuation)),
             "continuation_chars": len(continuation),

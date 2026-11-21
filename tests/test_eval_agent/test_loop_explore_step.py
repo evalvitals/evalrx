@@ -23,8 +23,8 @@ from evalrx.analysis.explorer import ExploratoryAnalysisReport
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.core.result import Result
 from evalrx.eval_agent.hypothesis import Hypothesis
-from evalrx.eval_agent.loop import VLDiagnoseLoop
-from evalrx.eval_agent.run_logger import RunLogger
+from evalrx.eval_agent.loop.diagnose import VLDiagnoseLoop
+from evalrx.eval_agent.runlog.logger import RunLogger
 from evalrx.eval_agent.stages.diagnosis import DiagnosisResult, ExploreContext
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 from evalrx.reporting.run_events import read_run_events
@@ -363,18 +363,18 @@ def test_real_m3_gets_the_explore_notes_and_the_rendered_png(tmp_path):
 
 
 def test_default_explore_dir_with_a_run_context_stays_off_the_run_root(tmp_path):
-    """Regression test for the bug where _explore_out_dir() hand-derived
+    """Regression test for the bug where explore_out_dir() hand-derived
     ctx.root/"explore" instead of calling ctx.explore_dir — which would have
     left real files outside the JSON-only run artifact, never cleaned up
     by finalize()'s runtime_root rmtree."""
-    from evalrx.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.runlog.context import RunContext
 
     calls: list[str] = []
     workdir = tmp_path / "sandbox"
     _seed_workdir(workdir)
     with RunContext(tmp_path / "run") as ctx:
         loop, _ = _loop(calls, _Explorer(calls, report=_report(workdir)), run_logger=ctx.logger)
-        out_dir = loop._explore_out_dir()
+        out_dir = loop.stages().explore_out_dir()
         assert out_dir == ctx.explore_dir
         assert ctx.runtime_root in out_dir.parents
         assert out_dir != ctx.root / "explore"
@@ -392,20 +392,20 @@ def test_default_explore_dir_beside_a_standalone_logs_dir_and_inside_other_dirs(
                            ("run_2026", tmp_path / "run_2026" / "explore")):
         logger = RunLogger(run_dir=tmp_path / name, observability_mode="offline")
         loop, _ = _loop(calls, _Explorer(calls, report=_report()), run_logger=logger)
-        assert loop._explore_out_dir() == expected, name
+        assert loop.stages().explore_out_dir() == expected, name
         logger.close()
     # no logger and no explicit dir: nothing is persisted, notes stay in memory
     loop, diag = _loop(calls, _Explorer(calls, report=_report()))
-    assert loop._explore_out_dir() is None
+    assert loop.stages().explore_out_dir() is None
     loop.run(_batch())
     assert diag.seen_context[0] is not None
 
 
 def test_agentic_explore_publishes_artifacts_and_passes_notes_to_m3(tmp_path):
-    from evalrx.eval_agent.agentic.board import EvidenceBoard
-    from evalrx.eval_agent.agentic.tools import _explore_data
-    from evalrx.eval_agent.policy import RunState
-    from evalrx.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.loop.judge.board import EvidenceBoard
+    from evalrx.eval_agent.loop.judge.tools import _explore_data
+    from evalrx.eval_agent.loop.state import RunState
+    from evalrx.eval_agent.runlog.context import RunContext
 
     calls = []
     workdir = tmp_path / 'sandbox'
@@ -414,13 +414,13 @@ def test_agentic_explore_publishes_artifacts_and_passes_notes_to_m3(tmp_path):
     data = _batch()
     with RunContext(tmp_path / 'run') as ctx:
         loop, diag = _loop(calls, explorer, run_logger=ctx.logger)
-        state = RunState(original_data=data, data=data, timings={})
+        state = RunState(original_data=data, data=data, stages=loop.stages(), timings={})
         state.probe_results = loop.probe_agent.probe(loop.model, data)
         outcome = _explore_data(loop, state)(EvidenceBoard(), {'question': 'Inspect long chains'})
         assert outcome.ok
         assert explorer.question == 'Inspect long chains'
         assert explorer.outcome_col == 'label'
-        loop._do_m3(0, None, [], state.timings, cases=data)
+        state.stages.diagnose(0, None, [], state.timings, cases=data)
         assert diag.seen_context[-1] is not None
         assert state.timings['explore'] > 0
     events = read_run_events(tmp_path / 'run')

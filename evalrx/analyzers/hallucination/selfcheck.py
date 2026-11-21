@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any, Optional
 
-from evalrx.core.analyzer import Analyzer
+from evalrx.core.analyzer import Analyzer, Ask, Probe, run_probes
 from evalrx.core.capability import Capability
 from evalrx.core.registry import register_analyzer
 from evalrx.core.result import Result
@@ -96,41 +96,39 @@ class SelfCheckConsistencyAnalyzer(Analyzer):
             min_sentence_chars=min_sentence_chars,
         )
 
+    def _probe_case(self, case: Any) -> Probe[dict[str, Any]]:
+        baseline = str(case.observed or "").strip()
+        baseline_from = "observed"
+        if not baseline:
+            baseline = str((yield Ask([case.inputs]))[0])
+            baseline_from = "generated"
+        sentences = split_sentences(baseline, self.min_sentence_chars)
+        entry: dict[str, Any] = {
+            "sample_id": case.id,
+            "baseline_from": baseline_from,
+            "n_sentences": len(sentences),
+        }
+        if not sentences:
+            entry["skipped"] = "no scoreable sentence in the baseline answer"
+            return entry
+        samples = [str(s) for s in (yield Ask([case.inputs] * self.n_samples, self.gen_kwargs))]
+        # SelfCheckGPT scores a sentence by its support in OTHER samples;
+        # a sentence no resample reproduces is the hallucination suspect.
+        sentence_scores = [
+            1.0 - max(containment(sent, sample) for sample in samples)
+            for sent in sentences
+        ]
+        entry["selfcheck_inconsistency"] = round(
+            sum(sentence_scores) / len(sentence_scores), 4
+        )
+        entry["selfcheck_worst_sentence"] = round(max(sentence_scores), 4)
+        worst = sentences[sentence_scores.index(max(sentence_scores))]
+        entry["worst_sentence_text"] = worst[:200]
+        return entry
+
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
-        per_case: list[dict[str, Any]] = []
-        for case in cases.stratified_head(self.max_cases):
-            baseline = str(case.observed or "").strip()
-            baseline_from = "observed"
-            if not baseline:
-                baseline = str(model.generate(case.inputs))
-                baseline_from = "generated"
-            sentences = split_sentences(baseline, self.min_sentence_chars)
-            entry: dict[str, Any] = {
-                "sample_id": case.id,
-                "baseline_from": baseline_from,
-                "n_sentences": len(sentences),
-            }
-            if not sentences:
-                entry["skipped"] = "no scoreable sentence in the baseline answer"
-                per_case.append(entry)
-                continue
-            samples = [
-                str(model.generate(case.inputs, **self.gen_kwargs))
-                for _ in range(self.n_samples)
-            ]
-            # SelfCheckGPT scores a sentence by its support in OTHER samples;
-            # a sentence no resample reproduces is the hallucination suspect.
-            sentence_scores = [
-                1.0 - max(containment(sent, sample) for sample in samples)
-                for sent in sentences
-            ]
-            entry["selfcheck_inconsistency"] = round(
-                sum(sentence_scores) / len(sentence_scores), 4
-            )
-            entry["selfcheck_worst_sentence"] = round(max(sentence_scores), 4)
-            worst = sentences[sentence_scores.index(max(sentence_scores))]
-            entry["worst_sentence_text"] = worst[:200]
-            per_case.append(entry)
+        per_case = run_probes(
+            model, [self._probe_case(case) for case in cases.stratified_head(self.max_cases)])
 
         scored = [c["selfcheck_inconsistency"] for c in per_case if "selfcheck_inconsistency" in c]
         temperature = self.gen_kwargs.get("temperature")

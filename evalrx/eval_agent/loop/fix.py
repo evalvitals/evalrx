@@ -3,7 +3,7 @@
 Which hypotheses a fix targets, the tier ladder, the EXPLORE→CONFIRM
 split, and the run-log record of the outcome. Free functions over the loop's
 report and fix agent; ``VLDiagnoseLoop.run_fix`` / ``run_m5`` call them.
-This module does not import :mod:`evalrx.eval_agent.loop`.
+This module does not import :mod:`evalrx.eval_agent.loop.diagnose`.
 """
 
 from __future__ import annotations

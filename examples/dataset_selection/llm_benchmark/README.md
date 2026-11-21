@@ -64,8 +64,8 @@ claude --version          # 必须有输出
 claude                    # 首次需要交互登录一次完成认证
 ```
 
-**默认 judge 与 coder 都是 `claude-opus-5`,effort `high`**(`config.yaml`)。
-模型名是**钉死的全名而不是 `opus` 别名** —— 别名会随最新 opus 漂移,
+**默认 judge 与 coder 都跟随包的默认 Claude 模型(`ClaudeModel.DEFAULT_MODEL`,目前是别名 `sonnet`),effort `high`**(`config.yaml`)。
+要做可比较的多次运行时,请在 `config.yaml` 里把 `judge_model` / `codegen_model` 设成**钉死的全名** —— 别名会随该系列的最新模型漂移,
 judge 在两次运行之间变了,结果就不可比。
 
 `--effort` 合法值:`low | medium | high | xhigh | max`。
@@ -161,7 +161,7 @@ M2 的工具目录与 e-BH,也不进 M4 / fix 门 —— 证据仍然只来自 M
 |---|---|
 | vLLM 加载权重 | 3–6 分钟(冷 page cache 更久) |
 | Stage 0 `build_cases.py` **全量** | **20 分钟 – 6.5 小时**,见下方逐数据集表 |
-| M1→M4 | **30–90 分钟**(judge 是 `claude-opus-5 --effort high`,想得久) |
+| M1→M4 | **30–90 分钟**(用 `claude-opus-5 --effort high` 作 judge 时实测,想得久;默认的 sonnet 更快) |
 | M5 修复 | **20–60 分钟** |
 
 **总计 1.5–8 小时**,几乎全部取决于切片大小(judge 用 high effort;调低 `judge_effort` 会快很多)。 建议 `setsid nohup ./run_all.sh ... > run.log 2>&1 &` 后台跑再轮询日志,
@@ -598,8 +598,8 @@ $PY run_pipeline.py --model qwen3.5-9b --dataset supergpqa_law
 | 每例输出 | `logs*/fixes/NN_<tier>_<name>/outputs.jsonl`(fixed/broken/unchanged 三态) | 声明式候选以前不留任何输出,regressed 无法复盘 |
 | 判官/coder 看到的 | explore 半区的完整样例(prompt + 模型基线输出 + gold + PASS 对照)、评分规则(`make_scoring_note`)、基线解码、M2/M4/explore 证据、被 M5 反驳的假设 | 之前只有 160 字符的 prompt 开头 |
 | 家族地板 | `fix_floor_candidates: [self_consistency_5]`(文本任务) | 默认候选以前只在判官沉默时兜底,最基础的多数投票从没进过家族 |
-| 并发 | `fix_concurrency: 6`(声明式候选按 case 多线程打 endpoint) | 5 样本 × 80 例串行要一个多小时 |
-| **噪声模型** | `fix_baseline_repeats: 5`(基线 = 冻结样本 + 4 次新采样 → 每例通过率),`fix_candidate_repeats: 1` | 配对检验改为对每例通过率之差做 betting e-value(`compare_paired_rates`):不稳定的例子按幅度计权,不再丢弃,也不再让 T=0.6 的单次采样决定 fixed/broken(run7 差 1 个 break) |
+| 并发 | `concurrency: 16`(全流程一个开关:fix 阶段把基线采样、声明式候选、coded pipeline 同时发出的调用成批交给模型,模型按这个数并发打 endpoint) | 5 样本 × 80 例串行要一个多小时 |
+| **噪声模型** | `fix_baseline_repeats: 5`(基线 = 5 次新采样 → 每例通过率;冻结样本决定了标签,不计入),`fix_candidate_repeats: 1` | 配对检验改为对每例通过率之差做 betting e-value(`compare_paired_rates`):不稳定的例子按幅度计权,不再丢弃,也不再让 T=0.6 的单次采样决定 fixed/broken(run7 差 1 个 break) |
 
 `n_samples` 对每种 strategy 都生效(整条 least_to_most / self_refine 链重复 n 次,
 按抽出的最终答案投票 —— 之前非 direct 策略会静默忽略 n_samples,而对 CoT 输出按全文投票等于不投票)。

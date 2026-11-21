@@ -6,7 +6,7 @@
 # Weights: EVALRX_JAX_CKPT (examples/benchmark/.env) is a host directory holding gemma4-<size>-it/
 #   and tokenizer_gemma4.model, mounted at /ckpt; a size without a mirror there is read from the
 #   public gs://gemma-data bucket on every load.
-# Judge/coder default to Claude claude-opus-5 at high effort (override via EXTRA_ARGS).
+# Judge/coder default to Claude sonnet at medium effort (override via EXTRA_ARGS).
 name: bench-alm-gemma-jax
 x-gemma-jax: &gemma_jax
   extends:

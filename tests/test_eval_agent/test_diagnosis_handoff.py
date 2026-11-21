@@ -229,7 +229,7 @@ def test_a_judge_error_on_the_plain_language_revision_raises():
 
 
 def test_loop_hands_the_case_batch_to_agents_that_accept_it_only():
-    from evalrx.eval_agent.loop import _diagnose_with_optional_context
+    from evalrx.eval_agent.loop.stages import _diagnose_with_optional_context
 
     class Modern:
         def diagnose(self, stats_report, prior_cycles=None, explore_context=None,

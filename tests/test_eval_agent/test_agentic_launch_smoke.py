@@ -15,8 +15,8 @@ from evalrx.core.capability import Capability
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.core.result import Result
 from evalrx.eval_agent import DiagnosisAgent, HypothesisTester, JudgePolicy, VLDiagnoseLoop
-from evalrx.eval_agent.log_schema import validate_event
-from evalrx.eval_agent.run_context import RunContext
+from evalrx.eval_agent.runlog.context import RunContext
+from evalrx.eval_agent.runlog.schema import validate_event
 from evalrx.eval_agent.stages.probe_agent import ProbeAgent
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 from evalrx.reporting.run_events import read_run_events

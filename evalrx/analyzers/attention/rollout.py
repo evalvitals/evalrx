@@ -43,6 +43,7 @@ class AttentionRolloutAnalyzer(Analyzer):
 
     name = "attention_rollout"
     requires = frozenset({Capability.ATTENTION})
+    single_case = True
     applies_to_modalities = frozenset({"text", "image"})
 
     top_k: int

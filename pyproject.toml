@@ -161,7 +161,7 @@ include = ["evalrx*"]
 [tool.setuptools.package-data]
 # Ship the published run log JSON Schema so non-Python consumers can
 # validate the log without installing evalrx.
-"evalrx.eval_agent" = ["run_log.schema.json"]
+"evalrx.eval_agent.runlog" = ["run_log.schema.json"]
 # Ship bundled Agent Skills (e.g. nature-figure) so `pip install` carries them
 # too, not just `git clone`. explore auto-applies them on claude/agy backends.
 "evalrx.agent_assets" = ["skills/**/*"]

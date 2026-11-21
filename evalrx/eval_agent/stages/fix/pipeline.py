@@ -15,9 +15,11 @@ collect-then-compute split does not apply.  Instead:
   reply on stdin; the host services each call (applies catalog image tools to
   the case's image, runs ``model.generate``) under a per-session call budget
   and wall-clock deadline.  Requests carry a ``rid`` echoed by the reply, so
-  the sandbox helper is thread-safe and the host can service several calls at
-  once (``concurrency=``) — a pipeline that fans out over cases with a thread
-  pool really runs in parallel.
+  the sandbox helper is thread-safe.  One host thread answers the calls: those
+  that arrive together go to the model as one batch
+  (``Model.try_generate_batch``), which a local model pads into one forward
+  pass and an API model sends as concurrent requests — a pipeline that fans
+  out over cases with a thread pool is answered a round at a time.
 * The script's final ``FIX_PIPELINE_RESULT_JSON=`` line carries per-case final
   answers; **scoring stays host-side** — the case payload shipped to the
   sandbox contains only ``id``, ``prompt`` and the model's own
@@ -43,12 +45,12 @@ from __future__ import annotations
 
 import json
 import logging
+import queue
 import re
 import subprocess
 import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional, cast
@@ -64,6 +66,10 @@ logger = logging.getLogger(__name__)
 CASES_FILENAME = "fix_cases.json"
 CALL_MARKER = "@@MODEL_CALL@@"
 RESULT_MARKER = "FIX_PIPELINE_RESULT_JSON="
+#: How long the host keeps collecting after a call arrives before it answers
+#: what it has. Sandbox threads that fan out over cases send their calls within
+#: milliseconds of each other; one model call takes seconds.
+GATHER_SEC = 0.05
 
 # Injected ahead of the generated code: the only channel to the model.
 _PRELUDE = '''\
@@ -123,8 +129,8 @@ def _bridge_call(payload):
 def model_generate(case_id, prompt=None, image_ops=None, generation_kwargs=None):
     """Call the original model on one case (host-mediated bridge).
 
-    Thread-safe: concurrent calls (e.g. from a ThreadPoolExecutor over cases)
-    are serviced in parallel by the host.
+    Thread-safe: calls made at the same time (e.g. from a ThreadPoolExecutor
+    with one worker per case) are answered by the host as one batch.
 
     generation_kwargs: optional bounded decoding controls
     ({{"max_tokens", "temperature", "top_p", "stop"}}); anything else is
@@ -203,7 +209,6 @@ def run_coded_pipeline(
     enable_attend: bool = False,
     reply_fn: "Callable[[Any, str], str] | None" = None,
     max_tokens_floor: "int | None" = None,
-    concurrency: int = 1,
     consensus_min_support: int = 0,
     max_calls_per_case: int = 0,
     call_logger: "Callable[[dict[str, Any]], None] | None" = None,
@@ -215,13 +220,14 @@ def run_coded_pipeline(
     invoked host-side).  Returns the per-case final answers for host-side
     scoring.
 
-    ``concurrency``: how many bridged calls the host services at once. Every
-    request carries a ``rid`` and the reply echoes it, so the sandbox side is
-    thread-safe — generated code that fans out over cases with a thread pool
-    really runs in parallel (with ``concurrency=1`` calls are serviced strictly
-    in arrival order, the old behaviour). Without the ids a threaded pipeline
-    silently read each other's replies: the reply to case A's prompt could
-    land in case B's vote.
+    Every request carries a ``rid`` and the reply echoes it, so the sandbox
+    side is thread-safe: without the ids a threaded pipeline silently read each
+    other's replies (the reply to case A's prompt could land in case B's
+    vote). One host thread owns the model. It answers the calls that arrived
+    within ``GATHER_SEC`` of each other as one ``try_generate_batch`` per
+    distinct decoding setting, so how many run at once is the model's own
+    business (``RuntimeConfig.batch_size`` locally, ``concurrency`` for an
+    API), and a white-box model is never entered from two threads.
 
     ``reply_fn(case, prompt) -> str``, when given, answers every bridged call
     instead of the model (which is then never touched) — the hook
@@ -248,8 +254,6 @@ def run_coded_pipeline(
     from the record (``n_replayed``) and is free under the cap — there is
     nothing to select from in re-reading the baseline.
     """
-    from evalrx.core.case import Inputs
-
     res = CodedPipelineResult()
     case_by_id = {c.id: c for c in cases}
     budget = max_calls if max_calls is not None else 6 * len(case_by_id) + 10
@@ -300,76 +304,94 @@ def run_coded_pipeline(
     call_records: "dict[str, list[tuple[bool, str, str]]]" = {}
     calls_per_case: "dict[str, int]" = {}
     unmarked_tail: "list[str]" = []  # fallback: last non-marker stdout lines
-    stdin_lock = threading.Lock()
-    records_lock = threading.Lock()
-    pool = (ThreadPoolExecutor(max_workers=max(1, int(concurrency)))
-            if int(concurrency) > 1 else None)
+    calls: "queue.Queue[tuple[dict[str, Any], str] | None]" = queue.Queue()
 
-    def _rid_of(raw: str) -> "Any":
+    def _send(reply: "dict[str, Any]") -> None:
         try:
-            return json.loads(raw).get("rid")
-        except Exception:
-            return None
+            proc.stdin.write(json.dumps(reply) + "\n")  # type: ignore[union-attr]
+            proc.stdin.flush()  # type: ignore[union-attr]
+        except (BrokenPipeError, OSError, ValueError):
+            pass  # the script is gone; its result line (or the lack of one) says why
 
-    def _send(reply: "dict[str, Any]") -> bool:
-        with stdin_lock:
-            try:
-                proc.stdin.write(json.dumps(reply) + "\n")  # type: ignore[union-attr]
-                proc.stdin.flush()  # type: ignore[union-attr]
-                return True
-            except (BrokenPipeError, OSError, ValueError):
-                return False
-
-    def _serve(raw: str, request: "dict[str, Any]", case_id: str) -> bool:
-        call_started = time.perf_counter()
-        case = case_by_id.get(case_id)
-        replayed = reply_fn is None and _replayable_direct(request, case)
-        if replayed:
-            # The direct baseline is already on record: answer from it. Under
-            # greedy decoding a fresh call would return the same text; under
-            # sampling the record is the frozen baseline arm the paired test
-            # compares against, so replaying it keeps anchor and baseline
-            # identical (a resample could drift from both).
-            # _replayable_direct is False for a missing case.
-            reply: "dict[str, Any]" = {"output": str(cast("FailureCase", case).observed)}
-            with records_lock:
-                res.n_replayed += 1
-        else:
-            reply = _service_call(raw, case_by_id, model, Inputs, enable_attend,
-                                  reply_fn, max_tokens_floor=max_tokens_floor)
-        reply["rid"] = _rid_of(raw)
-        if call_logger is not None:
-            try:
-                call_logger({
-                    "case_id": case_id,
-                    "request": request,
-                    "response": {k: v for k, v in reply.items() if k != "rid"},
-                    "replayed_from_recorded_baseline": replayed,
-                    "duration_sec": time.perf_counter() - call_started,
-                })
-            except Exception as exc:  # logging must never break the bridge
-                logger.debug("fix_pipeline: call logger failed: %s", exc)
-        # Record the call for the gold-free consensus guard: was it the direct
-        # baseline (untouched prompt, no ops), and what did it answer?
-        try:
-            if "output" in reply and case is not None:
-                supplied_prompt = request.get("prompt")
-                is_direct = _is_direct_request(request, case)
-                signature = json.dumps(
-                    {
-                        "prompt": supplied_prompt,
-                        "image_ops": request.get("image_ops") or [],
-                    },
-                    sort_keys=True,
+    def _answer(batch: "list[tuple[dict[str, Any], str]]") -> None:
+        """Reply to every call in *batch*; the ones that need the model share it."""
+        started = time.perf_counter()
+        replies: "list[dict[str, Any]]" = []
+        replayed: "set[int]" = set()
+        asks: "dict[str, tuple[dict[str, Any], list[tuple[int, Any]]]]" = {}
+        for index, (request, case_id) in enumerate(batch):
+            case = case_by_id.get(case_id)
+            if reply_fn is None and _replayable_direct(request, case):
+                # The direct baseline is already on record: answer from it.
+                # Under greedy decoding a fresh call would return the same
+                # text; under sampling the record is the frozen baseline arm
+                # the paired test compares against, so replaying it keeps
+                # anchor and baseline identical (a resample could drift from
+                # both). _replayable_direct is False for a missing case.
+                replies.append({"output": str(cast("FailureCase", case).observed)})
+                replayed.add(index)
+                continue
+            prepared = _prepare_call(request, case, model, enable_attend, reply_fn,
+                                     max_tokens_floor=max_tokens_floor)
+            if isinstance(prepared, dict):
+                replies.append(prepared)
+                continue
+            new_inputs, gen_kwargs = prepared
+            replies.append({})
+            asks.setdefault(repr(sorted(gen_kwargs.items())), (gen_kwargs, []))[1].append(
+                (index, new_inputs))
+        for gen_kwargs, members in asks.values():
+            answers = cast("Model", model).try_generate_batch(
+                [new_inputs for _, new_inputs in members], **gen_kwargs)
+            for (index, _), answer in zip(members, answers):
+                replies[index] = (
+                    {"error": f"{type(answer).__name__}: {answer}"}
+                    if isinstance(answer, Exception) else {"output": str(answer)}
                 )
-                with records_lock:
-                    call_records.setdefault(case_id, []).append(
-                        (is_direct, signature, str(reply.get("output", "")))
-                    )
-        except (TypeError, ValueError, json.JSONDecodeError):
-            pass
-        return _send(reply)
+        res.n_replayed += len(replayed)
+        share = (time.perf_counter() - started) / max(1, len(batch) - len(replayed))
+        for index, ((request, case_id), reply) in enumerate(zip(batch, replies)):
+            if call_logger is not None:
+                try:
+                    call_logger({
+                        "case_id": case_id,
+                        "request": request,
+                        "response": dict(reply),
+                        "replayed_from_recorded_baseline": index in replayed,
+                        "duration_sec": 0.0 if index in replayed else share,
+                    })
+                except Exception as exc:  # logging must never break the bridge
+                    logger.debug("fix_pipeline: call logger failed: %s", exc)
+            # Record the call for the gold-free consensus guard: was it the
+            # direct baseline (untouched prompt, no ops), and what did it answer?
+            case = case_by_id.get(case_id)
+            if "output" in reply and case is not None:
+                signature = json.dumps(
+                    {"prompt": request.get("prompt"),
+                     "image_ops": request.get("image_ops") or []},
+                    sort_keys=True, default=str,
+                )
+                call_records.setdefault(case_id, []).append(
+                    (_is_direct_request(request, case), signature, str(reply["output"]))
+                )
+            _send({**reply, "rid": request.get("rid")})
 
+    def _serve() -> None:
+        """Answer queued calls until the ``None`` that closes the session."""
+        while True:
+            batch = [calls.get()]
+            while batch[-1] is not None:
+                try:
+                    batch.append(calls.get(timeout=GATHER_SEC))
+                except queue.Empty:
+                    break
+            closing = batch[-1] is None
+            _answer([call for call in batch if call is not None])
+            if closing:
+                return
+
+    server = threading.Thread(target=_serve, daemon=True)
+    server.start()
     try:
         for line in proc.stdout:  # type: ignore[union-attr]
             stripped = line.strip()
@@ -385,37 +407,31 @@ def run_coded_pipeline(
                     res.error = f"model-call budget exhausted ({budget} calls)"
                     proc.kill()
                     break
-                raw = stripped[len(CALL_MARKER):]
-                # Selection-safety accounting runs on THIS (serial) reader
-                # thread before dispatch, so the per-case cap is deterministic
-                # under concurrency too; the reply itself may be serviced by
-                # the pool.
+                # Selection-safety accounting runs here, in arrival order,
+                # before the call is queued, so the per-case cap does not
+                # depend on how the calls are batched.
                 try:
-                    request = json.loads(raw)
+                    request = json.loads(stripped[len(CALL_MARKER):])
                     case_id = str(request.get("case_id", ""))
-                    # A plain direct call on a recorded case is answered from
-                    # the record and never touches the model: free under the
-                    # cap (in the live run AND the frozen control, so the
-                    # same code is accounted identically in both).
-                    if not _replayable_direct(request, case_by_id.get(case_id)):
-                        calls_per_case[case_id] = calls_per_case.get(case_id, 0) + 1
-                    if (
-                        max_calls_per_case > 0
-                        and calls_per_case.get(case_id, 0) > max_calls_per_case
-                    ):
-                        res.error = (
-                            "selection-safety contract violated: more than "
-                            f"{max_calls_per_case} model calls for case {case_id!r}"
-                        )
-                        proc.kill()
-                        break
-                except (TypeError, ValueError, json.JSONDecodeError):
-                    request, case_id = {}, ""
-                if pool is not None:
-                    pool.submit(_serve, raw, request, case_id)
-                else:
-                    if not _serve(raw, request, case_id):
-                        break
+                except (AttributeError, TypeError, ValueError):
+                    continue  # not a request: nothing to answer, nobody to route to
+                # A plain direct call on a recorded case is answered from the
+                # record and never touches the model: free under the cap (in
+                # the live run AND the frozen control, so the same code is
+                # accounted identically in both).
+                if not _replayable_direct(request, case_by_id.get(case_id)):
+                    calls_per_case[case_id] = calls_per_case.get(case_id, 0) + 1
+                if (
+                    max_calls_per_case > 0
+                    and calls_per_case.get(case_id, 0) > max_calls_per_case
+                ):
+                    res.error = (
+                        "selection-safety contract violated: more than "
+                        f"{max_calls_per_case} model calls for case {case_id!r}"
+                    )
+                    proc.kill()
+                    break
+                calls.put((request, case_id))
             elif stripped.startswith(RESULT_MARKER):
                 result_line = stripped[len(RESULT_MARKER):]
             elif stripped:
@@ -427,10 +443,10 @@ def run_coded_pipeline(
         proc.kill()
     finally:
         watchdog.cancel()
-        if pool is not None:
-            # In-flight model calls finish on their own (the reply is dropped
-            # on a closed pipe); queued ones are cancelled.
-            pool.shutdown(wait=False, cancel_futures=True)
+        # The batch in flight finishes before this returns: the next candidate
+        # must not find the model still generating for this one.
+        calls.put(None)
+        server.join()
 
     if result_line is None and not timed_out.is_set():
         # A judge-written pipeline sometimes gets the JSON payload right but
@@ -587,23 +603,26 @@ def _answers_match(left: str, right: str) -> bool:
     return left_key == right_key
 
 
-def _service_call(
-    raw: str,
-    case_by_id: "dict[str, Any]",
+def _prepare_call(
+    req: "dict[str, Any]",
+    case: "Any",
     model: "Model | None",
-    inputs_cls: "type",
     enable_attend: bool = False,
     reply_fn: "Callable[[Any, str], str] | None" = None,
     max_tokens_floor: "int | None" = None,
-) -> "dict[str, Any]":
-    """Handle one bridged model call; never raises (errors travel as JSON)."""
+) -> "dict[str, Any] | tuple[Any, dict[str, Any]]":
+    """Turn one bridged call into its reply, or into what to ask the model.
+
+    Returns the reply itself when the call needs no generation (an error, an
+    attention read, a ``reply_fn`` answer); otherwise ``(inputs, kwargs)`` for
+    the caller to batch. Never raises (errors travel as JSON).
+    """
     import dataclasses
 
+    from evalrx.core.case import Inputs
     from evalrx.eval_agent.stages.fix.tools import _safe_generation_kwargs
 
     try:
-        req = json.loads(raw)
-        case = case_by_id.get(str(req.get("case_id", "")))
         if case is None:
             return {"error": f"unknown case_id {req.get('case_id')!r}"}
         if req.get("op") == "attend":
@@ -658,12 +677,10 @@ def _service_call(
         ):
             gen_kwargs["max_tokens"] = int(max_tokens_floor)
         # dataclasses.replace keeps .video/.audio (a bare Inputs(prompt=,
-        # image=) dropped them — the same modality bug run_pipeline had).
+        # image=) dropped them — the same modality bug run_pipelines had).
         if dataclasses.is_dataclass(inp) and not isinstance(inp, type):
-            new_inputs = dataclasses.replace(inp, prompt=str(prompt), image=image)
-        else:
-            new_inputs = inputs_cls(prompt=str(prompt), image=image)
-        return {"output": str(model.generate(new_inputs, **gen_kwargs))}
+            return dataclasses.replace(inp, prompt=str(prompt), image=image), gen_kwargs
+        return Inputs(prompt=str(prompt), image=image), gen_kwargs
     except Exception as exc:
         return {"error": f"{type(exc).__name__}: {exc}"}
 

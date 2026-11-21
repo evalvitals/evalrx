@@ -121,12 +121,6 @@ from evalrx.analysis.stats_tools import (
     fdr_correct,
     run_stats_tool,
 )
-from evalrx.eval_agent.agentic import (
-    JudgePolicy,
-    ToolOutcome,
-    ToolRegistry,
-    ToolSpec,
-)
 from evalrx.eval_agent.hypothesis import (
     Hypothesis,
     HypothesisGenerator,
@@ -135,19 +129,25 @@ from evalrx.eval_agent.hypothesis import (
     hypothesis_from_dict,
     hypothesis_to_dict,
 )
-from evalrx.eval_agent.log_schema import (
+from evalrx.eval_agent.loop.diagnose import VLDiagnoseLoop
+from evalrx.eval_agent.loop.fixed import FixedOrderPolicy
+from evalrx.eval_agent.loop.judge import (
+    JudgePolicy,
+    ToolOutcome,
+    ToolRegistry,
+    ToolSpec,
+)
+from evalrx.eval_agent.loop.report import AutoDiagnoseReport
+from evalrx.eval_agent.nl_runner import scaffold_from_description
+from evalrx.eval_agent.runlog.context import RunContext
+from evalrx.eval_agent.runlog.logger import RunLogger
+from evalrx.eval_agent.runlog.schema import (
     RUN_LOG_SCHEMA_VERSION,
     SCHEMA_PATH,
     build_schema,
     load_schema,
     validate_event,
 )
-from evalrx.eval_agent.loop import VLDiagnoseLoop
-from evalrx.eval_agent.loop_reports import AutoDiagnoseReport
-from evalrx.eval_agent.nl_runner import scaffold_from_description
-from evalrx.eval_agent.policy import FixedOrderPolicy
-from evalrx.eval_agent.run_context import RunContext
-from evalrx.eval_agent.run_logger import RunLogger
 from evalrx.eval_agent.stages.case_discovery import (
     CaseDiscoveryAgent,
     CaseDiscoveryReport,

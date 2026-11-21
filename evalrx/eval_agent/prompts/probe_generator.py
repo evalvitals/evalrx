@@ -23,6 +23,9 @@ DATA: a JSON file named "{input_filename}" sits in the current working directory
 
 REQUIREMENTS:
 - Read "{input_filename}" from the current directory; do NOT hardcode the data.
+  The file is already there and holds the real cases: look at it to see what
+  the outputs are like, and never overwrite, move or delete it. To try the
+  script on cases you make up, put them in a file with another name.
 - Compute, per case, a numeric or boolean signal for the failure pattern above
   (e.g. 1 if the output refuses / drifts language / breaks format, else 0).
 - Standard library + `import numpy` only. No network, no file writes, no model calls.

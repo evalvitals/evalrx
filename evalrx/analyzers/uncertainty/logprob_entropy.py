@@ -38,9 +38,12 @@ class LogprobEntropyAnalyzer(Analyzer):
 
     name = "logprob_entropy"
     requires = frozenset({Capability.LOGPROBS})
+    single_case = True
     applies_to_modalities = frozenset({"text", "image"})
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
+        # One case, one call: nothing to batch. `calibration` scores a whole
+        # batch's logprobs in one `logprobs_batch`.
         case = cases[0]
         toks = model.logprobs(case.inputs)            # list[TokenLogprob]
         lps = [t.logprob for t in toks]

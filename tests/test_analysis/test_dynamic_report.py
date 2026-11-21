@@ -6,7 +6,7 @@ import os
 
 def test_publish_report_contract_and_case_records(tmp_path):
     from evalrx.core import CaseBatch, FailureCase, Label
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.dynamic import load_published_report, publish_report
 
     logger = RunLogger(tmp_path)
@@ -61,7 +61,7 @@ def test_report_agent_repairs_once_then_validates():
 
 
 def test_invalid_agent_output_falls_back(tmp_path):
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.dynamic import load_published_report, publish_report
 
     logger = RunLogger(tmp_path)
@@ -83,7 +83,7 @@ def test_dynamic_api_filters_and_serves_spa(tmp_path):
     from fastapi.testclient import TestClient
 
     from evalrx.core import CaseBatch, FailureCase, Label
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.dynamic import publish_report
     from evalrx.reporting.server import create_app
 
@@ -109,7 +109,7 @@ def test_runs_panel_lists_and_opens_sibling_experiments(tmp_path):
     from fastapi.testclient import TestClient
 
     from evalrx.core import CaseBatch, FailureCase, Label
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.dynamic import publish_report
     from evalrx.reporting.server import create_app
 
@@ -166,7 +166,7 @@ def test_an_uploaded_run_gets_its_own_id_and_an_empty_server_names_no_run(tmp_pa
     from fastapi.testclient import TestClient
 
     from evalrx.core import CaseBatch, FailureCase, Label
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.server import create_app
 
     run = tmp_path / "shared" / "logs"
@@ -210,7 +210,7 @@ def test_runs_listing_keeps_the_most_recent_past_the_display_limit(tmp_path, mon
     from fastapi.testclient import TestClient
 
     from evalrx.core import CaseBatch, FailureCase, Label
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting import server as server_mod
 
     monkeypatch.setattr(server_mod, "RUNS_DISPLAY_LIMIT", 2)
@@ -242,7 +242,7 @@ def test_runs_listing_keeps_the_most_recent_past_the_display_limit(tmp_path, mon
 
 def test_runs_discovery_does_not_descend_into_a_found_runs_data_dir(tmp_path):
     from evalrx.core import CaseBatch, FailureCase, Label
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.server import discover_runs
 
     run = tmp_path / "exp" / "outputs" / "logs"
@@ -263,7 +263,7 @@ def test_runs_discovery_does_not_descend_into_a_found_runs_data_dir(tmp_path):
 
 def test_external_case_media_is_copied_into_durable_run(tmp_path):
     from evalrx.core import CaseBatch, FailureCase, Inputs
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.run_events import read_run_events
 
     media = tmp_path / "source.wav"
@@ -283,7 +283,7 @@ def test_external_case_media_is_copied_into_durable_run(tmp_path):
 
 def _report_of_cases(tmp_path, cases):
     from evalrx.core import CaseBatch
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.dynamic import build_report_data
 
     run = tmp_path / "run"
@@ -347,7 +347,7 @@ def test_case_choices_and_task_come_from_the_case_metadata(tmp_path):
 
 def test_m1_examples_are_logged_and_reconstructed_from_case_evidence(tmp_path):
     from evalrx.core import CaseBatch, FailureCase, Label, Result
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.dynamic import build_report_data
 
     case = FailureCase.from_prompt(
@@ -389,7 +389,7 @@ def test_explicit_run_log_wins_over_a_nested_logs_subrun(tmp_path):
 def test_read_only_run_can_be_served_without_publishing(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
 
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.server import create_app
 
     logger = RunLogger(tmp_path)
@@ -411,7 +411,7 @@ def test_case_media_is_served_from_the_copy_inside_the_run(tmp_path):
     from fastapi.testclient import TestClient
 
     from evalrx.core import CaseBatch, FailureCase, Inputs
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.server import create_app
 
     source = tmp_path / "data" / "clip.wav"
@@ -462,7 +462,7 @@ def _v2_run_with_explore_snapshot(tmp_path, report: dict, figure_names: list[str
     """A run whose explore step left its workdir to be inlined on the event."""
     from types import SimpleNamespace
 
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
 
     # Not beside logs/: the logger inlines it from the runtime tree.
     workdir = tmp_path / "sandbox" / "explore"
@@ -549,7 +549,7 @@ def test_v2_explore_snapshot_links_takeaways_to_the_charts_they_cite(tmp_path):
 def test_v2_explore_event_without_a_snapshot_report_still_renders_its_sentences(tmp_path):
     # A run recorded before the snapshot carried the report (or one whose
     # report was over the inline cap) keeps the sentence-level fallback.
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.dynamic import build_report_data
 
     run_dir = tmp_path / "logs"
@@ -614,7 +614,7 @@ def test_m5_confirmation_joins_the_winning_candidate_the_logger_recorded(tmp_pat
     from types import SimpleNamespace
 
     from evalrx.core import CaseBatch, FailureCase, Label
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.dynamic import build_report_data
 
     logger = RunLogger(tmp_path, observability_mode="offline")
@@ -704,7 +704,7 @@ def test_a_fused_output_reads_as_an_explore_report(tmp_path):
 
 
 def test_a_loop_run_beside_an_explore_report_stays_a_loop_run(tmp_path):
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.dynamic import build_report_data
 
     _explore_output(tmp_path)
@@ -770,7 +770,7 @@ def test_static_export_escapes_script_terminators(tmp_path):
 
 
 def test_report_reads_model_m1_and_m4_status(tmp_path):
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.run_data import extract_run_data
 
     logger = RunLogger(tmp_path, observability_mode="offline")
@@ -792,7 +792,7 @@ def test_report_reads_model_m1_and_m4_status(tmp_path):
 
 
 def test_langfuse_bundle_export(tmp_path):
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.observability import export_to_langfuse_bundle
 
     logger = RunLogger(tmp_path / "run", observability_mode="offline")
@@ -830,7 +830,7 @@ def test_serve_opens_an_explore_output_and_its_figures(tmp_path):
 
 
 def test_a_run_is_finished_once_its_logger_closes(tmp_path):
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.dynamic import build_report_data
     from evalrx.reporting.server import _compile_report
 
@@ -852,7 +852,7 @@ def test_a_run_is_finished_once_its_logger_closes(tmp_path):
 
 
 def test_follow_run_streams_updates_until_the_run_ends(tmp_path):
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.server import RunRegistry, follow_run
 
     logger = RunLogger(tmp_path, observability_mode="offline")
@@ -872,7 +872,7 @@ def test_follow_run_streams_updates_until_the_run_ends(tmp_path):
 
 
 def test_follow_run_ends_at_once_for_a_finished_run_and_yields_to_a_reconnect(tmp_path):
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.server import RunRegistry, follow_run
 
     logger = RunLogger(tmp_path / "done", observability_mode="offline")
@@ -891,7 +891,7 @@ def test_follow_run_ends_at_once_for_a_finished_run_and_yields_to_a_reconnect(tm
 def test_finalize_leaves_run_end_last_after_the_fix_step(tmp_path):
     from types import SimpleNamespace
 
-    from evalrx.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.runlog.context import RunContext
     from evalrx.reporting.dynamic import build_report_data
     from evalrx.reporting.run_events import read_run_events
 
@@ -910,7 +910,7 @@ def test_finalize_leaves_run_end_last_after_the_fix_step(tmp_path):
 
 
 def test_a_second_logger_in_the_same_directory_is_followed_until_it_ends(tmp_path):
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.server import RunRegistry, follow_run
 
     first = RunLogger(tmp_path, observability_mode="offline")

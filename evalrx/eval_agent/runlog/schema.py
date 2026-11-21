@@ -65,7 +65,10 @@ from typing import Any
 # v8: `analysis` no longer carries `stats_tool_results` / `visualizations`
 #     (summaries from a retired tool layer); `stats_results` and `figures`
 #     hold the same information.
-RUN_LOG_SCHEMA_VERSION = 8
+# v9: `model_call.batch_size`, on a call that was one input of a
+#     `generate_batch`; its `duration_sec` is then that input's share of the
+#     batch's wall time.
+RUN_LOG_SCHEMA_VERSION = 9
 
 #: The event types a run logs.
 EVENT_TYPES: tuple[str, ...] = (
@@ -344,6 +347,7 @@ _EVENTS: dict[str, dict[str, Any]] = {
         "properties": {
             "duration_sec": {"type": "number"},
             "error": {"type": ["string", "null"]},
+            "batch_size": {"type": "integer", "minimum": 2},
         },
         "anyOf": [{"required": ["analyzer", "method", "call_index"]},
                   {"required": ["role", "operation"]}],

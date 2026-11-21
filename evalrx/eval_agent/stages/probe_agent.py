@@ -45,6 +45,7 @@ import json
 import logging
 import re
 import subprocess
+import time
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Any
@@ -85,7 +86,8 @@ class ProbeAgent:
                            catalog to select analyzers dynamically.
         runner:            Executes direct (non-Docker) runs.  Defaults to a
                            fresh ``ExperimentRunner()``.
-        max_analyzers:     Cap on analyzers per cycle.
+        max_analyzers:     Cap on analyzers per cycle (default 6; ``None`` for
+                           no cap).
         analyzer_overrides: Pre-instantiated analyzers for those requiring
                            mandatory constructor arguments.
         use_docker:        When ``True``, black-box-compatible analyzers are
@@ -94,9 +96,13 @@ class ProbeAgent:
         docker_timeout:    Seconds before a Docker run is killed.
         model_env_var:     Name of the env var inside Docker that carries the
                            API key for the containerised model.
-        max_workers:       Maximum parallel black-box analyzers. Use 1 to run
-                           all analyzers on the calling thread for a shared
-                           local model.
+        max_workers:       Maximum Docker-mode analyzers running at once
+                           (*use_docker*). In-process analyzers always run one
+                           at a time; the model's backend batches their calls.
+        time_budget_sec:   Wall-clock budget for one :meth:`probe` call
+                           (default 1800; 0 for no limit). An analyzer that has
+                           not started when it is spent is skipped and named in
+                           the selection rationale.
     """
 
     def __init__(
@@ -104,7 +110,7 @@ class ProbeAgent:
         probe: StrategyProbe | None = None,
         judge: "Judge | None" = None,
         runner: ExperimentRunner | None = None,
-        max_analyzers: int | None = None,
+        max_analyzers: int | None = 6,
         analyzer_overrides: dict[str, "Analyzer"] | None = None,
         use_docker: bool = False,
         docker_image: str = "evalrx:latest",
@@ -118,10 +124,15 @@ class ProbeAgent:
         run_logger: "Any | None" = None,
         max_cases_per_analyzer: int = 0,
         max_workers: int = 8,
+        time_budget_sec: float = 1800.0,
     ) -> None:
         if max_workers < 1:
             raise ValueError("max_workers must be positive")
         self.max_workers = max_workers
+        #: Wall-clock budget for one probe() call; 0 = no limit. An analyzer
+        #: that has not started when it runs out is skipped and named in the
+        #: selection rationale, so a slow model costs evidence, not hours.
+        self.time_budget_sec = float(time_budget_sec or 0.0)
         self.selector = probe or StrategyProbe()
         self.judge = judge
         self.runner = runner or ExperimentRunner()
@@ -217,9 +228,9 @@ class ProbeAgent:
            :class:`~evalrx.eval_agent.probe.StrategyProbe` with the
            optional *hint_failure_modes* list for priority-boosting.
 
-        Black-box analyzers use a ``ThreadPoolExecutor`` when ``max_workers``
-        exceeds 1. White-box analyzers, and all probes with ``max_workers=1``,
-        run sequentially on the calling thread.
+        Analyzers run one at a time on the calling thread; each sends its
+        questions to the model in batches. With ``use_docker``, black-box
+        analyzers run in containers, up to ``max_workers`` at once.
 
         Sets :attr:`last_schema` with the selection rationale so callers can
         inspect which analyzers ran and why without changing the return type.
@@ -281,7 +292,8 @@ class ProbeAgent:
             ]
             names = [n for n in names if n not in filtered]
         else:
-            names, filtered = self._filter_applicable_names(names, model, data)
+            names, filtered = self._filter_applicable_names(
+                names, model, data, named=analyzers is not None)
         if filtered:
             rationale += f" Filtered inapplicable analyzer(s): {', '.join(filtered)}."
 
@@ -301,24 +313,36 @@ class ProbeAgent:
                 tasks.append((name, analyzer))
 
         results: dict[str, "Result"] = {}
+        started = time.monotonic()
+        out_of_time: list[str] = []
+        self._progress(f"{len(tasks)} analyzer(s) on {len(data)} case(s): "
+                       + ", ".join(name for name, _ in tasks))
 
         def _run_one(name: str, analyzer: "Analyzer") -> tuple[str, "Result | None"]:
+            if self.time_budget_sec and time.monotonic() - started > self.time_budget_sec:
+                out_of_time.append(name)
+                self._progress(f"{name}: skipped, the {self.time_budget_sec:.0f}s budget is spent")
+                return name, None
             cls = type(analyzer)
             subset = self._cap_cases(name, analyzer, data)
+            began = time.monotonic()
             if self.use_docker and _is_blackbox_compatible(cls):
-                return name, self._run_in_docker(name, analyzer, subset)
-            return name, self._run_direct(analyzer, model, subset)
+                result = self._run_in_docker(name, analyzer, subset)
+            else:
+                result = self._run_direct(analyzer, model, subset)
+            self._progress(f"{name}: {'done' if result is not None else 'no result'} "
+                           f"({time.monotonic() - began:.1f}s)")
+            return name, result
 
-        # White-box analyzers do GPU forward passes on the SHARED local model;
-        # running them in threads races on the model (accelerate device_map
-        # hooks are not thread-safe → meta-tensor/dtype errors) and stacks
-        # transient activations until the GPU OOMs. Only black-box analyzers
-        # (GENERATE/LOGPROBS, possibly Dockerised) may parallelise when the
-        # caller's backend supports concurrent requests.
-        parallel = [(n, a) for n, a in tasks if _is_blackbox_compatible(type(a))]
-        serial = [(n, a) for n, a in tasks if not _is_blackbox_compatible(type(a))]
-        if self.max_workers == 1:
-            parallel, serial = [], tasks
+        # In-process analyzers run one at a time on the calling thread: they
+        # share the model, whose backend already answers each analyzer's
+        # questions as a batch (padded batches locally, concurrent requests
+        # over an API). Running analyzers in threads on top of that would
+        # multiply the requests in flight, and races a local model's hooks.
+        # Only Docker-mode analyzers, each in its own container, run in parallel.
+        in_docker = self.use_docker and self.max_workers > 1
+        parallel = [(n, a) for n, a in tasks if in_docker and _is_blackbox_compatible(type(a))]
+        serial = [(n, a) for n, a in tasks if (n, a) not in parallel]
 
         def _record(name: str, result, exc=None) -> None:
             if exc is not None:
@@ -336,7 +360,7 @@ class ProbeAgent:
                         _record(name, result)
                     except Exception as exc:
                         _record(futures[future], None, exc)
-        for name, analyzer in serial:  # shared local model: one probe at a time
+        for name, analyzer in serial:
             try:
                 _, result = _run_one(name, analyzer)
                 _record(name, result)
@@ -344,7 +368,12 @@ class ProbeAgent:
                 _record(name, None, exc)
 
         selected = [t[0] for t in tasks]
-        failed_selected = [n for n in selected if n not in results]
+        for n in out_of_time:
+            self._failed_analyzers[n] = f"not run: the {self.time_budget_sec:.0f}s M1 time budget was spent"
+        if out_of_time:
+            rationale += (f" Not run, the {self.time_budget_sec:.0f}s time budget was spent: "
+                          f"{', '.join(out_of_time)}.")
+        failed_selected = [n for n in selected if n not in results and n not in out_of_time]
         for n in failed_selected:
             self._failed_analyzers.setdefault(n, "produced no result")
         if failed_selected:
@@ -559,14 +588,25 @@ class ProbeAgent:
         names: list[str],
         model: "Model",
         data: "CaseBatch",
+        *,
+        named: bool = False,
     ) -> tuple[list[str], list[str]]:
         """Drop analyzers whose data preconditions are not met.
 
         LLM selection can choose semantically plausible tools that require a
         specific case shape.  Filtering here prevents invalid runs such as POPE
         on open-ended VQA prompts without yes/no gold labels.
+
+        The result is never longer than *names* (or than ``max_analyzers`` when
+        *names* is empty): the static selector replaces a dropped choice, it
+        does not pad the selection up to the cap. With *named*, the caller
+        chose these analyzers itself: the cap does not shorten its list and a
+        ``single_case`` one stays.
         """
-        max_n = self.max_analyzers if self.max_analyzers is not None else len(names)
+        wanted = len(names) or (self.max_analyzers or 0)
+        capped = self.max_analyzers is not None and not named
+        max_n = min(wanted, self.max_analyzers or 0) if capped else wanted
+        chosen = set(names) if named else set()
         selected: list[str] = []
         filtered: list[str] = []
         filtered_seen: set[str] = set()
@@ -580,7 +620,8 @@ class ProbeAgent:
             # that could not be built was selected anyway and then dropped at
             # instantiation with a warning, having already cost a slot.
             if not _analyzer_data_preconditions_met(candidate, data, model) \
-                    or self._needs_injection(candidate):
+                    or self._needs_injection(candidate) \
+                    or (candidate not in chosen and _reads_one_of_many(candidate, data)):
                 if candidate not in filtered_seen:
                     filtered.append(candidate)
                     filtered_seen.add(candidate)
@@ -796,7 +837,7 @@ class ProbeAgent:
         # in-process (non-Docker) analyzers — Docker-mode calls happen inside
         # a subprocess and are out of reach of this wrapper.
         if self.run_logger is not None:
-            from evalrx.eval_agent.model_instrumentation import InstrumentedModel
+            from evalrx.eval_agent.runlog.instrumentation import InstrumentedModel
 
             # Best-effort (prompt -> case_id) for THIS analyzer's batch, so a
             # call that reuses the case's own prompt unmodified can be tied
@@ -944,8 +985,18 @@ class ProbeAgent:
                     "via analyzer_overrides", name, needs,
                 )
                 continue
+            if _reads_one_of_many(name, data):
+                logger.debug(
+                    "not offering analyzer '%s': it explains one input and this "
+                    "batch has several", name,
+                )
+                continue
             keep[name] = desc
         return keep
+
+    def _progress(self, text: str) -> None:
+        if self.run_logger is not None and hasattr(self.run_logger, "progress"):
+            self.run_logger.progress("M1", text)
 
     def _needs_injection(self, name: str) -> "list[str]":
         """Constructor arguments the caller must supply; empty when buildable.
@@ -1100,6 +1151,16 @@ def _serialize_cases(data: "CaseBatch") -> list[dict[str, Any]]:
             "metadata": getattr(case, "metadata", {}),
         })
     return out
+
+
+def _reads_one_of_many(name: str, data: "Any") -> bool:
+    """True for a ``single_case`` analyzer on a batch of several cases.
+
+    It would read the first case and give M2 one row. A caller that names it
+    (``analyzers=[...], exact=True``) still gets it.
+    """
+    cls = registry.analyzers.get(name) if registry.analyzers.has(name) else None
+    return bool(getattr(cls, "single_case", False)) and data is not None and len(data) > 1
 
 
 def _analyzer_data_preconditions_met(name: str, data: "CaseBatch",

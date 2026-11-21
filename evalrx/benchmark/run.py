@@ -29,10 +29,10 @@ def build_parser(p: argparse.ArgumentParser | None = None) -> argparse.ArgumentP
                         "L3a/L3b); jax_local = in-process JAX through the gemma library (Gemma "
                         "E2B/E4B, white-box reads, fix ladder clamped to L2 for now); gemini = "
                         "Google Gen AI API through google-genai (forced for the gemini family)")
-    p.add_argument("--concurrency", type=int, default=1,
-                   help="Cases generated at once during baseline discovery. Honoured only for "
-                        "--backend endpoint (a local backend shares one GPU and is not "
-                        "thread-safe); a served model can only batch requests it has in hand.")
+    p.add_argument("--concurrency", type=int, default=8,
+                   help="Requests in flight at once against an API backend (endpoint, gemini), "
+                        "in every stage. A local backend batches on the GPU instead "
+                        "(RuntimeConfig.batch_size).")
     p.add_argument("--base-url", default="http://host.docker.internal:8020/v1")
     p.add_argument("--api-key", default=None,
                    help="endpoint: bearer token (default EMPTY, what vllm serve expects); "
@@ -68,6 +68,9 @@ def build_parser(p: argparse.ArgumentParser | None = None) -> argparse.ArgumentP
                         "tasks — greedy Qwen3.5 loops to the cap on reasoning prompts — else 0 = greedy)")
     p.add_argument("--top-p", type=float, default=0.95)
     p.add_argument("--top-k", type=int, default=20)
+    p.add_argument("--label-samples", type=int, default=None,
+                   help="answers Stage 0 samples per case; the label is their majority "
+                        "(default: 5 when sampling, 1 greedy; use an odd number)")
     p.add_argument("--fix-baseline-repeats", type=int, default=None,
                    help="baseline samples per case in the fix stage (default: 5 when sampling, 1 greedy)")
     p.add_argument("--enable-thinking", action="store_true",
@@ -75,8 +78,8 @@ def build_parser(p: argparse.ArgumentParser | None = None) -> argparse.ArgumentP
                         "gemini: leave the API's default level instead of sending the floor)")
     p.add_argument("--judge-provider", choices=["agy", "claude", "codex", "gemini"], default="claude")
     p.add_argument("--judge-model", default=None,
-                   help="default per provider: claude -> claude-opus-5, codex -> gpt-5.6-terra")
-    p.add_argument("--judge-effort", default="high")
+                   help="default per provider: claude -> sonnet, codex -> gpt-5.6-terra")
+    p.add_argument("--judge-effort", default="medium")
     p.add_argument("--coder-provider", choices=["gemini_cli"], default=None,
                    help="Override the coding agent independently of the judge (requires an installed, authenticated CLI)")
     p.add_argument("--coder-model", default=None, help="Model for the coding-agent override")

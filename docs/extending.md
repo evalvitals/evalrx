@@ -401,7 +401,7 @@ sequence assigned under the logger's lock), and stage-specific fields:
 | `run.json["run_end"]` | envelope only — written when the logger closes (schema 7) |
 
 The full, authoritative field contract is the published JSON Schema
-(`evalrx/eval_agent/run_log.schema.json`, from `log_schema.py`); validate one
+(`evalrx/eval_agent/runlog/run_log.schema.json`, from `log_schema.py`); validate one
 event with `from evalrx.eval_agent import validate_event` (needs the
 optional `jsonschema` dep). See `docs/architecture.md` for details, and
 `evalrx.reporting.run_events.read_run_events(root)` for a flat, ordered view

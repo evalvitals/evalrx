@@ -33,7 +33,7 @@ def main() -> int:
     if args.color:
         os.environ["EVALRX_FORCE_COLOR"] = "1"
 
-    from evalrx.eval_agent.narration import LoopNarrator
+    from evalrx.eval_agent.runlog.narration import LoopNarrator
 
     logs = args.run_dir / "logs"
     if not (logs / "run.json").exists():

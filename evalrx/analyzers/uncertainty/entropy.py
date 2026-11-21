@@ -50,6 +50,7 @@ class TokenEntropyAnalyzer(Analyzer):
 
     name = "token_entropy"
     requires = frozenset({Capability.LOGITS})
+    single_case = True
 
     top_k: int
 

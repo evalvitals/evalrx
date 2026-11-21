@@ -120,7 +120,16 @@ def check_claude() -> None:
     except Exception:
         warn("cannot read config.yaml; skipped the judge round-trip")
         return
-    model, effort = str(cfg.get("judge_model", "")), str(cfg.get("judge_effort", ""))
+    # The model the run will use: config.yaml's, else the package default.
+    model = str(cfg.get("judge_model") or "")
+    if not model:
+        try:
+            from evalrx.agent_runtime.judges.claude import ClaudeModel
+
+            model = ClaudeModel.DEFAULT_MODEL
+        except ImportError:  # reported by the package check; probe the CLI's own default
+            pass
+    effort = str(cfg.get("judge_effort", ""))
     cmd = [exe]
     if model:
         cmd += ["--model", model]
@@ -144,7 +153,7 @@ def check_claude() -> None:
         detail = (out.stderr or out.stdout).strip().splitlines()
         bad(f"judge probe failed for model={model!r} effort={effort!r}: "
             f"{detail[0][:120] if detail else 'empty reply'}",
-            "fix judge_model / judge_effort in config.yaml "
+            "set judge_model / fix judge_effort in config.yaml "
             "(effort must be low|medium|high|xhigh|max)")
 
 

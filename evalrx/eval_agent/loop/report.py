@@ -30,8 +30,8 @@ STOPPED_BY_ANALYSIS = "analysis_complete"
 @dataclass
 class AutoDiagnoseReport:
     """Summary returned by every diagnosis loop:
-    :class:`~evalrx.eval_agent.loop.VLDiagnoseLoop.run` and
-    :meth:`~evalrx.eval_agent.agentic.JudgePolicy.run` both return
+    :class:`~evalrx.eval_agent.loop.diagnose.VLDiagnoseLoop.run` and
+    :meth:`~evalrx.eval_agent.loop.judge.JudgePolicy.run` both return
     this one class. Every field below is populated by both loops except
     where noted "M4-only", which stay at their default (``None`` / empty)
     when the producing loop has no equivalent concept.

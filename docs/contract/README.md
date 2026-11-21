@@ -23,7 +23,7 @@ changes — adding a field is additive and does not bump it, so a reader must
 ```
 
 `run.json` + `M1/log.json`..`M5/log.json` are RunLogger's layout (see
-`evalrx/eval_agent/RUN_LOGGER.md`): no flat event stream, no separate
+`evalrx/eval_agent/runlog/README.md`): no flat event stream, no separate
 `report/`/`figures/` — generated text/code is inlined into the owning
 stage's JSON and media is copied into that stage's own `artifacts/`.
 `contract/` sits alongside it, independently typed and validated.

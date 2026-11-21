@@ -18,9 +18,12 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
+from evalrx.core.analyzer import Ask, run_probes
 from evalrx.core.model import Model
 
 if TYPE_CHECKING:
+    from collections.abc import Generator, Sequence
+
     from evalrx.core.case import FailureCase
 
 logger = logging.getLogger(__name__)
@@ -654,7 +657,7 @@ _SCAFFOLD_STRATEGIES = frozenset({
 #: ``(step label, instruction prepended for that call)``. An empty instruction
 #: means the call sends the task prompt with nothing added.
 #:
-#: Hoisted out of ``run_pipeline`` (which now formats from these) so that the
+#: Hoisted out of the executor (which formats from these) so that the
 #: text a strategy actually sends can be shown rather than paraphrased.
 STRATEGY_CALLS: "dict[str, tuple[tuple[str, str], ...]]" = {
     "self_refine": (
@@ -785,40 +788,32 @@ def spec_changes_input(spec: PipelineSpec, case: "FailureCase") -> bool:
         return True  # cannot prove it is a no-op — treat as applicable
 
 
-def _run_strategy_once(
-    generate: "Callable[[str], str]", strategy: str, base_prompt: str
-) -> str:
-    """One pass of a reviewed multi-call strategy; returns its final output."""
+def _strategy_steps(strategy: str, base_prompt: str) -> "Generator[str, str, str]":
+    """One pass of a reviewed multi-call strategy.
+
+    Yields each prompt, is sent the model's answer to it, and returns the
+    pass's final output.
+    """
     if strategy == "least_to_most":
         calls = STRATEGY_CALLS["least_to_most"]
-        decomposition = generate(calls[0][1] + "\n\n" + base_prompt)
-        return generate(
+        decomposition = yield calls[0][1] + "\n\n" + base_prompt
+        return (yield (
             f"{calls[1][1]}\n\nOriginal task:\n"
             f"{base_prompt}\n\nDecomposition:\n{decomposition}"
-        )
-    if strategy == "self_refine":
-        calls = STRATEGY_CALLS["self_refine"]
-        draft = generate(base_prompt)
-        feedback = generate(
+        ))
+    if strategy in ("self_refine", "chain_of_verification"):
+        calls = STRATEGY_CALLS[strategy]
+        review = "Feedback" if strategy == "self_refine" else "Checks"
+        draft = yield base_prompt
+        notes = yield (
             f"{calls[1][1]}\n\n"
             f"Original task:\n{base_prompt}\n\nAttempt:\n{draft}"
         )
-        return generate(
+        return (yield (
             f"{calls[2][1]}\n\n"
-            f"Original task:\n{base_prompt}\n\nAttempt:\n{draft}\n\nFeedback:\n{feedback}"
-        )
-    if strategy == "chain_of_verification":
-        calls = STRATEGY_CALLS["chain_of_verification"]
-        draft = generate(base_prompt)
-        checks = generate(
-            f"{calls[1][1]}\n\n"
-            f"Original task:\n{base_prompt}\n\nAttempt:\n{draft}"
-        )
-        return generate(
-            f"{calls[2][1]}\n\n"
-            f"Original task:\n{base_prompt}\n\nAttempt:\n{draft}\n\nChecks:\n{checks}"
-        )
-    return generate(base_prompt)
+            f"Original task:\n{base_prompt}\n\nAttempt:\n{draft}\n\n{review}:\n{notes}"
+        ))
+    return (yield base_prompt)
 
 
 def answer_key(output: str, pattern: str = "") -> str:
@@ -857,107 +852,114 @@ def answer_key(output: str, pattern: str = "") -> str:
     return re.sub(r"\s+", " ", text.strip().lower())
 
 
-def run_pipeline(
-    model: "Model",
-    case: "FailureCase",
-    spec: PipelineSpec,
-    score_fn: "Callable[[FailureCase, str], Optional[bool]]",
-    capture: "dict[str, Any] | None" = None,
-    call_logger: "Callable[[dict[str, Any]], None] | None" = None,
-) -> "Optional[bool]":
-    """Execute *spec* on one case; aggregate outputs before host-side scoring.
+@dataclass
+class PipelineRun:
+    """What a spec produced on one case, before scoring.
+
+    ``winner`` is the aggregated answer (``None`` when every call failed or the
+    case could not be prepared); ``calls`` lists every model call as
+    ``{"inputs", "output", "error", "generation_kwargs"}``, in the order asked.
+    """
+
+    prompt: str = ""
+    outputs: "list[str]" = field(default_factory=list)
+    winner: "str | None" = None
+    calls: "list[dict[str, Any]]" = field(default_factory=list)
+
+
+def run_pipelines(
+    model: "Model", cases: "Sequence[FailureCase]", spec: PipelineSpec
+) -> "list[PipelineRun]":
+    """Execute *spec* on every case; one :class:`PipelineRun` per case, in order.
 
     ``n_samples`` applies to EVERY strategy: a multi-call strategy is run
-    ``n_samples`` times end-to-end and its final outputs vote (previously only
-    ``direct`` honoured ``n_samples`` — a judge's ``least_to_most, n_samples=3``
-    silently ran once). Samples vote on an evaluator-declared final-answer key
-    when one is available, otherwise on the extracted final answer
-    (:func:`answer_key`). The scoring rubric is applied *after* aggregation, so
-    a pipeline cannot use the hidden gold answer to select its preferred
-    sample. Reviewed multi-call strategies are prompt-only and keep the
-    underlying model unchanged. Returns ``None`` when the case cannot be scored
-    (no rubric / all calls failed).
+    ``n_samples`` times end-to-end and its final outputs vote. Each pass is a
+    probe, so one round of generation covers every case and every sample
+    (:func:`~evalrx.core.analyzer.run_probes`). Samples vote on an
+    evaluator-declared final-answer key when one is available, otherwise on the
+    extracted final answer (:func:`answer_key`). Nothing here sees a scoring
+    rubric: the caller scores ``winner`` after aggregation, so a pipeline
+    cannot use the hidden gold answer to select its preferred sample. Reviewed
+    multi-call strategies are prompt-only and keep the underlying model
+    unchanged.
 
-    *capture*, when a dict, receives ``{"prompt", "outputs", "winner",
-    "n_calls"}`` so the caller can persist WHAT the candidate produced (the
-    only way to tell a truncated answer from a wrong one after the fact).
+    A case that cannot be prepared (an image op that raises) or whose calls all
+    fail keeps ``winner=None``; it never takes the other cases down with it.
+    """
+    runs = [PipelineRun() for _ in cases]
+    probes: "list[Generator[Ask, list[Any], str]]" = []
+    owners: "list[PipelineRun]" = []
+    for run, case in zip(runs, cases):
+        try:
+            inp = case.inputs
+            image = getattr(inp, "image", None)
+            if spec.image_ops:
+                image = apply_image_ops(image, spec.image_ops, case=case)
+            # safe_format, not str.format: a judge-written template legitimately
+            # contains braces (LaTeX, sets like "{1,2,3}", JSON).
+            # {original_prompt} lets an EDIT candidate (recursive rounds) REPLACE
+            # the previously deployed template instead of wrapping its rendered
+            # output.
+            context = {"prompt": str(getattr(inp, "prompt", ""))}
+            original = (getattr(case, "metadata", {}) or {}).get("original_prompt")
+            if original:
+                context["original_prompt"] = str(original)
+            run.prompt = safe_format(spec.prompt_template, context)
+        except Exception as exc:
+            logger.debug("run_pipelines: could not prepare %s: %s", case.id, exc)
+            continue
+        for _ in range(max(1, spec.n_samples)):
+            probes.append(_one_pass(run, inp, image, spec))
+            owners.append(run)
+    for run, output in zip(owners, run_probes(model, probes, tolerant=True)):
+        if output:
+            run.outputs.append(output)
+    for run, case in zip(runs, cases):
+        if run.outputs:
+            run.winner = _winner(case, spec, run.outputs)
+    return runs
+
+
+def _one_pass(
+    run: PipelineRun, inp: Any, image: Any, spec: PipelineSpec
+) -> "Generator[Ask, list[Any], str]":
+    """One sample of *spec*'s strategy on one case; returns its final output.
+
+    A failed call reaches the strategy as an empty answer and is recorded on
+    the run; the pass carries on, as a strategy's later step may still answer.
     """
     import dataclasses
 
     from evalrx.core.case import Inputs
 
-    inp = getattr(case, "inputs", None)
-    prompt = str(getattr(inp, "prompt", "")) if inp is not None else ""
-    image = getattr(inp, "image", None) if inp is not None else None
-    if spec.image_ops:
-        image = apply_image_ops(image, spec.image_ops, case=case)
-    # safe_format, not str.format: a judge-written template legitimately
-    # contains braces (LaTeX, sets like "{1,2,3}", JSON) — str.format raised
-    # KeyError OUTSIDE the per-case try and took down a whole fix stage
-    # (qwen3.5-2b/bbh_tracking7 run8: template with "{1,2,3,4,5,6,7}").
-    # {original_prompt} lets an EDIT candidate (recursive rounds) REPLACE the
-    # previously deployed template instead of wrapping its rendered output.
-    template_context = {"prompt": prompt}
-    original = (getattr(case, "metadata", {}) or {}).get("original_prompt")
-    if original:
-        template_context["original_prompt"] = str(original)
-    base_prompt = safe_format(spec.prompt_template, template_context)
-    n_calls = 0
-
-    def generate(text: str) -> str:
-        nonlocal n_calls
-        import time
-
-        n_calls += 1
-        started = time.perf_counter()
-        new_inputs = None
+    steps = _strategy_steps(spec.strategy, run.prompt)
+    text = next(steps)
+    while True:
+        # dataclasses.replace keeps .video/.audio (a bare Inputs(prompt=,
+        # image=) dropped them, so every strategy was inapplicable on any
+        # non-image case). Only `image` is overridden: spec.image_ops may have
+        # rewritten it.
+        new_inputs = (
+            dataclasses.replace(inp, prompt=text, image=image)
+            if dataclasses.is_dataclass(inp) and not isinstance(inp, type)
+            else Inputs(prompt=text, image=image)
+        )
+        (answer,) = yield Ask([new_inputs], spec.generation_kwargs)
+        failed = isinstance(answer, Exception)
+        run.calls.append({
+            "inputs": new_inputs,
+            "output": None if failed else str(answer),
+            "error": str(answer) if failed else None,
+            "generation_kwargs": dict(spec.generation_kwargs),
+        })
         try:
-            # dataclasses.replace(inp, ...), not a bare Inputs(prompt=...,
-            # image=...): the bare form silently dropped .video/.audio, so
-            # every strategy (least_to_most/self_refine/chain_of_verification)
-            # was unconditionally inapplicable on any non-image FailureCase --
-            # generate() raising on the missing required modality field,
-            # caught below, every call returning "" (all outputs empty ->
-            # run_pipeline returns None -> unscoreable for every case). Only
-            # `image` is deliberately overridden (it may have been rewritten
-            # by spec.image_ops just above); no fallback needed for inp is
-            # None since FailureCase.inputs is never optional in practice.
-            new_inputs = (
-                dataclasses.replace(inp, prompt=text, image=image)
-                if inp is not None
-                else Inputs(prompt=text, image=image)
-            )
-            output = str(model.generate(new_inputs, **spec.generation_kwargs))
-            if call_logger is not None:
-                call_logger({
-                    "inputs": new_inputs, "output": output, "error": None,
-                    "duration_sec": time.perf_counter() - started,
-                    "generation_kwargs": dict(spec.generation_kwargs),
-                })
-            return output
-        except Exception as exc:
-            logger.debug("run_pipeline: generate failed on %s: %s", case.id, exc)
-            if call_logger is not None:
-                try:
-                    call_logger({
-                        "inputs": new_inputs or {"prompt": text}, "output": None,
-                        "error": str(exc), "duration_sec": time.perf_counter() - started,
-                        "generation_kwargs": dict(spec.generation_kwargs),
-                    })
-                except Exception as log_exc:
-                    logger.debug("run_pipeline: call logger failed: %s", log_exc)
-            return ""
+            text = steps.send("" if failed else str(answer))
+        except StopIteration as done:
+            return str(done.value)
 
-    outputs = [
-        _run_strategy_once(generate, spec.strategy, base_prompt)
-        for _ in range(max(1, spec.n_samples))
-    ]
-    outputs = [output for output in outputs if output]
-    if capture is not None:
-        capture.update({"prompt": base_prompt, "outputs": list(outputs),
-                        "winner": None, "n_calls": n_calls})
-    if not outputs:
-        return None
+
+def _winner(case: "FailureCase", spec: PipelineSpec, outputs: "list[str]") -> str:
+    """The answer most samples agree on, subject to the baseline-override gate."""
     # Keep the first original response for the winning normalized key; stable
     # tie-breaking avoids injecting a score-dependent preference.
     pattern = spec.output_key_pattern or str(
@@ -966,23 +968,19 @@ def run_pipeline(
     grouped: "dict[str, list[str]]" = {}
     for output in outputs:
         grouped.setdefault(answer_key(output, pattern), []).append(output)
-    winner = max(grouped.values(), key=len)[0]
     min_support = max(0, int(spec.baseline_override_min_support))
-    if min_support:
-        baseline = str(getattr(case, "observed", "") or "")
-        baseline_key = answer_key(baseline, pattern)
-        alternatives = [group for key, group in grouped.items() if key != baseline_key]
-        best_alternative = max(alternatives, key=len) if alternatives else []
-        # Any enhanced support for the baseline is evidence against a safe
-        # override. The fallback is the exact recorded output, not a host-side
-        # rewrite, so this gate never solves the benchmark task itself.
-        if baseline_key in grouped or len(best_alternative) < min_support:
-            winner = baseline
-        else:
-            winner = best_alternative[0]
-    if capture is not None:
-        capture["winner"] = winner
-    return score_to_bool(score_fn(case, winner))
+    if not min_support:
+        return max(grouped.values(), key=len)[0]
+    baseline = str(getattr(case, "observed", "") or "")
+    baseline_key = answer_key(baseline, pattern)
+    alternatives = [group for key, group in grouped.items() if key != baseline_key]
+    best_alternative = max(alternatives, key=len) if alternatives else []
+    # Any enhanced support for the baseline is evidence against a safe
+    # override. The fallback is the exact recorded output, not a host-side
+    # rewrite, so this gate never solves the benchmark task itself.
+    if baseline_key in grouped or len(best_alternative) < min_support:
+        return baseline
+    return best_alternative[0]
 
 
 class SpecPipelineModel(Model):
@@ -1020,18 +1018,17 @@ class SpecPipelineModel(Model):
         self.modalities = getattr(model, "modalities", frozenset({"text"}))
 
     def generate(self, inputs: Any, **kwargs: Any) -> str:
+        return self.generate_batch([inputs])[0]
+
+    def generate_batch(self, inputs: "Sequence[Any]", **kwargs: Any) -> "list[str]":
         from evalrx.core.case import FailureCase, Inputs
 
-        if not hasattr(inputs, "prompt"):
-            inputs = Inputs(prompt=str(inputs))
-        case = FailureCase(id="spec_baseline", inputs=inputs)
-        capture: "dict[str, Any]" = {}
-        run_pipeline(self.inner_model, case, self.spec, lambda _case, _out: None, capture)
-        winner = capture.get("winner")
-        if winner is None:
-            outputs = capture.get("outputs") or []
-            winner = outputs[0] if outputs else ""
-        return str(winner)
+        cases = [
+            FailureCase(id="spec_baseline",
+                        inputs=item if hasattr(item, "prompt") else Inputs(prompt=str(item)))
+            for item in inputs
+        ]
+        return [str(run.winner or "") for run in run_pipelines(self.inner_model, cases, self.spec)]
 
     def forward(self, inputs: Any, capture: Any, spec: Any = None):
         raise NotImplementedError("SpecPipelineModel is a generate-only deployed pipeline")

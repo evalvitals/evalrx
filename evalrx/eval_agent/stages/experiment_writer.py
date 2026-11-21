@@ -1132,7 +1132,7 @@ class ExperimentWriter:
         workdir = getattr(sandbox, "workdir", Path(tempfile.mkdtemp(prefix="evalrx_cli_")))
 
         import json as _json
-        (workdir / "cases.json").write_text(cases_json, encoding="utf-8")
+        sandbox.put("cases.json", cases_json)
         # Summarise which cases have images so the agent prompt is accurate
         try:
             _cases = _json.loads(cases_json)
@@ -1140,12 +1140,12 @@ class ExperimentWriter:
         except Exception:
             _n_images = 0
 
-        (workdir / "hypothesis.md").write_text(
+        sandbox.put(
+            "hypothesis.md",
             f"# Hypothesis\n\n"
             f"**Statement:** {hypothesis.statement}\n\n"
             f"**Failure mode:** {hypothesis.predicted_failure_mode}\n\n"
             f"**Target model:** {hypothesis.target_model}\n",
-            encoding="utf-8",
         )
 
         prompt = build_cli_prompt(

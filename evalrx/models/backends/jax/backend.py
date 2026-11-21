@@ -170,8 +170,9 @@ class JaxLocalModel(Model):
     def _sampling(self, kwargs: dict) -> SamplingParams:
         """hf_local's kwarg contract: ``max_new_tokens`` wins over the OpenAI-style
         ``max_tokens``; ``temperature <= 0`` (or ``do_sample=False``) is greedy;
-        ``do_sample=True`` without a temperature samples at 1.0."""
-        kwargs = dict(kwargs)
+        ``do_sample=True`` without a temperature samples at 1.0. The call's own
+        kwargs win over ``runtime.sampling``."""
+        kwargs = {**self.runtime.sampling, **kwargs}
         max_new = kwargs.pop("max_new_tokens", None)
         if max_new is None:
             max_new = kwargs.pop("max_tokens", self.runtime.max_new_tokens)

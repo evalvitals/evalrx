@@ -45,7 +45,10 @@ enable_thinking: false
 #   -> ~24h per model size. Run ONE dataset at a time; do not queue all eight
 #      blindly. Pass an explicit n (./run_all.sh <model> <dataset> 120) to cap.
 n_cases: 0
-concurrency: 16
+concurrency: 16             # requests in flight against the endpoint, for every stage: Stage 0,
+                            # the M1 analyzers, the fix stage's baseline, its declarative
+                            # candidates and the calls a coded pipeline makes together. vLLM
+                            # batches them. 1 = serial.
 
 # Logprobs over the SAME vLLM endpoint (it supports them; only our wrapper used
 # to throw them away). Unlocks the `logprob_entropy` and `calibration`
@@ -71,12 +74,12 @@ logprobs_top_k: 5
 # codegen coder for M2 statistics. Both are `claude -p` CLI calls, NOT the model
 # under test -- the model under test is the one vLLM is serving.
 #
-# `claude --model` takes either an alias ('opus') or a pinned full name. Pinned
-# here on purpose: an alias silently follows whatever the latest opus becomes,
-# and a judge that changes underneath a run makes two runs incomparable.
-judge_model: claude-opus-5
+# With no model named here both follow the package default
+# (ClaudeModel.DEFAULT_MODEL, currently the alias 'sonnet'). An alias follows
+# whatever the latest model of that name becomes, and a judge that changes
+# underneath a run makes two runs incomparable: for runs you will compare, set
+# judge_model / codegen_model to a pinned full name.
 judge_effort: high        # low | medium | high | xhigh | max
-codegen_model: claude-opus-5
 codegen_effort: high
 # high effort costs more per call and thinks longer, so the budget and the
 # per-call timeout both have to come up with it or M2 codegen gets cut off
@@ -114,25 +117,22 @@ fix_validation_cases: 0     # 0 = the whole partition (the default since 2026-08
                             # confirmed on ALL of CONFIRM. The old cap (40, label-stratified)
                             # existed because candidates ran serially (~10 s/case on the 2B) and
                             # an L2 coded pipeline makes 4-5 bridged calls per case; the bridge now
-                            # services calls concurrently (fix_concurrency), and the e>=20
+                            # answers simultaneous calls as one batch (`concurrency`), and the e>=20
                             # certification gate is power-bound at n=40. Set N>0 to cap again.
 fix_exec_timeout_sec: 7200  # wall-clock per coded-pipeline run. Measured 16 s per bridged call
                             # on the 2B (long direct answers): 80 cases x ~5 calls serial would be
-                            # ~1.8 h, which is why the bridge now services calls concurrently
-                            # (fix_concurrency below; since 2026-08-19 requests are id-tagged and
-                            # the coder is told model_generate is thread-safe). The first attempt
+                            # ~1.8 h, which is why the bridge answers the calls that arrive
+                            # together as one batch (requests are id-tagged and the coder is
+                            # told to run one thread per case). The first attempt
                             # must be able to finish, or every coded candidate spends its one
                             # repair round on the timeout instead of on the repair.
-fix_concurrency: 12         # parallel model calls in the fix stage: threads per DECLARATIVE
-                            # candidate (L1 templates / L2 specs) over the validation batch, the
-                            # 5-sample baseline, AND how many bridged calls a coded pipeline gets
-                            # serviced at once. vLLM batches them; Stage 0 runs 16. 1 = serial.
 fix_floor_candidates:       # built-in defaults ALWAYS in the tested family for a text-only batch,
   - self_consistency_5      # next to the judge's proposals (5 samples, vote on the extracted
                             # final answer). Before 2026-08-18 defaults were only a fallback for
                             # a silent judge, so plain self-consistency was never tested. [] = off.
-fix_baseline_repeats: 5     # baseline samples per case = frozen Stage 0 output + 4 fresh at the
-                            # batch's own T. Each case gets a PASS RATE and the paired test runs
+fix_baseline_repeats: 5     # fresh baseline samples per case at the batch's own T (the frozen
+                            # Stage 0 output labelled the case, so it is not counted). Each case
+                            # gets a PASS RATE and the paired test runs
                             # on rate differences (betting e-value): a case the baseline gets right
                             # 2/5 of the time and a candidate gets right counts +0.6, not +1, and
                             # a fragile "correct" case the candidate misses counts -(its rate), not

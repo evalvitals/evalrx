@@ -17,7 +17,7 @@ from evalrx.benchmark.run import build_parser
 from evalrx.benchmark.tasks import get
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.eval_agent import CaseDiscoveryAgent, VLDiagnoseLoop
-from evalrx.eval_agent.loop_reports import AutoDiagnoseReport
+from evalrx.eval_agent.loop.report import AutoDiagnoseReport
 from evalrx.eval_agent.stages.fix.tiers import FixTier
 from evalrx.eval_agent.stages.fix.types import FixCandidate, FixOutcome, FixValidation
 from evalrx.reporting.run_events import read_run_events
@@ -75,8 +75,9 @@ class Cell:
             cell.calls.append("load_model")
             return target, dict(GEN), get_spec(resolved.spec_key)
 
-        def discover(_agent, _model, candidates, protocol=None):
+        def discover(agent, _model, candidates, protocol=None):
             cell.calls.append(f"discover:{len(candidates)}")
+            cell.label_samples = agent.n_samples
             batch = CaseBatch(list(candidates))
             return SimpleNamespace(cases=batch, n_pass=len(batch) // 2, n_fail=len(batch) - len(batch) // 2,
                                    n_unknown=0, has_m4_groups=cell.has_m4_groups)
@@ -124,6 +125,29 @@ class Cell:
 @pytest.fixture
 def cell(monkeypatch, tmp_path):
     return Cell(monkeypatch, tmp_path)
+
+
+def test_a_sampling_cell_labels_by_five_answers_and_a_greedy_one_by_one(cell):
+    assert cell.run("--baseline-only") == 0
+    assert cell.label_samples == 5  # llm tasks sample at T=0.6
+    assert cell.read("baseline.json")["label_samples"] == 5
+
+    assert cell.run("--baseline-only", "--temperature", "0") == 0
+    assert cell.label_samples == 1
+
+    assert cell.run("--baseline-only", "--label-samples", "3") == 0
+    assert cell.label_samples == 3
+
+
+def test_the_baseline_file_carries_each_case_votes_and_the_split_count():
+    cases = _batch("c", 3)
+    cases[0].metadata["discovery_votes"] = {"pass": 1, "fail": 4}
+    cases[1].metadata["discovery_votes"] = {"pass": 5, "fail": 0}
+
+    rows = runner._case_labels(cases)
+
+    assert rows[0]["votes"] == {"pass": 1, "fail": 4} and "votes" not in rows[2]
+    assert runner._split_votes(cases) == 1
 
 
 def test_a_full_cell_runs_discovery_diagnosis_m5_and_the_fix_then_closes_the_log(cell, capsys):
@@ -174,8 +198,7 @@ def test_the_loop_is_wired_from_the_arguments(cell):
     assert loop.probe_agent.allow_codegen is True
     assert loop.fix_agent.proposer._floor_candidates == ()
     config = cell.config()
-    assert (config["m1_workers"], config["m1_codegen"], config["m1_selection"], config["m2_codegen"]) == (
-        8, True, "judge", True)
+    assert (config["m1_codegen"], config["m1_selection"], config["m2_codegen"]) == (True, "judge", True)
     assert (config["split_mode"], config["n_cases"], config["manifest_seed"]) == ("explore_confirm", 8, 11)
 
 

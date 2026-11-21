@@ -6,6 +6,324 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed — Stage 0 labels a sampled case by the majority of five answers
+
+A sampling model can answer one case both ways, so one answer labelled the case
+by chance. On Qwen3.5-2B / BBH causal judgement at T=0.6 (32 cases), two
+independent Stage 0 passes gave a case the same label 17 times out of 32.
+`CaseDiscoveryAgent(n_samples=k)` now draws `k` answers per case in one batch
+and labels the case by their majority; with five, the same two-pass check gave
+25 of 32. `case.observed` is the first answer that earned the label, so scoring
+it reproduces the label, and `case.metadata["discovery_votes"]` holds the count.
+A failed sample does not vote; an even split is `UNKNOWN`. The default stays
+one answer per case.
+
+The benchmark runner uses five when the task samples and one when it decodes
+greedily; `--label-samples` sets it. `baseline.json` gains `label_samples`,
+`n_split` (cases that answered both ways) and each case's `votes`. Stage 0
+generates five times as much: 107-114 s became 516-521 s on those 32 cases.
+The labels are steadier, not settled: 9 of the 32 cases passed 4 to 6 times in
+10, and no vote count makes such a case's label repeatable.
+
+The fix stage's repeated baseline (`baseline_repeats=k > 1`) now draws `k`
+fresh samples instead of counting `case.observed` as the first. That answer is
+the one the case was labelled by, and under a majority label it is picked to
+agree with it, so counting it pulled the baseline rate toward the label. This
+is one more generation per case per baseline.
+
+### Fixed — the fix search on the explore partition is in the run log
+
+`loop.run_fix` searches on the explore partition with `record=False` and then
+confirms one candidate. `record=False` muted the whole recorder, so the run log
+held the confirm phase only: none of the model calls of the candidates that were
+searched, and none of the judge calls that proposed them. It now leaves out only
+the `fix` outcome event, which the caller writes once for the combined result
+(`FixRecorder.muted()` became `without_outcome()`).
+
+### Changed — hf_local batches multimodal inputs and logprobs; the last per-case loops batch
+
+`hf_local` now has one batching path for text and multimodal specs. Each input
+is encoded on its own, as a single call encodes it, and the encodings are
+stacked: token-level tensors are left-padded, image and audio tensors are
+concatenated. `generate` is `generate_batch` with one input. A long list is
+encoded a window of four batches at a time, so the encodings alive at once do
+not grow with the list, and inputs that carry different tensors (with an image,
+without one) batch separately. A multimodal family
+batches only when it is listed in `BATCHED_MULTIMODAL_FAMILIES`; the others run
+one input at a time, as do inputs whose media tensors do not stack. Listed, each
+checked on a real checkpoint in float32 with greedy decoding and inputs of
+different sizes (batched text identical to one-at-a-time text on every input;
+logprobs within 1e-3): `qwen3_5` (Qwen3.5-2B, 10/10), `qwen2_5_vl`
+(Qwen2.5-VL-3B, 10/10), `qwen3_vl` (Qwen3-VL-2B, 10/10), `qwen2_vl`
+(Qwen2-VL-2B, 10/10), `qwen2_audio` (Qwen2-Audio-7B, 8/8). Not listed because no checkpoint was at hand: LLaVA,
+InstructBLIP, Gemma 4, GLM-4V, Kimi-VL, Llama 4, the Qwen omni models and
+Nemotron omni.
+
+`Model.logprobs_batch(inputs)` is new: `hf_local` runs it in padded batches and
+ends each row at its own end-of-sequence token, `vllm_offline` hands the engine
+the whole list, and every other model calls `logprobs` per input,
+`Model.concurrency` at a time. The run log records one
+`logprobs` call per input with its `batch_size`.
+
+Analyzers:
+
+- `context_shap` asks every context ablation of every case in one round.
+  `_shapley.coalitions()` lists the coalitions `shapley_values` will evaluate
+  for given arguments; the sampler never looks at a value, so they can be asked
+  up front.
+- `vl_shap` and `mm_shap` score every masked input of their case up front with
+  `logprobs_batch`; `vl_shap` does it 64 masked images at a time, since each is
+  its own copy of the image (a caller-supplied `region_score_fn` / `score_fn` is
+  still called per coalition).
+- `calibration` scores its cases' logprobs in one batch and asks each case on
+  its own only when that batch fails.
+- `arith_audit(generate_missing=True)` and `answer_extraction_audit(reask=True)`
+  generate their missing chains and re-asks as one batch.
+
+Left as they are: `verbalized_confidence` and `logprob_entropy` make one model
+call for one case, so there is nothing to batch (`calibration` is the batch-level
+counterpart of both, and the M1 routes pair them with it).
+
+Fixed on the way: `verbalized_confidence` built its question as
+`str(case.inputs) + elicit`, a bare string, so a vision model was asked without
+the case's image. It now keeps the inputs and replaces the prompt.
+
+### Changed — the examples follow the package's default Claude model
+
+No example names a Claude model any more. `deco_hallu`, `deco_chair`,
+`deco_miss`, `deco_pope`, `musicavqa_videollama2` and `llm_benchmark` read
+`judge_model` / `codegen_model` from `config.yaml` when present and otherwise use
+`ClaudeModel.DEFAULT_MODEL` (currently `sonnet`); their configs no longer set
+either. `deco_hallu_explore`, `mmau_qwen2_audio`,
+`audiocaps_hallucination_qwen2_audio` and the `chartqa` / `spatial457` examples
+do the same for an empty `--judge-model`, and their compose commands no longer
+pass `--judge-model claude-opus-5`. In the audio, `chartqa` and `spatial457`
+examples the coder now gets the judge's model; with an empty name it had used
+the CLI's session default. Effort settings are unchanged.
+
+`llm_benchmark` had pinned a full model name on purpose, so that two runs share
+one judge. Its config now says to set `judge_model` to a full name for runs that
+will be compared.
+
+`mmau_qwen2_audio/run.py` read `coder_cfg` before assigning it and stopped with
+`UnboundLocalError` on every run without `--paper-method-only`; fixed.
+
+### Fixed — a generated probe no longer loses its input file to the agent that wrote it
+
+M1 sometimes logged `sandbox produced no parseable result` for a generated
+probe. The coding agent writes the script in the sandbox directory, where the
+host had already put the cases file. In 3 of 19 sessions the agent tried its
+script by overwriting that file with two invented cases and deleted it
+afterwards, so the real run failed with `FileNotFoundError`.
+
+`ExperimentSandbox.put(name, data)` places a file the generated code will read
+and keeps its content; `run()` writes back any such file that was changed or
+removed. The M1 probe generators, the M2 statistics-tool generator, the explore
+agent and the M5 experiment writer place their inputs with it
+(`SandboxProtocol` gained `put`). The two probe prompts now say the file is the
+real data and must be left alone. With both changes, 12 of 12 sessions produced
+a result.
+
+A failed probe run is logged with what happened (`the probe script exited with
+code 1: FileNotFoundError: …`, `was killed after 60s`, `printed no readable
+PROBE_RESULT_JSON= line`) in place of the one fixed sentence.
+
+### Changed — the fix stage asks the model in batches and has no thread pool
+
+`FixAgent`, `CandidateValidator`, `PipelineCoder` and `run_coded_pipeline` no
+longer take `concurrency`. The fix stage hands the model the calls that do not
+depend on each other and the model runs them its own way, as M1 does:
+
+- The fresh baseline samples are one `try_generate_batch`; so is a template
+  candidate.
+- `run_pipeline(model, case, spec, score_fn, capture=, call_logger=)` is replaced
+  by `run_pipelines(model, cases, spec) -> list[PipelineRun]`. Every case and
+  every one of a spec's `n_samples` passes advance together, one round of
+  generation per strategy step. A `PipelineRun` carries the rendered prompt, the
+  outputs, the winner and each model call; the caller scores the winner.
+  `SpecPipelineModel` gained `generate_batch` on the same path.
+- The coded-pipeline bridge answers the calls that arrive within 50 ms of each
+  other as one batch, from one host thread. The coder prompt now asks for one
+  thread per case instead of `max_workers=8`.
+- Registered repairs, visual search and the matched baseline call a method on
+  the model that hooks it while it generates; they run one case at a time.
+- The fresh baseline is measured once for a model and a set of cases (their
+  prompts and recorded answers) and shared by every tier of the search. Each tier had drawn its own 64 samples, so the
+  tiers of one e-BH family were paired against different baselines.
+
+`Model.concurrency` (default 1) is how many `generate` calls the default
+`generate_batch` runs at once. The `api` backend sets it from
+`RuntimeConfig.concurrency`; a `Model` subclass that calls an endpoint sets it on
+itself. `APIModel` no longer overrides `generate_batch`.
+
+This also removes a fault in the previous entry's change: with `--concurrency`
+defaulting to 8, the benchmark passed 8 to `FixAgent` on `hf_local` too, so eight
+threads generated on one in-process model. In the one run that had it, on a
+shared GPU, the fresh-baseline step took 64 min; it took 25 min serially.
+
+The `llm_benchmark` example drops `fix_concurrency`; its `concurrency` setting
+now covers M1 and the fix stage as well.
+
+### Changed — one setting for requests in flight against an API backend
+
+`RuntimeConfig.concurrency` (default 8) is how many requests an API model has in
+flight, in every stage. `ProbeAgent` runs in-process analyzers one at a time on
+the calling thread and each sends its questions as batches; `max_workers` now
+only bounds Docker-mode analyzers. Before, up to 8 analyzers ran in threads,
+each asking one question at a time. `CaseDiscoveryAgent` no longer takes
+`concurrency`: it makes one batch call and the backend decides. The benchmark's
+`--concurrency` sets `RuntimeConfig.concurrency` for the `endpoint` and `gemini`
+backends and defaults to 8 (was 1, and applied to Stage 0 only). The benchmark
+run config no longer records `m1_workers`.
+
+### Changed — M3 rewrites a test that names evidence M2 did not measure
+
+M4 does not judge a hypothesis whose test names only identifiers with no M2
+result (a signal name the judge made up, a case id): it reports the test as
+unmet. In one 22-minute run that was three of six hypotheses. M3's proposal call
+now checks each test the way M4 will and, when one is unmet, asks the judge once
+to rewrite it against the signals that have a result, or in plain words. As with
+the plain-language check, the second answer is accepted as it is.
+
+### Changed — M1 is bounded by default
+
+`ProbeAgent` now caps a probe round at 6 analyzers (`max_analyzers=6`; `None`
+removes the cap) and at 30 minutes (`time_budget_sec=1800`; 0 removes it). An
+analyzer that has not started when the time is spent is skipped and named in
+the selection rationale. The agentic benchmark path had neither limit: one run
+selected 17 analyzers and spent 10,081 s in a single M1.
+
+While M1 runs, the console prints the plan and one line per analyzer as it
+finishes (`RunLogger.progress`); it printed nothing until the stage ended.
+
+Nine analyzers explain one input and read only the first case of a batch
+(`rise`, `vl_shap`, `mm_shap`, `logprob_entropy`, `self_consistency`,
+`verbalized_confidence`, `attention_rollout`, `cka`, `token_entropy`). They now
+declare `single_case = True` and selection does not offer them on a batch of
+several cases, where they gave M2 one row. A caller that names one
+(`analyzers=[...]`) still gets it.
+
+A selection is no longer padded up to `max_analyzers`: the static selector
+replaces a choice that cannot run, it does not add analyzers the judge or the
+caller did not ask for.
+
+### Added — batch generation is part of the `Model` interface
+
+`Model.generate_batch(inputs, **kwargs)` returns one answer per input, in order.
+`hf_local` pads a text-only spec's prompts into batches of
+`RuntimeConfig.batch_size` (default 32, longest first, halved on a CUDA
+out-of-memory error); `vllm_offline` passes the engine the whole list, where it
+sent one prompt per call before; `api` keeps `RuntimeConfig.concurrency`
+(default 8) requests in flight; every other model asks one at a time.
+`try_generate_batch` returns an input's exception in its place. Multimodal specs
+on `hf_local` still answer one input at a time.
+
+Measured on Qwen3.5-2B, 24 BBH causal-judgement prompts, one GPU: greedy
+decoding 217 s one at a time and 19.8 s batched; sampled at the benchmark's
+settings (2048-token cap) about 20 s per prompt one at a time, and batched 4.3 s
+at a batch size of 16, 2.8 s at 32 and 1.6 s at 64 (8.4 GB peak).
+In float32 the batched answers equal the single ones on 16 of 16 prompts. In
+bfloat16 they differ after the first tokens, including for an unpadded batch:
+half-precision rounding depends on the batch shape.
+
+`evalrx.core.analyzer` adds `Ask`, `Probe` and `run_probes`: an analyzer writes
+its per-case logic as a generator that yields an `Ask` for the answers it needs,
+and `run_probes` batches each round across the cases. `labelled_answers` reads
+`case.observed` and asks only for the cases without one.
+
+Analyzers now on batches: `prompt_contrast`, `cot_faithfulness`,
+`perturbation_battery`, `modality_ablation`, `coverage_verification_gap`,
+`calibration` (its verbalized-confidence questions), `self_consistency`,
+`selfcheck_consistency`, `format_sensitivity`, `knowledge_reasoning_split`,
+`self_repair`, `step_rollout_value`, `termination_audit`, `contamination_score`,
+`rise`; Stage 0 (`CaseDiscoveryAgent`) on a local backend; and
+`ProbeGenerator`'s output collection. Within one analyzer the calls now go out
+round by round across cases, not case by case.
+
+### Changed — decoding settings belong to the model
+
+`RuntimeConfig.sampling` holds the decoding a model is deployed with;
+`hf_local` and `jax_local` apply it to every `generate` call that passes none of
+its own, and `vllm_offline` now reads `max_new_tokens`, `do_sample`, `top_p` and
+`top_k` where it dropped them. The benchmark sets it from the Stage 0 settings.
+Before, Stage 0 labelled the llm tasks under sampling (T=0.6) while analyzers,
+which pass no arguments, ran greedy, so an analyzer's "baseline" was not the
+answer the label described.
+
+`pope` and `chair` score the answer the case was labelled on (`case.observed`)
+and no longer ask for it again; `ProbeGenerator` reads it too. Analyzers that
+pair a baseline against a changed prompt (`prompt_contrast`,
+`perturbation_battery`, `cot_faithfulness`, `modality_ablation`) still ask for a
+fresh one, now under the same decoding.
+
+On `hf_local` this changes what the answer-changed signals mean when the model
+is deployed with sampling: a flip in `perturbation_battery`, `format_sensitivity`,
+`cot_faithfulness`, `modality_ablation` or a `prompt_contrast` pair now includes
+decoding noise, as it always did on the API backends. Measured on Qwen3.5-2B /
+BBH causal judgement at T=0.6: an unchanged prompt asked again gave the labelled
+answer 68 times in 128 (53%), the same for PASS and FAIL cases. For a
+deterministic comparison deploy the model greedy (`RuntimeConfig.sampling`);
+`perturbation_battery` also takes `gen_kwargs={"do_sample": False}`.
+
+A model under test must be a `Model`: stages call `generate_batch` on it, so an
+object that only has `generate` no longer works.
+
+### Changed — run log schema v9
+
+`model_call.batch_size` marks a call that was one input of a batch; its
+`duration_sec` is that input's share of the batch's wall time, so the records
+still sum to the time spent.
+
+### Changed — the Claude judge defaults to `sonnet`
+
+`ClaudeModel.DEFAULT_MODEL = "sonnet"` is the one place the default lives. The
+benchmark CLI (`--judge-model` unset) and the judge auto-detection
+(`DEFAULT_CLAUDE_CANDIDATES`) use it; the benchmark's `--judge-effort` default
+goes from `high` to `medium`. Measured on prompts recorded from a real run: a
+28k-character M3 review took 71-124 s on `claude-fable-5` and 5 s on `sonnet`; a
+1.8k-character M4 yes/no took 17 s and 2 s. A 22-minute `qwen_loop_claude` run
+spent about 20 of those minutes in judge stages. Pass `--judge-model` to choose
+a larger model.
+
+### Changed — `eval_agent` grouped into `loop/` and `runlog/`
+
+The loop and its policies live in `evalrx.eval_agent.loop`, the run directory and
+event log in `evalrx.eval_agent.runlog`. Top-level imports
+(`from evalrx.eval_agent import VLDiagnoseLoop, RunContext, ...`) are unchanged;
+deep imports move, with no aliases left behind:
+
+| Was | Now |
+|---|---|
+| `evalrx.eval_agent.loop` | `evalrx.eval_agent.loop.diagnose` |
+| `evalrx.eval_agent.policy` | `evalrx.eval_agent.loop.state` (`Policy`, `RunState`, `cycle_summary`), `evalrx.eval_agent.loop.fixed` (`FixedOrderPolicy`) |
+| `evalrx.eval_agent.agentic` (and `.actions`, `.board`, `.tools`, `.policy`) | `evalrx.eval_agent.loop.judge` (same submodules) |
+| `evalrx.eval_agent.loop_reports` | `evalrx.eval_agent.loop.report` |
+| `evalrx.eval_agent.loop_fix` | `evalrx.eval_agent.loop.fix` |
+| `evalrx.eval_agent.run_metadata` | `evalrx.eval_agent.loop.metadata` |
+| `evalrx.eval_agent.run_context` | `evalrx.eval_agent.runlog.context` |
+| `evalrx.eval_agent.run_logger` | `evalrx.eval_agent.runlog.logger` |
+| `evalrx.eval_agent.run_log_entries` / `run_log_files` / `run_log_tracing` | `evalrx.eval_agent.runlog.entries` / `files` / `tracing` |
+| `evalrx.eval_agent.log_schema` (+ `run_log.schema.json`) | `evalrx.eval_agent.runlog.schema` (schema file beside it) |
+| `evalrx.eval_agent.narration` | `evalrx.eval_agent.runlog.narration` |
+| `evalrx.eval_agent.model_instrumentation` | `evalrx.eval_agent.runlog.instrumentation` |
+| `evalrx/eval_agent/RUN_LOGGER.md` | `evalrx/eval_agent/runlog/README.md` |
+
+The stages leave the loop class. `evalrx.eval_agent.loop.stages.Stages` runs and
+records M1 probe, explore, M2, M3, M4 and the held-out M4 pass
+(`probe`, `explore`, `analyze`, `diagnose`, `test_hypotheses`, `test_on_holdout`,
+`bridge_signals`) and holds the stage dependencies, never the loop.
+`VLDiagnoseLoop.stages()` builds one from the loop's current settings for each
+run, and a policy reaches them through `RunState.stages` (a new required
+field). What outlives a run on the same loop — the explorer notes M3 and the fix
+stage read, the default M3 agent, the token count — is one `StageMemory`
+(was `loop._explore_context`, `loop._tokens_used`, and a `diagnosis_agent`
+assigned on first use). The explore/confirm/test partition is the pure function
+`evalrx.eval_agent.loop.partition.split_cases`. Removed from `VLDiagnoseLoop`:
+`_do_m1`, `_do_explore`, `_do_m2`, `_do_m3`, `_do_m4`, `_m4_holdout_pass`,
+`_bridge_signals`, `_explore_out_dir`, `_get_diagnosis_agent`, `_emit_m1`,
+`_finalize_confirmatory_stats` (now `loop.stages.finalize_confirmatory_stats`),
+`_strat_key`. The constructor is unchanged.
+
 ### Added — typed judge calls
 
 `evalrx.agent_runtime.judge_call.ask_judge(judge, prompt, OutputModel, role=...)`

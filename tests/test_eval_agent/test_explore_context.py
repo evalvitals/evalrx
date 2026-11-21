@@ -159,7 +159,7 @@ def test_only_m3_diagnose_accepts_explore_context():
 # ---------------------------------------------------------------------------
 
 def test_coerce_explore_context_accepts_dict_ctx_and_none():
-    from evalrx.eval_agent.run_metadata import _coerce_explore_context
+    from evalrx.eval_agent.loop.metadata import _coerce_explore_context
 
     ctx = _coerce_explore_context({"observations": ["a"]})
     assert isinstance(ctx, ExploreContext)
@@ -171,7 +171,7 @@ def test_coerce_explore_context_accepts_dict_ctx_and_none():
 
 
 def test_dispatch_passes_context_only_to_agents_that_accept_it():
-    from evalrx.eval_agent.loop import _diagnose_with_optional_context
+    from evalrx.eval_agent.loop.stages import _diagnose_with_optional_context
 
     ctx = ExploreContext(observations=["x"])
 
@@ -195,14 +195,16 @@ def test_dispatch_passes_context_only_to_agents_that_accept_it():
 
 
 def test_loop_init_stores_coerced_explore_context():
-    from evalrx.eval_agent.loop import VLDiagnoseLoop
+    from evalrx.eval_agent.loop.diagnose import VLDiagnoseLoop
+    from tests.conftest import FakeModel
 
-    loop = VLDiagnoseLoop.__new__(VLDiagnoseLoop)  # avoid heavy __init__ deps
-    # exercise the coercion path used by __init__
-    from evalrx.eval_agent.run_metadata import _coerce_explore_context
-    loop._explore_context = _coerce_explore_context({"charts": [{"title": "C", "figure_path": "/p.png"}]})
-    assert isinstance(loop._explore_context, ExploreContext)
-    assert loop._explore_context.figure_paths == ["/p.png"]
+    loop = VLDiagnoseLoop(
+        model=FakeModel(), protocol=None,
+        explore_report={"charts": [{"title": "C", "figure_path": "/p.png"}]},
+    )
+    context = loop.stages().memory.explore_context
+    assert isinstance(context, ExploreContext)
+    assert context.figure_paths == ["/p.png"]
 
 
 # ---------------------------------------------------------------------------
@@ -212,7 +214,7 @@ def test_loop_init_stores_coerced_explore_context():
 def test_log_diagnosis_records_explore_provenance(tmp_path):
     import json
 
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.eval_agent.stages.diagnosis import DiagnosisResult
 
     logger = RunLogger(run_dir=tmp_path / "run1", observability_mode="offline")
@@ -238,7 +240,7 @@ def test_log_diagnosis_persists_the_critic_prompt_beside_its_response(tmp_path):
     import json
 
     from evalrx.eval_agent.hypothesis import Hypothesis
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.eval_agent.stages.diagnosis import DiagnosisResult
 
     logger = RunLogger(run_dir=tmp_path / "run2", observability_mode="offline")
