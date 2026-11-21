@@ -98,6 +98,15 @@ pair a baseline against a changed prompt (`prompt_contrast`,
 `perturbation_battery`, `cot_faithfulness`, `modality_ablation`) still ask for a
 fresh one, now under the same decoding.
 
+On `hf_local` this changes what the answer-changed signals mean when the model
+is deployed with sampling: a flip in `perturbation_battery`, `format_sensitivity`,
+`cot_faithfulness`, `modality_ablation` or a `prompt_contrast` pair now includes
+decoding noise, as it always did on the API backends. Measured on Qwen3.5-2B /
+BBH causal judgement at T=0.6: an unchanged prompt asked again gave the labelled
+answer 68 times in 128 (53%), the same for PASS and FAIL cases. For a
+deterministic comparison deploy the model greedy (`RuntimeConfig.sampling`);
+`perturbation_battery` also takes `gen_kwargs={"do_sample": False}`.
+
 A model under test must be a `Model`: stages call `generate_batch` on it, so an
 object that only has `generate` no longer works.
 
