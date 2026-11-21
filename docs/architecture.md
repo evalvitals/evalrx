@@ -113,10 +113,16 @@ model.forward(inputs, capture={...}, spec=None) -> Trace
 `generate_batch` is the call for several independent questions. Each backend
 answers it the fastest way it has: `hf_local` pads a text-only spec's prompts
 into batches of `RuntimeConfig.batch_size` (32 by default, halved on a CUDA
-out-of-memory error), `vllm_offline` hands the engine the whole list, `api` keeps
-`RuntimeConfig.concurrency` requests in flight, and any other model asks one at
-a time. `try_generate_batch` returns an input's exception in its place, for a
-caller that must keep the other answers.
+out-of-memory error), and `vllm_offline` hands the engine the whole list. Any
+other model calls `generate` for each input, `Model.concurrency` at a time: 1 by
+default, `RuntimeConfig.concurrency` for the `api` backend, and whatever a
+`Model` subclass that calls an endpoint sets on itself. `try_generate_batch`
+returns an input's exception in its place, for a caller that must keep the other
+answers.
+
+No stage owns a thread pool for the model under test. A stage hands over the
+questions that do not depend on each other and the model decides how many run
+at once.
 
 The decoding a model is deployed with lives in `RuntimeConfig.sampling`
 (`do_sample`, `temperature`, `top_p`, `top_k`). `hf_local` and `jax_local` apply
@@ -659,6 +665,15 @@ allowlist is one entry in `BUILTIN_SPECS` (the judge-less fallback list in
 `FixProposer._l2_candidates` is still separate). Give either a reader-facing
 sentence in `BUILTIN_DESCRIPTIONS`. A new candidate kind is one execution
 method on `CandidateValidator` plus its entry in the kind map.
+
+The validator asks the model in batches. The fresh baseline samples are one
+`try_generate_batch`; a template candidate is one; a spec (`run_pipelines`) runs
+every case and every sample of its strategy as probes, one round of generation
+per strategy step. A coded pipeline runs in a sandbox and reaches the model
+through a bridge: one host thread answers the calls that arrive together as one
+batch, so the coder is told to run one thread per case. Candidates that call a
+method on the model itself (registered repairs, visual search, internals, weight
+edits) run one case at a time, because they hook the model while it generates.
 
 
 ```text

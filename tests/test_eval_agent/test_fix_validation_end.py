@@ -38,7 +38,7 @@ from evalrx.eval_agent.stages.fix.tools import (
     MAX_TOKENS_CAP,
     PipelineSpec,
     answer_key,
-    run_pipeline,
+    run_pipelines,
 )
 
 
@@ -135,7 +135,7 @@ class ScriptedJudge(Model):
         raise NotImplementedError
 
 
-# ── run_pipeline: n_samples for every strategy + label-free vote key ──────────
+# ── run_pipelines: n_samples for every strategy + label-free vote key ──────────
 
 
 def test_n_samples_applies_to_multi_call_strategies():
@@ -144,11 +144,11 @@ def test_n_samples_applies_to_multi_call_strategies():
     model = CountingModel()
     case = list(_mc_batch(1, 0))[0]
     spec = PipelineSpec(name="l2m", strategy="least_to_most", n_samples=3)
-    capture: dict = {}
-    assert run_pipeline(model, case, spec, _mc_score, capture=capture) is True
+    (run,) = run_pipelines(model, [case], spec)
+    assert _mc_score(case, run.winner) is True
     assert len(model.calls) == 6
-    assert capture["n_calls"] == 6 and len(capture["outputs"]) == 3
-    assert capture["winner"].endswith("Answer: (B)")
+    assert len(run.calls) == 6 and len(run.outputs) == 3
+    assert run.winner.endswith("Answer: (B)")
 
 
 def test_vote_uses_extracted_final_answer_not_whole_text():
@@ -166,9 +166,9 @@ def test_vote_uses_extracted_final_answer_not_whole_text():
 
     case = list(_mc_batch(1, 0))[0]
     spec = PipelineSpec(name="sc", n_samples=3)
-    capture: dict = {}
-    assert run_pipeline(Sampler(), case, spec, _mc_score, capture=capture) is True
-    assert capture["winner"].endswith("Answer: (B)")
+    (run,) = run_pipelines(Sampler(), [case], spec)
+    assert _mc_score(case, run.winner) is True
+    assert run.winner.endswith("Answer: (B)")
     # the key itself is label-free and format-normalised
     assert answer_key("blah\nAnswer: (B)") == answer_key("other\nAnswer: B")
     assert answer_key("FINAL: 4 and more", r"FINAL:\s*(\d+)") == "4"
@@ -193,13 +193,13 @@ def test_label_free_consensus_override_preserves_baseline_on_any_countervote():
     spec = PipelineSpec(
         name="guarded", n_samples=3, baseline_override_min_support=2
     )
-    capture: dict = {}
     mixed = ["Answer: (B)", "Answer: (B)", "Answer: (C)"]
-    assert run_pipeline(Sampler(mixed), case, spec, _mc_score, capture=capture) is False
-    assert capture["winner"] == case.observed
+    (run,) = run_pipelines(Sampler(mixed), [case], spec)
+    assert _mc_score(case, run.winner) is False
+    assert run.winner == case.observed
 
     unanimous = ["Answer: (B)", "Answer: (B)", "Answer: (B)"]
-    assert run_pipeline(Sampler(unanimous), case, spec, _mc_score) is True
+    assert _mc_score(case, run_pipelines(Sampler(unanimous), [case], spec)[0].winner) is True
     roundtrip = PipelineSpec.from_dict(spec.to_dict())
     assert roundtrip is not None and roundtrip.baseline_override_min_support == 2
 
@@ -606,9 +606,9 @@ def test_spec_template_with_literal_braces_renders_and_never_aborts_the_stage():
                         prompt_template="{prompt}\nUse the set {1,2,3,4,5,6,7} and \\frac{a}{b}.")
     model = CountingModel()
     case = list(_mc_batch(1, 0))[0]
-    capture: dict = {}
-    assert run_pipeline(model, case, spec, _mc_score, capture=capture) is True
-    assert "{1,2,3,4,5,6,7}" in capture["prompt"] and "\\frac{a}{b}" in capture["prompt"]
+    (run,) = run_pipelines(model, [case], spec)
+    assert _mc_score(case, run.winner) is True
+    assert "{1,2,3,4,5,6,7}" in run.prompt and "\\frac{a}{b}" in run.prompt
 
     class Exploding(CountingModel):
         def generate(self, inputs, **kwargs):
@@ -616,18 +616,15 @@ def test_spec_template_with_literal_braces_renders_and_never_aborts_the_stage():
                 raise RuntimeError("adapter hiccup")
             return super().generate(inputs, **kwargs)
 
-    agent = FixAgent(judge=None, max_tier="L1", concurrency=3, floor_candidates=())
-
-    def raising_strategy(model, case):
-        if case.id == "q1":
-            raise KeyError("boom")
-        return True
-
-    agent.validator.strategy = lambda candidate: raising_strategy  # type: ignore[assignment]
-    cand = FixCandidate(tier=FixTier.L1_PROMPT, name="t", kind="template",
-                        payload={"prompt_template": "x {prompt}"})
-    scores = agent.validator.scores(cand, Exploding(), _mc_batch(2, 1))
-    assert scores["q1"] is None and scores["q0"] is True and scores["q2"] is True
+    agent = FixAgent(judge=None, max_tier="L1", floor_candidates=())
+    batch = _mc_batch(2, 1)
+    batch[1].inputs.prompt += " q1"
+    for payload in ({"prompt_template": "x {prompt}"},
+                    {"name": "s", "prompt_template": "x {prompt}", "n_samples": 2}):
+        kind = "spec" if "name" in payload else "template"
+        cand = FixCandidate(tier=FixTier.L1_PROMPT, name="t", kind=kind, payload=payload)
+        scores = agent.validator.scores(cand, Exploding(), batch)
+        assert scores == {batch[0].id: True, batch[1].id: None, batch[2].id: True}, kind
 
 
 # ── no verified hypothesis: M5 + fix on the best unverified lead (opt-in) ────
@@ -683,7 +680,7 @@ def test_run_fix_without_verified_skips_repair_authoring():
     assert outcome.skip_reason == "no_accepted_hypothesis"
 
 
-# ── coded-pipeline bridge: concurrent, request-id tagged ─────────────────────
+# ── coded-pipeline bridge: request-id tagged, answered a batch at a time ─────
 
 
 class EchoPromptModel(Model):
@@ -693,8 +690,9 @@ class EchoPromptModel(Model):
     capabilities = frozenset({Capability.GENERATE})
     modalities = frozenset({"text"})
 
-    def __init__(self, delay: float = 0.15) -> None:
+    def __init__(self, delay: float = 0.15, concurrency: int = 1) -> None:
         self.delay = delay
+        self.concurrency = concurrency
         self.n_truncated = 0
         self._lock = __import__("threading").Lock()
         self.max_in_flight = 0
@@ -731,16 +729,16 @@ print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": res}))
 def test_threaded_coded_pipeline_gets_its_own_replies(tmp_path, concurrency):
     """Eight sandbox threads in flight: every reply must land in the thread
     that asked for it (old bridge: whichever thread read stdin next got it),
-    and with concurrency>1 the host really services calls in parallel."""
+    and a model that takes several requests at once really gets them."""
     import time as _t
 
     from evalrx.eval_agent.stages.fix.pipeline import run_coded_pipeline
 
-    model = EchoPromptModel(delay=0.15)
+    model = EchoPromptModel(delay=0.15, concurrency=concurrency)
     batch = _mc_batch(n_fail=6, n_pass=6)
     t0 = _t.monotonic()
     result = run_coded_pipeline(_THREADED_PIPELINE, model, batch, workdir=tmp_path,
-                                timeout_sec=60, concurrency=concurrency)
+                                timeout_sec=60)
     elapsed = _t.monotonic() - t0
     assert result.ok, result.error
     assert result.n_calls == 36
@@ -751,7 +749,7 @@ def test_threaded_coded_pipeline_gets_its_own_replies(tmp_path, concurrency):
         assert model.max_in_flight > 1
         assert elapsed < 36 * 0.15            # parallel: well under the serial sum
     else:
-        assert model.max_in_flight == 1       # serial host: arrival order
+        assert model.max_in_flight == 1       # one request at a time
 
 
 def test_bridge_reply_carries_rid_and_errors_route_to_the_caller(tmp_path):
@@ -779,28 +777,11 @@ print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": [
 """
     batch = _mc_batch(n_fail=1, n_pass=0)
     result = run_coded_pipeline(code, EchoPromptModel(delay=0.05), batch,
-                                workdir=tmp_path, timeout_sec=30, concurrency=4)
+                                workdir=tmp_path, timeout_sec=30)
     assert result.ok, result.error
     out = result.outputs[batch[0].id]
     assert out.startswith(f"echo:ok-{batch[0].id}//err:")
     assert "unknown case_id" in out
-
-
-def test_fix_agent_passes_concurrency_to_the_coded_bridge(monkeypatch):
-    from evalrx.eval_agent.stages.fix import codegen as fix_codegen
-    from evalrx.eval_agent.stages.fix.pipeline import CodedPipelineResult
-
-    seen = {}
-
-    def fake_run(code, model, data, **kw):
-        seen.update(kw)
-        return CodedPipelineResult(outputs={c.id: "Answer: (B)" for c in data}, ok=True)
-
-    monkeypatch.setattr(fix_codegen, "run_coded_pipeline", fake_run)
-    agent = FixAgent(judge=ScriptedJudge("[]"), max_tier="L2", concurrency=5)
-    cand = FixCandidate(tier=FixTier.L2_SCAFFOLD, name="coded", payload={"code": "x"})
-    agent.coder.run(cand, CountingModel(), _mc_batch())
-    assert seen["concurrency"] == 5
 
 
 # ── allow_unverified=True: the exploratory fix path, opt-in ──────────────────

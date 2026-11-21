@@ -434,8 +434,9 @@ M1-to-fix chain on one cell per modality with `--backend jax_local`.
   `visual_embedding_boost` test expectations.
 - **Concurrency.** `--concurrency` is the number of requests in flight against
   an API backend. A JAX in-process model wants batching instead:
-  `Model.generate_batch` is now the call every stage uses, and the JAX model
-  still answers it one input at a time. A batched `generate` on the adapter is
+  `Model.generate_batch` is now the call every stage uses, the fix stage
+  included, and the JAX model still answers it one input at a time
+  (`Model.concurrency` stays 1, so it is never entered from two threads). A batched `generate` on the adapter is
   the natural later addition and is out of scope here.
 
 ## 8. Out of scope

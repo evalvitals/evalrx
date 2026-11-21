@@ -15,8 +15,6 @@ distinct in-process batch path).
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
 from evalrx.core.capability import Capability, CapabilityError
@@ -98,6 +96,7 @@ class APIModel(Model):
     def __init__(self, spec, runtime: RuntimeConfig) -> None:
         self.spec = spec
         self.runtime = runtime
+        self.concurrency = runtime.concurrency
         self._generate_fn = runtime.generate_fn
         self._chat_fn = runtime.chat_fn
         self._logprobs_fn = runtime.logprobs_fn
@@ -116,21 +115,6 @@ class APIModel(Model):
         prompt = inputs.prompt if isinstance(inputs, Inputs) else str(inputs)
         model_name = self.spec.hf_repo or self.spec.key
         return self._generate_fn(prompt, model=model_name, **self._media(inputs), **kwargs)
-
-    def generate_batch(self, inputs: Sequence[Any], **kwargs) -> list[str]:
-        """``runtime.concurrency`` requests in flight, answers in input order."""
-        return self._concurrently(lambda item: self.generate(item, **kwargs), inputs)
-
-    def try_generate_batch(self, inputs: Sequence[Any], **kwargs) -> "list[str | Exception]":
-        """As :meth:`generate_batch`; a failed request does not repeat the others."""
-        return self._concurrently(lambda item: self._generate_or_error(item, kwargs), inputs)
-
-    def _concurrently(self, ask: Callable[[Any], Any], inputs: Sequence[Any]) -> list[Any]:
-        workers = min(len(inputs), max(1, int(self.runtime.concurrency)))
-        if workers < 2:
-            return [ask(item) for item in inputs]
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            return list(pool.map(ask, inputs))
 
     def chat(self, messages: list, tools=None) -> ChatTurn:
         model_name = self.spec.hf_repo or self.spec.key

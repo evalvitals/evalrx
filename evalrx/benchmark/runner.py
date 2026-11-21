@@ -562,7 +562,6 @@ def _fix_agent(args, task: T.Task, judge, coder_cfg, gen_kwargs: dict, ctx, raw_
         max_repair_rounds=max(1, args.fix_repair_rounds),
         exec_timeout_sec=args.fix_exec_timeout,
         prewritten_code=prewritten_code,
-        concurrency=getattr(args, "concurrency", 1),
         floor_candidates=() if _is_agentic(args) else ("self_consistency_5",),
         progress_callback=_print_fix_progress,
         **fix_kwargs,

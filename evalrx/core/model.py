@@ -17,8 +17,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Protocol, TypeVar
 
 from evalrx.core.capability import Capability
 
@@ -27,6 +28,8 @@ if TYPE_CHECKING:
 
     from evalrx.core.tokentype import TokenTypeMap
     from evalrx.core.tool import ChatTurn
+
+_R = TypeVar("_R")
 
 
 @dataclass
@@ -125,6 +128,10 @@ class Model(ABC):
     #: Modalities this model handles (e.g. {"text"}, {"text","image"}). Analyzers
     #: declare ``applies_to_modalities`` and are matched against this.
     modalities: frozenset[str] = frozenset({"text"})
+    #: How many :meth:`generate` calls :meth:`generate_batch` runs at once. 1
+    #: for a model that computes in this process; a model whose ``generate`` is
+    #: a network request sets its number of requests in flight.
+    concurrency: int = 1
 
     def unembed_weight(self):
         """Optional: the unembedding matrix ``(vocab, dim)`` for logit-lens analyzers.
@@ -142,10 +149,10 @@ class Model(ABC):
 
         The call to use for several independent questions. A backend answers
         it the fastest way it has — padded batches (``hf_local``), an engine's
-        own batching (``vllm_offline``), concurrent requests (``api``); the
-        default here asks one at a time.
+        own batching (``vllm_offline``). The default here calls
+        :meth:`generate` for each input, :attr:`concurrency` at a time.
         """
-        return [self.generate(item, **kwargs) for item in inputs]
+        return self._each(lambda item: self.generate(item, **kwargs), inputs)
 
     def try_generate_batch(self, inputs: Sequence[Any], **kwargs: Any) -> "list[str | Exception]":
         """:meth:`generate_batch` that returns an input's error in its place.
@@ -159,7 +166,14 @@ class Model(ABC):
                 return list(self.generate_batch(inputs, **kwargs))
             except Exception:  # noqa: BLE001 - find which input it was
                 pass
-        return [self._generate_or_error(item, kwargs) for item in inputs]
+        return self._each(lambda item: self._generate_or_error(item, kwargs), inputs)
+
+    def _each(self, ask: "Callable[[Any], _R]", inputs: Sequence[Any]) -> "list[_R]":
+        workers = min(len(inputs), max(1, int(self.concurrency)))
+        if workers < 2:
+            return [ask(item) for item in inputs]
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            return list(pool.map(ask, inputs))
 
     def _generate_or_error(self, item: Any, kwargs: dict[str, Any]) -> "str | Exception":
         try:

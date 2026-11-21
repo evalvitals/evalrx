@@ -108,7 +108,7 @@ class EndpointModel(Model):
 
     def __init__(self, model_id: str, base_url: str, max_tokens: int, sampling: dict,
                  logprobs_mode: str = "answer", logprobs_max_tokens: int = 64,
-                 logprobs_top_k: int = 5):
+                 logprobs_top_k: int = 5, concurrency: int = 1):
         from evalrx.core.capability import Capability
 
         self.capabilities = frozenset({Capability.GENERATE, Capability.LOGPROBS})
@@ -123,10 +123,13 @@ class EndpointModel(Model):
         self.n_calls = 0
         self.n_truncated = 0
         self.n_logprob_calls = 0
-        # M1 analyzers and the fix module's declarative candidates call
-        # generate() from worker threads; the counters are read as telemetry
-        # (the fix module diffs n_truncated around each candidate), so they
-        # must not lose increments.
+        # Requests in flight for one generate_batch: the M1 analyzers and the
+        # fix stage hand their independent prompts over as a batch, and the
+        # vLLM server batches whatever arrives together.
+        self.concurrency = max(1, int(concurrency))
+        # generate() therefore runs on worker threads; the counters are read
+        # as telemetry (the fix module diffs n_truncated around each
+        # candidate), so they must not lose increments.
         import threading
         self._lock = threading.Lock()
 
@@ -830,7 +833,8 @@ def main() -> None:
                            "top_p": float(CFG["top_p"]), "top_k": int(CFG["top_k"])},
                           logprobs_mode=str(CFG.get("logprobs_mode", "answer")),
                           logprobs_max_tokens=int(CFG.get("logprobs_max_tokens", 64)),
-                          logprobs_top_k=int(CFG.get("logprobs_top_k", 5)))
+                          logprobs_top_k=int(CFG.get("logprobs_top_k", 5)),
+                          concurrency=int(CFG.get("concurrency", 1)))
     judge = build_judge(args.judge_model, args.judge_effort,
                         timeout_sec=int(CFG.get("judge_timeout_sec", 240)))
     codegen = build_codegen(args.backend)
@@ -909,9 +913,6 @@ def main() -> None:
             baseline_generation_kwargs={"max_tokens": max_tokens,
                                         "temperature": float(CFG["temperature"]),
                                         "top_p": float(CFG["top_p"])},
-            # Declarative candidates run their cases in parallel against the
-            # endpoint (coded pipelines stay serial through the bridge).
-            concurrency=int(CFG.get("fix_concurrency", 1)),
             # Noise model: the baseline is a per-case PASS RATE (frozen sample
             # + k-1 fresh at the batch's own T), the paired test runs on rate
             # differences (betting e-value) — sampling-unstable cases are

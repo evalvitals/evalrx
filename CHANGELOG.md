@@ -6,6 +6,39 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed — the fix stage asks the model in batches and has no thread pool
+
+`FixAgent`, `CandidateValidator`, `PipelineCoder` and `run_coded_pipeline` no
+longer take `concurrency`. The fix stage hands the model the calls that do not
+depend on each other and the model runs them its own way, as M1 does:
+
+- The fresh baseline samples are one `try_generate_batch`; so is a template
+  candidate.
+- `run_pipeline(model, case, spec, score_fn, capture=, call_logger=)` is replaced
+  by `run_pipelines(model, cases, spec) -> list[PipelineRun]`. Every case and
+  every one of a spec's `n_samples` passes advance together, one round of
+  generation per strategy step. A `PipelineRun` carries the rendered prompt, the
+  outputs, the winner and each model call; the caller scores the winner.
+  `SpecPipelineModel` gained `generate_batch` on the same path.
+- The coded-pipeline bridge answers the calls that arrive within 50 ms of each
+  other as one batch, from one host thread. The coder prompt now asks for one
+  thread per case instead of `max_workers=8`.
+- Registered repairs, visual search and the matched baseline call a method on
+  the model that hooks it while it generates; they run one case at a time.
+
+`Model.concurrency` (default 1) is how many `generate` calls the default
+`generate_batch` runs at once. The `api` backend sets it from
+`RuntimeConfig.concurrency`; a `Model` subclass that calls an endpoint sets it on
+itself. `APIModel` no longer overrides `generate_batch`.
+
+This also removes a fault in the previous entry's change: with `--concurrency`
+defaulting to 8, the benchmark passed 8 to `FixAgent` on `hf_local` too, so eight
+threads generated on one in-process model. The fresh-baseline step that took
+25 min serially took 64 min that way.
+
+The `llm_benchmark` example drops `fix_concurrency`; its `concurrency` setting
+now covers M1 and the fix stage as well.
+
 ### Changed — one setting for requests in flight against an API backend
 
 `RuntimeConfig.concurrency` (default 8) is how many requests an API model has in

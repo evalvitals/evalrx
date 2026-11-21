@@ -207,10 +207,6 @@ class FixAgent:
                           cases' ``metadata["generation_config"]``, else no
                           floor is enforced. Both values are also shown to the
                           proposer.
-        concurrency:      Threads used to run a declarative candidate over
-                          the validation batch, and how many bridged model
-                          calls the coded-pipeline host services at once
-                          (default 1 = serial, unchanged behaviour).
         scoring_note:     Free-text description of how outputs are scored /
                           the expected final-answer format, shown to the
                           proposer (a per-call ``FixContext.scoring_note``
@@ -251,7 +247,6 @@ class FixAgent:
         weight_edit: "bool | dict[str, Any] | None" = None,
         verbose: bool = False,
         baseline_generation_kwargs: "dict[str, Any] | None" = None,
-        concurrency: int = 1,
         scoring_note: str = "",
         floor_candidates: "Iterable[str] | None" = ("self_consistency_5",),
         prewritten_code: str = "",
@@ -295,7 +290,6 @@ class FixAgent:
         self._max_tokens_floor: "int | None" = None
 
         score = score_fn or _default_score
-        concurrency = max(1, int(concurrency))
         self.recorder = FixRecorder(run_logger)
         self.coder = PipelineCoder(
             judge=judge,
@@ -306,7 +300,6 @@ class FixAgent:
             run_context=self._run_context,
             sandbox=sandbox,
             exec_timeout_sec=exec_timeout_sec,
-            concurrency=concurrency,
             max_repair_rounds=max(1, int(max_repair_rounds)),
             prewritten_code=prewritten_code,
         )
@@ -329,7 +322,6 @@ class FixAgent:
             recorder=self.recorder,
             coder=self.coder,
             progress=self._progress,
-            concurrency=concurrency,
             baseline_repeats=max(1, int(baseline_repeats)),
             candidate_repeats=max(1, int(candidate_repeats)),
             finetune_pool=finetune_pool,

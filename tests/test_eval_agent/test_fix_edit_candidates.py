@@ -21,7 +21,7 @@ from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.core.model import Model
 from evalrx.eval_agent import FixAgent
 from evalrx.eval_agent.hypothesis import Hypothesis
-from evalrx.eval_agent.stages.fix.tools import PipelineSpec, run_pipeline
+from evalrx.eval_agent.stages.fix.tools import PipelineSpec, run_pipelines
 
 _DEPLOYED = "{prompt}\n\nWork through this in three parts before answering."
 
@@ -174,6 +174,6 @@ def test_spec_pipeline_fills_original_prompt():
     )
     model = CaptureModel()
     spec = PipelineSpec(name="edit", prompt_template="Do it plainly. {original_prompt}")
-    result = run_pipeline(model, case, spec, score_fn=lambda c, o: "yes" in o)
+    result = "yes" in run_pipelines(model, [case], spec)[0].winner
     assert result is True
     assert model.prompts == ["Do it plainly. ORIGINAL TEXT"]
