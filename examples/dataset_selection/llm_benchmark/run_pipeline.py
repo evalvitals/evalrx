@@ -57,6 +57,12 @@ from evalrx.core.model import Model  # noqa: E402
 
 CFG = yaml.safe_load((HERE / "config.yaml").read_text())
 
+# The judge and the coder follow the package default unless config.yaml names a model.
+from evalrx.agent_runtime.judges.claude import ClaudeModel  # noqa: E402
+
+JUDGE_MODEL = str(CFG.get("judge_model") or ClaudeModel.DEFAULT_MODEL)
+CODEGEN_MODEL = str(CFG.get("codegen_model") or ClaudeModel.DEFAULT_MODEL)
+
 
 # ---------------------------------------------------------------- model
 #: Appended in ``mode="answer"`` so the scored tokens are an ANSWER rather than
@@ -698,7 +704,7 @@ def build_codegen(backend: str):
     effort = str(CFG.get("codegen_effort", "") or "")
     return CliAgentConfig(
         provider=provider,
-        model=str(CFG.get("codegen_model", "claude-opus-5")) if is_claude else "",
+        model=CODEGEN_MODEL if is_claude else "",
         max_budget_usd=float(CFG.get("codegen_budget_usd", 2.0)),
         timeout_sec=int(CFG.get("codegen_timeout_sec", 480)),
         extra_args=(("--effort", effort) if (effort and is_claude) else ()),
@@ -732,7 +738,7 @@ def main() -> None:
     ap.add_argument("--model", default=CFG["model"])
     ap.add_argument("--base-url", default=CFG["base_url"])
     ap.add_argument("--dataset", default=CFG["dataset"])
-    ap.add_argument("--judge-model", default=CFG["judge_model"])
+    ap.add_argument("--judge-model", default=JUDGE_MODEL)
     ap.add_argument("--judge-effort", default=CFG["judge_effort"])
     ap.add_argument("--backend", default="claude", choices=["claude", "codex", "agy"])
     ap.add_argument("--max-cycles", type=int, default=CFG["max_cycles"])

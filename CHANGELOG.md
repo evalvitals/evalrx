@@ -6,6 +6,26 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed — the examples follow the package's default Claude model
+
+No example names a Claude model any more. `deco_hallu`, `deco_chair`,
+`deco_miss`, `deco_pope`, `musicavqa_videollama2` and `llm_benchmark` read
+`judge_model` / `codegen_model` from `config.yaml` when present and otherwise use
+`ClaudeModel.DEFAULT_MODEL` (currently `sonnet`); their configs no longer set
+either. `deco_hallu_explore`, `mmau_qwen2_audio`,
+`audiocaps_hallucination_qwen2_audio` and the `chartqa` / `spatial457` examples
+do the same for an empty `--judge-model`, and their compose commands no longer
+pass `--judge-model claude-opus-5`. In the audio, `chartqa` and `spatial457`
+examples the coder now gets the judge's model; with an empty name it had used
+the CLI's session default. Effort settings are unchanged.
+
+`llm_benchmark` had pinned a full model name on purpose, so that two runs share
+one judge. Its config now says to set `judge_model` to a full name for runs that
+will be compared.
+
+`mmau_qwen2_audio/run.py` read `coder_cfg` before assigning it and stopped with
+`UnboundLocalError` on every run without `--paper-method-only`; fixed.
+
 ### Fixed — a generated probe no longer loses its input file to the agent that wrote it
 
 M1 sometimes logged `sandbox produced no parseable result` for a generated

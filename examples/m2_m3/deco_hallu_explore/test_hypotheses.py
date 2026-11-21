@@ -104,7 +104,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--pipeline-root", default="outputs_pipeline")
     ap.add_argument("--validate-dir", default=str(HERE / "data_attn_validate"))
-    ap.add_argument("--judge-model", default="claude-opus-4-8")
+    ap.add_argument("--judge-model", default=None,
+                    help="Claude model for the judge (default: the package default)")
     ap.add_argument("--judge-effort", default="low")
     ap.add_argument("--alpha", type=float, default=0.05)
     ap.add_argument("--no-judge", action="store_true",
@@ -199,7 +200,8 @@ def main() -> None:
     if hypotheses and not args.no_judge:
         from evalrx.eval_agent import ClaudeModel
 
-        judge = ClaudeModel(model=args.judge_model, effort=args.judge_effort)
+        judge = ClaudeModel(model=args.judge_model or ClaudeModel.DEFAULT_MODEL,
+                            effort=args.judge_effort)
         for h in hypotheses:
             prompt = JUDGE_PROMPT.format(
                 statement=h.get("statement", ""), basis=h.get("basis", ""),

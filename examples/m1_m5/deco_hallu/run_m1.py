@@ -30,7 +30,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default=run.CFG["model"])
     ap.add_argument("--max-analyzers", type=int, default=3)
-    ap.add_argument("--judge-model", default=run.CFG.get("judge_model", "claude-opus-4-8"))
+    ap.add_argument("--judge-model", default=run.JUDGE_MODEL)
     ap.add_argument("--judge-effort", default=run.CFG.get("judge_effort", "low"))
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--dtype", default="bfloat16")
@@ -57,7 +57,7 @@ def main() -> None:
     codegen_effort = str(run.CFG.get("codegen_effort", "") or "")
     codegen = CliAgentConfig(
         provider="claude_code",
-        model=str(run.CFG.get("codegen_model", "claude-opus-4-8")),
+        model=run.CODEGEN_MODEL,
         max_budget_usd=float(run.CFG.get("codegen_budget_usd", 2.0)),
         timeout_sec=int(run.CFG.get("codegen_timeout_sec", 240)),
         extra_args=(("--effort", codegen_effort) if codegen_effort else ()),

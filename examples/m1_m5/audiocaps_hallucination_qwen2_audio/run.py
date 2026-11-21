@@ -194,7 +194,7 @@ def build_judge(provider: str, model_name: str, effort: str) -> "Any":
     else:
         from evalrx.eval_agent import ClaudeModel
 
-        model_name = model_name or "sonnet"
+        model_name = model_name or ClaudeModel.DEFAULT_MODEL
         judge = ClaudeModel(model=model_name, effort=effort)
         label = f"claude model={model_name} effort={effort or 'default'}"
         empty_hint = f"claude --model {model_name} returned empty (rate-limited?) -- try --judge-model sonnet or haiku"
@@ -426,6 +426,11 @@ def main() -> int:
         help="fast wiring check (no GPU/model/judge) -- see module docstring",
     )
     args = parser.parse_args()
+    if args.judge_provider == "claude" and not args.judge_model:
+        from evalrx.eval_agent import ClaudeModel
+
+        # The package default, named once so the coder follows the judge.
+        args.judge_model = ClaudeModel.DEFAULT_MODEL
 
     if args.smoke_test:
         _run_smoke_test(args)

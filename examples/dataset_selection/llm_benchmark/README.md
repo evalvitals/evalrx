@@ -64,8 +64,8 @@ claude --version          # 必须有输出
 claude                    # 首次需要交互登录一次完成认证
 ```
 
-**默认 judge 与 coder 都是 `claude-opus-5`,effort `high`**(`config.yaml`)。
-模型名是**钉死的全名而不是 `opus` 别名** —— 别名会随最新 opus 漂移,
+**默认 judge 与 coder 都跟随包的默认 Claude 模型(`ClaudeModel.DEFAULT_MODEL`,目前是别名 `sonnet`),effort `high`**(`config.yaml`)。
+要做可比较的多次运行时,请在 `config.yaml` 里把 `judge_model` / `codegen_model` 设成**钉死的全名** —— 别名会随该系列的最新模型漂移,
 judge 在两次运行之间变了,结果就不可比。
 
 `--effort` 合法值:`low | medium | high | xhigh | max`。
@@ -161,7 +161,7 @@ M2 的工具目录与 e-BH,也不进 M4 / fix 门 —— 证据仍然只来自 M
 |---|---|
 | vLLM 加载权重 | 3–6 分钟(冷 page cache 更久) |
 | Stage 0 `build_cases.py` **全量** | **20 分钟 – 6.5 小时**,见下方逐数据集表 |
-| M1→M4 | **30–90 分钟**(judge 是 `claude-opus-5 --effort high`,想得久) |
+| M1→M4 | **30–90 分钟**(用 `claude-opus-5 --effort high` 作 judge 时实测,想得久;默认的 sonnet 更快) |
 | M5 修复 | **20–60 分钟** |
 
 **总计 1.5–8 小时**,几乎全部取决于切片大小(judge 用 high effort;调低 `judge_effort` 会快很多)。 建议 `setsid nohup ./run_all.sh ... > run.log 2>&1 &` 后台跑再轮询日志,

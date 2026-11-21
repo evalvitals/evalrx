@@ -74,12 +74,12 @@ logprobs_top_k: 5
 # codegen coder for M2 statistics. Both are `claude -p` CLI calls, NOT the model
 # under test -- the model under test is the one vLLM is serving.
 #
-# `claude --model` takes either an alias ('opus') or a pinned full name. Pinned
-# here on purpose: an alias silently follows whatever the latest opus becomes,
-# and a judge that changes underneath a run makes two runs incomparable.
-judge_model: claude-opus-5
+# With no model named here both follow the package default
+# (ClaudeModel.DEFAULT_MODEL, currently the alias 'sonnet'). An alias follows
+# whatever the latest model of that name becomes, and a judge that changes
+# underneath a run makes two runs incomparable: for runs you will compare, set
+# judge_model / codegen_model to a pinned full name.
 judge_effort: high        # low | medium | high | xhigh | max
-codegen_model: claude-opus-5
 codegen_effort: high
 # high effort costs more per call and thinks longer, so the budget and the
 # per-call timeout both have to come up with it or M2 codegen gets cut off
