@@ -157,10 +157,11 @@ def test_runtime_failure_recorded_and_triggers_codegen():
 
 @pytest.mark.parametrize("max_workers", [1, 8])
 def test_whitebox_analyzers_run_serially_not_in_thread_pool(max_workers):
-    """White-box analyzers (GPU forward on the shared model) must run on the
-    calling thread, not the ThreadPoolExecutor — concurrent forwards race on
-    accelerate hooks (meta-tensor errors) and stack activations to OOM
-    (defect 7). Black-box analyzers may still parallelise."""
+    """In-process analyzers run on the calling thread, whatever ``max_workers``
+    says. White-box ones race on accelerate hooks (meta-tensor errors) and stack
+    activations to OOM in threads (defect 7); black-box ones already send their
+    questions to the backend as batches, so threads would only multiply the
+    requests in flight. ``max_workers`` is for Docker-mode analyzers."""
     import threading
 
     from evalrx.core.analyzer import Analyzer
@@ -194,8 +195,8 @@ def test_whitebox_analyzers_run_serially_not_in_thread_pool(max_workers):
     model = RefusingModel(capabilities={Capability.GENERATE, Capability.ATTENTION})
     results = agent.probe(model, _cases())
     assert set(results) == {"wb_a", "bb_b"}
-    assert ran_on["wb_a"] == main_thread        # white-box ran serially
-    assert (ran_on["bb_b"] == main_thread) == (max_workers == 1)
+    assert ran_on["wb_a"] == main_thread
+    assert ran_on["bb_b"] == main_thread
 
 
 def test_failed_analyzers_surface_in_next_selection_prompt():

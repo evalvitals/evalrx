@@ -50,19 +50,6 @@ class CaseDiscoveryAgent:
         judge:             Optional LLM judge used when no scorer is supplied.
         generation_kwargs: Extra kwargs forwarded to ``model.generate``.
         include_unknown:   Keep UNKNOWN cases in the returned batch.
-        concurrency:       How many cases may be generated at once.  Only the
-                           ``model.generate`` calls fan out; scoring and
-                           labelling stay sequential and in input order, so the
-                           report is identical whatever this is set to.
-
-                           Values above 1 are honoured ONLY for an API-backed
-                           handle, following the same rule as
-                           :func:`evalrx.models.agent.run_batch`: HTTP is
-                           reentrant, a local backend sharing one GPU is not.
-                           Against a local ``vllm serve`` this is the
-                           difference between one request in flight and a
-                           batch -- the server can only batch what it has been
-                           given.
     """
 
     def __init__(
@@ -71,13 +58,11 @@ class CaseDiscoveryAgent:
         judge: "Judge | None" = None,
         generation_kwargs: dict[str, Any] | None = None,
         include_unknown: bool = True,
-        concurrency: int = 1,
     ) -> None:
         self.scorer = scorer
         self.judge = judge
         self.generation_kwargs = generation_kwargs or {}
         self.include_unknown = include_unknown
-        self.concurrency = max(1, int(concurrency))
 
     def discover(
         self,
@@ -132,47 +117,12 @@ class CaseDiscoveryAgent:
         generation failed and a case whose scoring failed are the same
         observation, and both must leave the batch intact.
         """
-        workers = self._workers(model, len(cases))
-        if workers <= 1:
-            # One batch call: a local backend pads the prompts into batches.
-            answers = model.try_generate_batch(
-                [case.inputs for case in cases], **self.generation_kwargs)
-            return [(case, None, answer) if isinstance(answer, Exception) else (case, answer, None)
-                    for case, answer in zip(cases, answers)]
-
-        from concurrent.futures import ThreadPoolExecutor
-
-        def _one(case: FailureCase):
-            try:
-                return case, model.generate(case.inputs, **self.generation_kwargs), None
-            except Exception as exc:  # noqa: BLE001
-                return case, None, exc
-
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            return list(pool.map(_one, cases))
-
-    def _workers(self, model: "Model", n_cases: int) -> int:
-        """Concurrency actually allowed for this handle.
-
-        A local backend is silently forced back to 1 rather than warned about:
-        unlike ``run_batch``, nothing here asked for parallelism per case --
-        the caller set one number for a whole run that may mix handles, and a
-        warning per discovery pass would be noise about a setting that is
-        behaving correctly.
-        """
-        if self.concurrency <= 1:
-            return 1
-        from evalrx.models.backends.api import APIModel
-
-        # A deployed-pipeline wrapper (fix_tools.SpecPipelineModel) is exactly
-        # as reentrant as the handle it drives — judge it by its inner model.
-        model = getattr(model, "inner_model", model)
-        # InstrumentedModel is also a transparent proxy; preserve the API
-        # handle's configured discovery concurrency while recording each call.
-        model = getattr(model, "_model", model)
-        if not isinstance(model, APIModel):
-            return 1
-        return min(self.concurrency, max(1, n_cases))
+        # One batch call. The backend decides how many run at once: padded
+        # batches on a local model, ``runtime.concurrency`` requests over an API.
+        answers = model.try_generate_batch(
+            [case.inputs for case in cases], **self.generation_kwargs)
+        return [(case, None, answer) if isinstance(answer, Exception) else (case, answer, None)
+                for case, answer in zip(cases, answers)]
 
     def _score_with_reason(
         self,

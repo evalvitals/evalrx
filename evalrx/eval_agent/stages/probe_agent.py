@@ -96,9 +96,9 @@ class ProbeAgent:
         docker_timeout:    Seconds before a Docker run is killed.
         model_env_var:     Name of the env var inside Docker that carries the
                            API key for the containerised model.
-        max_workers:       Maximum parallel black-box analyzers. Use 1 to run
-                           all analyzers on the calling thread for a shared
-                           local model.
+        max_workers:       Maximum Docker-mode analyzers running at once
+                           (*use_docker*). In-process analyzers always run one
+                           at a time; the model's backend batches their calls.
         time_budget_sec:   Wall-clock budget for one :meth:`probe` call
                            (default 1800; 0 for no limit). An analyzer that has
                            not started when it is spent is skipped and named in
@@ -228,9 +228,9 @@ class ProbeAgent:
            :class:`~evalrx.eval_agent.probe.StrategyProbe` with the
            optional *hint_failure_modes* list for priority-boosting.
 
-        Black-box analyzers use a ``ThreadPoolExecutor`` when ``max_workers``
-        exceeds 1. White-box analyzers, and all probes with ``max_workers=1``,
-        run sequentially on the calling thread.
+        Analyzers run one at a time on the calling thread; each sends its
+        questions to the model in batches. With ``use_docker``, black-box
+        analyzers run in containers, up to ``max_workers`` at once.
 
         Sets :attr:`last_schema` with the selection rationale so callers can
         inspect which analyzers ran and why without changing the return type.
@@ -334,16 +334,15 @@ class ProbeAgent:
                            f"({time.monotonic() - began:.1f}s)")
             return name, result
 
-        # White-box analyzers do GPU forward passes on the SHARED local model;
-        # running them in threads races on the model (accelerate device_map
-        # hooks are not thread-safe → meta-tensor/dtype errors) and stacks
-        # transient activations until the GPU OOMs. Only black-box analyzers
-        # (GENERATE/LOGPROBS, possibly Dockerised) may parallelise when the
-        # caller's backend supports concurrent requests.
-        parallel = [(n, a) for n, a in tasks if _is_blackbox_compatible(type(a))]
-        serial = [(n, a) for n, a in tasks if not _is_blackbox_compatible(type(a))]
-        if self.max_workers == 1:
-            parallel, serial = [], tasks
+        # In-process analyzers run one at a time on the calling thread: they
+        # share the model, whose backend already answers each analyzer's
+        # questions as a batch (padded batches locally, concurrent requests
+        # over an API). Running analyzers in threads on top of that would
+        # multiply the requests in flight, and races a local model's hooks.
+        # Only Docker-mode analyzers, each in its own container, run in parallel.
+        in_docker = self.use_docker and self.max_workers > 1
+        parallel = [(n, a) for n, a in tasks if in_docker and _is_blackbox_compatible(type(a))]
+        serial = [(n, a) for n, a in tasks if (n, a) not in parallel]
 
         def _record(name: str, result, exc=None) -> None:
             if exc is not None:
@@ -361,7 +360,7 @@ class ProbeAgent:
                         _record(name, result)
                     except Exception as exc:
                         _record(futures[future], None, exc)
-        for name, analyzer in serial:  # shared local model: one probe at a time
+        for name, analyzer in serial:
             try:
                 _, result = _run_one(name, analyzer)
                 _record(name, result)
@@ -601,10 +600,12 @@ class ProbeAgent:
         The result is never longer than *names* (or than ``max_analyzers`` when
         *names* is empty): the static selector replaces a dropped choice, it
         does not pad the selection up to the cap. With *named*, the caller
-        chose these analyzers itself, so a ``single_case`` one stays.
+        chose these analyzers itself: the cap does not shorten its list and a
+        ``single_case`` one stays.
         """
         wanted = len(names) or (self.max_analyzers or 0)
-        max_n = wanted if self.max_analyzers is None else min(wanted, self.max_analyzers)
+        capped = self.max_analyzers is not None and not named
+        max_n = min(wanted, self.max_analyzers or 0) if capped else wanted
         chosen = set(names) if named else set()
         selected: list[str] = []
         filtered: list[str] = []

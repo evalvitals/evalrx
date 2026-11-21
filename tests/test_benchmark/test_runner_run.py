@@ -174,8 +174,7 @@ def test_the_loop_is_wired_from_the_arguments(cell):
     assert loop.probe_agent.allow_codegen is True
     assert loop.fix_agent.proposer._floor_candidates == ()
     config = cell.config()
-    assert (config["m1_workers"], config["m1_codegen"], config["m1_selection"], config["m2_codegen"]) == (
-        8, True, "judge", True)
+    assert (config["m1_codegen"], config["m1_selection"], config["m2_codegen"]) == (True, "judge", True)
     assert (config["split_mode"], config["n_cases"], config["manifest_seed"]) == ("explore_confirm", 8, 11)
 
 

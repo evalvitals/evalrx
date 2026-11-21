@@ -29,10 +29,10 @@ def build_parser(p: argparse.ArgumentParser | None = None) -> argparse.ArgumentP
                         "L3a/L3b); jax_local = in-process JAX through the gemma library (Gemma "
                         "E2B/E4B, white-box reads, fix ladder clamped to L2 for now); gemini = "
                         "Google Gen AI API through google-genai (forced for the gemini family)")
-    p.add_argument("--concurrency", type=int, default=1,
-                   help="Cases generated at once during baseline discovery. Honoured only for "
-                        "--backend endpoint (a local backend shares one GPU and is not "
-                        "thread-safe); a served model can only batch requests it has in hand.")
+    p.add_argument("--concurrency", type=int, default=8,
+                   help="Requests in flight at once against an API backend (endpoint, gemini), "
+                        "in every stage. A local backend batches on the GPU instead "
+                        "(RuntimeConfig.batch_size).")
     p.add_argument("--base-url", default="http://host.docker.internal:8020/v1")
     p.add_argument("--api-key", default=None,
                    help="endpoint: bearer token (default EMPTY, what vllm serve expects); "

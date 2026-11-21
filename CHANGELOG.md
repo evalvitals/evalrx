@@ -6,6 +6,18 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed — one setting for requests in flight against an API backend
+
+`RuntimeConfig.concurrency` (default 8) is how many requests an API model has in
+flight, in every stage. `ProbeAgent` runs in-process analyzers one at a time on
+the calling thread and each sends its questions as batches; `max_workers` now
+only bounds Docker-mode analyzers. Before, up to 8 analyzers ran in threads,
+each asking one question at a time. `CaseDiscoveryAgent` no longer takes
+`concurrency`: it makes one batch call and the backend decides. The benchmark's
+`--concurrency` sets `RuntimeConfig.concurrency` for the `endpoint` and `gemini`
+backends and defaults to 8 (was 1, and applied to Stage 0 only). The benchmark
+run config no longer records `m1_workers`.
+
 ### Changed — M3 rewrites a test that names evidence M2 did not measure
 
 M4 does not judge a hypothesis whose test names only identifiers with no M2

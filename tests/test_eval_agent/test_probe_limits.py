@@ -76,3 +76,37 @@ def test_analyzers_that_have_not_started_when_the_budget_is_spent_are_skipped():
     assert "time budget" in agent.last_schema.rationale
     assert any("prompt_contrast: done" in line for line in lines)
     assert any("termination_audit: skipped" in line for line in lines)
+
+
+def test_an_api_model_never_sees_more_than_its_concurrency_in_flight():
+    """Analyzers batch their questions; running analyzers in threads on top of
+    that would multiply the requests an endpoint receives."""
+    import threading
+
+    from evalrx.models import RuntimeConfig, compose
+
+    lock = threading.Lock()
+    live, peak = [0], [0]
+
+    def _generate(prompt, model="", **kw):
+        with lock:
+            live[0] += 1
+            peak[0] = max(peak[0], live[0])
+        time.sleep(0.01)
+        with lock:
+            live[0] -= 1
+        return "Answer: 1"
+
+    served = compose("qwen3.5-2b", "api", RuntimeConfig(generate_fn=_generate, concurrency=3), set())
+    results = ProbeAgent(max_workers=8).probe(
+        served, _batch(6), analyzers=["prompt_contrast", "perturbation_battery", "cot_faithfulness"])
+
+    assert len(results) == 3
+    assert peak[0] == 3
+
+
+def test_the_cap_does_not_shorten_a_list_the_caller_named():
+    model = FakeModel(capabilities={Capability.GENERATE})
+    named = ["prompt_contrast", "termination_audit", "self_repair"]
+    results = ProbeAgent(max_analyzers=2).probe(model, _batch(4), analyzers=named)
+    assert set(results) == set(named)

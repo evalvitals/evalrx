@@ -1,14 +1,14 @@
 
 
-# ── discovery may fan out, but only where fanning out is safe ────────────────
+# ── discovery hands the model one batch; the backend decides how many at once ─
 
-def test_discovery_fans_out_only_for_an_api_handle():
+def test_discovery_keeps_runtime_concurrency_requests_in_flight_on_an_api_handle():
     """A served model can only batch the requests it has been handed.
 
     Discovery issued one generate at a time, so a local `vllm serve` sat at
     "Running: 1 reqs" for the whole baseline — the backend was swapped for
-    throughput and then fed serially. A local backend must still be forced to
-    1: it shares one GPU and is not thread-safe.
+    throughput and then fed serially. The API backend now sends
+    ``runtime.concurrency`` requests at once, and never more.
     """
     import threading
 
@@ -37,15 +37,9 @@ def test_discovery_fans_out_only_for_an_api_handle():
         FailureCase(id=f"c{i}", inputs=Inputs(prompt=f"q{i}"), expected="answer to q%d" % i)
         for i in range(4)
     ]
-    served = compose("qwen3.5-2b", "api", RuntimeConfig(generate_fn=_generate), set())
-    from evalrx.eval_agent.runlog.instrumentation import InstrumentedModel
-
-    wrapped = InstrumentedModel(
-        served, object(), cycle=-1, analyzer="case_discovery",
-    )
-    assert CaseDiscoveryAgent(concurrency=4)._workers(wrapped, len(cases)) == 4
+    served = compose("qwen3.5-2b", "api", RuntimeConfig(generate_fn=_generate, concurrency=4), set())
     report = CaseDiscoveryAgent(
-        scorer=lambda case, observed: observed == case.expected, concurrency=4,
+        scorer=lambda case, observed: observed == case.expected,
     ).discover(served, cases)
 
     assert peak["n"] == 4, f"expected 4 concurrent generates, saw {peak['n']}"
@@ -54,15 +48,24 @@ def test_discovery_fans_out_only_for_an_api_handle():
     assert report.n_pass == 4 and report.n_fail == 0
 
 
-def test_a_local_backend_is_forced_back_to_one():
-    from evalrx.eval_agent.stages.case_discovery import CaseDiscoveryAgent
+def test_a_model_without_its_own_batch_call_is_asked_one_case_at_a_time():
+    import threading
 
-    class _Local:
+    from evalrx.core.case import FailureCase, Inputs
+    from evalrx.eval_agent.stages.case_discovery import CaseDiscoveryAgent
+    from tests.conftest import FakeModel
+
+    threads: set[int] = set()
+
+    class _Local(FakeModel):
         def generate(self, inputs, **kw):
+            threads.add(threading.get_ident())
             return "x"
 
-    agent = CaseDiscoveryAgent(concurrency=8)
-    assert agent._workers(_Local(), 20) == 1
+    cases = [FailureCase(id=f"c{i}", inputs=Inputs(prompt=f"q{i}"), expected="x") for i in range(5)]
+    report = CaseDiscoveryAgent(scorer=lambda case, observed: observed == case.expected).discover(
+        _Local(), cases)
+    assert report.n_pass == 5 and threads == {threading.get_ident()}
 
 
 def test_a_case_whose_generation_raises_still_lands_as_unknown():
@@ -78,10 +81,9 @@ def test_a_case_whose_generation_raises_still_lands_as_unknown():
         return "ok"
 
     cases = [FailureCase(id=f"c{i}", inputs=Inputs(prompt=f"q{i}"), expected="ok") for i in range(3)]
-    served = compose("qwen3.5-2b", "api", RuntimeConfig(generate_fn=_generate), set())
+    served = compose("qwen3.5-2b", "api", RuntimeConfig(generate_fn=_generate, concurrency=3), set())
     report = CaseDiscoveryAgent(
-        scorer=lambda case, observed: observed == case.expected,
-        concurrency=3, include_unknown=True,
+        scorer=lambda case, observed: observed == case.expected, include_unknown=True,
     ).discover(served, cases)
 
     labels = {c.id: c.label for c in report.cases}

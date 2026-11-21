@@ -99,6 +99,7 @@ def load_model(resolved: Resolved, args, task: T.Task):
             extra_body["top_k"] = gen["top_k"]
         runtime = openai_runtime(base_url=args.base_url, api_key=args.api_key,
                                  extra_body=extra_body, **sampling)
+        runtime.concurrency = max(1, int(args.concurrency))
         # the endpoint's generate_fn carries the sampling itself; per-call kwargs are not forwarded
         return compose(spec, "api", runtime, set()), {}, spec
     if resolved.backend == "gemini":
@@ -120,6 +121,7 @@ def load_model(resolved: Resolved, args, task: T.Task):
                                  with_logprobs="auto",
                                  logprobs_model=spec.hf_repo or spec.key,
                                  top_logprobs=5, **sampling)
+        runtime.concurrency = max(1, int(args.concurrency))
         return compose(spec, "api", runtime, set()), {}, spec
     from evalrx.models.backends.base import RuntimeConfig
 
@@ -428,7 +430,6 @@ def _discover(model, candidates, protocol, gen_kwargs: dict, args):
     started = time.monotonic()
     discovery = CaseDiscoveryAgent(
         scorer=T.label_case, generation_kwargs=gen_kwargs, include_unknown=False,
-        concurrency=getattr(args, "concurrency", 1),
     ).discover(model, candidates, protocol=protocol)
     return discovery, time.monotonic() - started
 
@@ -490,12 +491,6 @@ def _probe_agent(args, task: T.Task, resolved: Resolved, model, judge, coder_cfg
         if Capability.LOGPROBS in model.capabilities and "logprob_entropy" not in pinned:
             pinned.append("logprob_entropy")
     overrides = _sampling_analyzer_overrides(resolved, args)
-    # In-process generation shares one accelerator model. Concurrent Python
-    # generation loops contend heavily on HF models; JAX already serializes
-    # model access. Keep native probes on the calling thread, while serving
-    # backends can continue issuing concurrent requests.
-    probe_workers = 1 if resolved.backend in {"hf_local", "jax_local"} else 8
-    config["m1_workers"] = probe_workers
     agentic = _is_agentic(args)
     m1_codegen = agentic and args.allow_codegen
     config["m1_codegen"] = bool(m1_codegen)
@@ -509,12 +504,11 @@ def _probe_agent(args, task: T.Task, resolved: Resolved, model, judge, coder_cfg
             judge=None, max_analyzers=len(pinned),
             max_cases_per_analyzer=args.analyzer_max_cases,
             analyzer_overrides=overrides,
-            max_workers=probe_workers,
         )
     return ProbeAgent(judge=judge, allow_codegen=m1_codegen,
                       codegen_config=coder_cfg,
                       max_cases_per_analyzer=args.analyzer_max_cases,
-                      analyzer_overrides=overrides, max_workers=probe_workers)
+                      analyzer_overrides=overrides)
 
 
 def _stats_agent(args, task: T.Task, judge, coder_cfg, ctx):
