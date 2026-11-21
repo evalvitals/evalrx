@@ -12,6 +12,7 @@ References:
 
 from __future__ import annotations
 
+import dataclasses
 import re
 from typing import TYPE_CHECKING, Optional
 
@@ -55,8 +56,13 @@ class VerbalizedConfidenceAnalyzer(Analyzer):
         return max(0.0, min(1.0, val / 100.0 if val > 1.0 else val))
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
+        # One case, one call: nothing to batch. `calibration` is the analyzer
+        # that asks this of a whole batch (and scores it against the labels).
         case = cases[0]
-        raw = model.generate(str(case.inputs) + self.elicit)
+        # dataclasses.replace keeps the image: str(inputs) + elicit asked a
+        # VLM the question without its picture.
+        raw = model.generate(dataclasses.replace(
+            case.inputs, prompt=(case.inputs.prompt or "") + self.elicit))
         conf = self._parse(raw)
         return Result(
             analyzer=self.name,

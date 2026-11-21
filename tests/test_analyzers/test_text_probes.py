@@ -518,3 +518,23 @@ def test_calibration_scores_logprobs_in_one_batch_and_survives_one_bad_case():
     assert findings["logprob_channel"]["n"] == 3
     (bad,) = [row for row in findings["per_case"] if "logprob_error" in row]
     assert bad["sample_id"] == "c2" and "TimeoutError" in bad["logprob_error"]
+
+
+def test_verbalized_confidence_asks_with_the_case_image():
+    from evalrx.analyzers.uncertainty.verbalized_conf import VerbalizedConfidenceAnalyzer
+
+    seen: list[Inputs] = []
+
+    class Sees(ScriptModel):
+        def generate(self, inputs, **kwargs):
+            seen.append(inputs)
+            return "A cat.\nConfidence: 80"
+
+    picture = object()
+    case = FailureCase(inputs=Inputs(prompt="What animal is this?", image=picture))
+
+    findings = VerbalizedConfidenceAnalyzer().run(Sees(["x"]), CaseBatch([case])).findings
+
+    assert findings["verbalized_confidence"] == 0.8
+    assert seen[0].image is picture and seen[0].prompt.startswith("What animal is this?")
+    assert "Confidence:" in seen[0].prompt

@@ -57,7 +57,11 @@ Analyzers:
 
 Left as they are: `verbalized_confidence` and `logprob_entropy` make one model
 call for one case, so there is nothing to batch (`calibration` is the batch-level
-counterpart of both).
+counterpart of both, and the M1 routes pair them with it).
+
+Fixed on the way: `verbalized_confidence` built its question as
+`str(case.inputs) + elicit`, a bare string, so a vision model was asked without
+the case's image. It now keeps the inputs and replaces the prompt.
 
 ### Changed — the examples follow the package's default Claude model
 
