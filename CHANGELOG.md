@@ -6,6 +6,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed — M3 rewrites a test that names evidence M2 did not measure
+
+M4 does not judge a hypothesis whose test names only identifiers with no M2
+result (a signal name the judge made up, a case id): it reports the test as
+unmet. In one 22-minute run that was three of six hypotheses. M3's proposal call
+now checks each test the way M4 will and, when one is unmet, asks the judge once
+to rewrite it against the signals that have a result, or in plain words. As with
+the plain-language check, the second answer is accepted as it is.
+
 ### Changed — M1 is bounded by default
 
 `ProbeAgent` now caps a probe round at 6 analyzers (`max_analyzers=6`; `None`
