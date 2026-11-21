@@ -293,9 +293,38 @@ pipeline — NOT the primary reader-facing narrative; keep these terse):
   label/outcome column (a recipe is a PREDICTOR, never the answer). Example:
     "recipe": {{"name": "small_and_peripheral", "kind": "expr", "expr": "(obj_size < 40) and (focus_share < 0.3)"}}
   Emit a recipe rather than prose whenever the candidate is computable from the columns.
+  The expr may also call has_word(text_column, "word") for a keyword flag
+  (whole word, any case) or contains(text_column, "some phrase") for a substring.
+  A recipe MAY carry these optional fields, which say HOW it is compared with
+  the outcome on held-out rows. Fix every number in them now; none is re-fitted:
+    "where": "<condition>"   only rows where it is true take part (a comparison
+                             inside one subgroup). Use this instead of an expr
+                             that returns nothing for the other rows.
+    "design": "stratified", "strata": ["<expr>", ...]
+                             compare flagged with unflagged rows WITHIN strata
+                             and average, for a gap that may only reflect a
+                             different mix (same generator, same score band).
+                             A stratum expr may be a column name or a banding
+                             such as "int(score * 5)".
+    "design": "did", "modifier": "<0/1 expr>"
+                             how much LARGER the recipe's effect is where the
+                             modifier holds than where it does not (an
+                             interaction).
+    "design": "dose_response", "bins": [<cut points>]
+                             for a CONTINUOUS expr: fixed cut points; tested as
+                             the change in the outcome per step up the bins.
+                             A continuous expr without bins cannot be re-tested.
+    "expect": {{"relation": ">" | "<" | "abs<" | "nonzero", "value": <number>}}
+                             what you predict the effect to be. Use "abs<" with
+                             a bound for a control you expect to come out small,
+                             so that a small difference counts as the prediction
+                             holding rather than as a failed finding.
 - ALTERNATIVELY, you MAY attach host-adjudicable "sufficient" statistics computed
   from the rows, as ONE of these shapes:
     {{"kind": "two_group", "a": [0/1, ...], "b": [0/1, ...]}}   # is_fail indicators among signal-ABSENT (a) vs signal-PRESENT (b) cases
+    # when the profile names a group column, ALSO give the group of every entry,
+    # in the same order: "clusters_a": [...], "clusters_b": [...] — rows of one
+    # group are then not counted as independent evidence
     {{"kind": "paired_binary", "b": <int>, "c": <int>}}          # discordant counts of a paired intervention (b = flips the good way, c = the bad way)
   Do NOT emit "reject"/"e_value"/"p_value" anywhere — this tool never adjudicates
   a verdict itself; a self-declared verdict is ignored. Omit both for

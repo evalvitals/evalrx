@@ -31,7 +31,7 @@ import ast
 import logging
 import operator
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
@@ -54,6 +54,15 @@ class RecipeError(ValueError):
     """A recipe is structurally invalid (bad syntax / disallowed construct)."""
 
 
+#: How a recipe is compared with the outcome on held-out rows; see
+#: :mod:`evalrx.analysis.holdout_designs`. An empty design is inferred: a 0/1
+#: recipe is a two-group comparison, a continuous one with ``bins`` is a
+#: dose-response trend.
+RECIPE_DESIGNS = ("two_group", "stratified", "did", "dose_response")
+#: Relations a recipe's ``expect`` may state about its held-out effect.
+EXPECT_RELATIONS = ("nonzero", ">", "<", "abs<")
+
+
 @dataclass
 class SignalRecipe:
     """A deterministic recipe for a new per-case signal (carries NO e-value).
@@ -66,6 +75,20 @@ class SignalRecipe:
                         e.g. ``"(obj_size < 40) and (attention_focus_share < 0.3)"``.
         code:           ``kind="code"`` — sandbox source (deferred).
         suggested_test: catalog tool to route to, e.g. ``"signal_label_assoc"``.
+        where:          optional DSL condition; only rows where it is true take
+                        part (a comparison inside one subgroup). Rows where it
+                        is false or cannot be evaluated are left out, not scored 0.
+        design:         one of :data:`RECIPE_DESIGNS`, or empty to infer.
+        strata:         ``design="stratified"`` — DSL expressions whose values
+                        define the strata the comparison is made within.
+        modifier:       ``design="did"`` — a 0/1 DSL expression; the estimate is
+                        the recipe's effect where it is 1 minus where it is 0.
+        bins:           ``design="dose_response"`` — fixed, increasing cut
+                        points for a continuous ``expr``, chosen on the
+                        exploration rows and reused unchanged.
+        expect:         the predicted held-out effect, ``{"relation": r,
+                        "value": v}`` with ``r`` in :data:`EXPECT_RELATIONS`.
+                        Without it the claim is "the effect is not zero".
     """
 
     name: str
@@ -74,10 +97,32 @@ class SignalRecipe:
     expr: str = ""
     code: str = ""
     suggested_test: str = ""
+    where: str = ""
+    design: str = ""
+    strata: list[str] = field(default_factory=list)
+    modifier: str = ""
+    bins: list[float] = field(default_factory=list)
+    expect: dict[str, Any] | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SignalRecipe":
-        """Build from the ``recipe`` dict an explorer candidate may carry."""
+        """Build from the ``recipe`` dict an explorer candidate may carry.
+
+        Fields of the wrong shape are dropped rather than raised on: the dict
+        is written by a model, and a malformed optional field should cost that
+        field, not the whole recipe. :func:`recipe_problems` reports them.
+        """
+        strata = data.get("strata")
+        if isinstance(strata, str):
+            strata = [strata]
+        bins: list[float] = []
+        for edge in data.get("bins") or []:
+            try:
+                bins.append(float(edge))
+            except (TypeError, ValueError):
+                bins = []
+                break
+        expect = data.get("expect")
         return cls(
             name=str(data.get("name", "")),
             description=str(data.get("description", "")),
@@ -85,7 +130,29 @@ class SignalRecipe:
             expr=str(data.get("expr", "")),
             code=str(data.get("code", "")),
             suggested_test=str(data.get("suggested_test", "")),
+            where=str(data.get("where") or ""),
+            design=str(data.get("design") or ""),
+            strata=[str(x) for x in strata] if isinstance(strata, (list, tuple)) else [],
+            modifier=str(data.get("modifier") or ""),
+            bins=bins,
+            expect=dict(expect) if isinstance(expect, dict) else None,
         )
+
+
+def parse_expectation(expect: Any) -> "tuple[str, float] | None":
+    """``(relation, value)`` for a recipe's ``expect``, or None if absent or malformed."""
+    if not isinstance(expect, dict):
+        return None
+    relation = str(expect.get("relation") or "").strip()
+    if relation not in EXPECT_RELATIONS:
+        return None
+    try:
+        value = float(expect.get("value", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return None
+    if relation == "abs<" and value <= 0:
+        return None
+    return relation, (0.0 if relation == "nonzero" else value)
 
 
 # ---------------------------------------------------------------------------
@@ -112,9 +179,22 @@ _CMP_OPS = {
 _UNARY_OPS: dict[type[ast.unaryop], Callable[[Any], Any]] = {
     ast.UAdd: operator.pos, ast.USub: operator.neg, ast.Not: operator.not_,
 }
+def _contains(text: Any, piece: Any) -> bool:
+    """Case-insensitive substring test; the recipe form of a keyword flag."""
+    return str(piece).lower() in str(text).lower()
+
+
+def _has_word(text: Any, word: Any) -> bool:
+    """Case-insensitive whole-word test: ``has_word("restart", "art")`` is False."""
+    return re.search(
+        rf"(?<![^\W_]){re.escape(str(word).lower())}(?![^\W_])", str(text).lower()
+    ) is not None
+
+
 # The ONLY callables a recipe may invoke. All pure, total, side-effect free.
 _FUNCS: dict[str, Callable[..., Any]] = {
     "abs": abs, "min": min, "max": max, "float": float, "int": int, "len": len,
+    "contains": _contains, "has_word": _has_word,
 }
 
 # AST node types the validator permits (anything else is rejected outright).
@@ -136,7 +216,9 @@ def _validate(tree: ast.AST) -> None:
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             if not (isinstance(node.func, ast.Name) and node.func.id in _FUNCS):
-                raise RecipeError("only abs/min/max/float/int/len calls are allowed")
+                raise RecipeError(
+                    "only abs/min/max/float/int/len/contains/has_word calls are allowed"
+                )
             if node.keywords:
                 raise RecipeError("keyword arguments are not allowed in a recipe expr")
             continue
@@ -224,11 +306,89 @@ def _row_id(row: Any, id_col: str, index: int) -> str:
     return str(index)
 
 
+def _parse_expr(expr: str, reserved: "frozenset[str] | set[str]", what: str = "expr") -> "tuple[ast.Expression, list[str]]":
+    """Parse and validate one DSL expression; return its tree and column names.
+
+    Raises :class:`RecipeError` for bad syntax, a disallowed construct, or a
+    reference to a reserved outcome/id column.
+    """
+    text = (expr or "").strip()
+    if not text:
+        raise RecipeError(f"recipe.{what} is empty")
+    try:
+        tree = ast.parse(text, mode="eval")
+    except SyntaxError as exc:
+        raise RecipeError(f"invalid {what} syntax: {exc}") from exc
+    _validate(tree)
+    names = _free_names(tree)
+    # Hard leak guard (G4): a recipe must be a function of PREDICTOR signals only,
+    # never the outcome/id. Referencing the label column would make the signal the
+    # label itself — a guaranteed double-dip self-prediction.
+    leaked = sorted(n for n in names if n in reserved)
+    if leaked:
+        raise RecipeError(
+            f"recipe {what} may not reference reserved outcome/id column(s): {leaked}"
+        )
+    return tree, names
+
+
+def expr_columns(expr: str) -> list[str]:
+    """Column names a DSL expression reads; empty when it does not parse."""
+    try:
+        tree = ast.parse((expr or "").strip(), mode="eval")
+    except SyntaxError:
+        return []
+    return _free_names(tree)
+
+
+_SKIP = object()
+
+
+def _eval_row(tree: ast.Expression, names: list[str], row: Any) -> Any:
+    """Evaluate a parsed expression on one row; ``_SKIP`` if it cannot be."""
+    env: dict[str, Any] = {}
+    for n in names:
+        v = _row_get(row, n)
+        if v is None:
+            return _SKIP
+        env[n] = v
+    try:
+        return _ev(tree.body, env)
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return _SKIP
+
+
+def evaluate_expr(
+    expr: str,
+    records: Any,
+    *,
+    id_col: str = "case_id",
+    reserved: "tuple[str, ...] | list[str] | set[str] | frozenset[str]" = (),
+    what: str = "expr",
+) -> list[Any]:
+    """Evaluate one DSL expression on every row, in row order.
+
+    Returns the raw value per row (a number, a bool or a string), or None for
+    a row it could not be evaluated on. Unlike :func:`compile_recipe` it does
+    not coerce to float, so it also serves stratum labels. *reserved* adds
+    column names the expression may not use, on top of the built-in outcome
+    and id names — pass the actual outcome column when it has another name.
+    """
+    blocked = _RESERVED_RECIPE_NAMES | {id_col} | set(reserved)
+    tree, names = _parse_expr(expr, blocked, what)
+    out: list[Any] = []
+    for row in records or []:
+        value = _eval_row(tree, names, row)
+        out.append(None if value is _SKIP else value)
+    return out
+
+
 def compile_recipe(
     recipe: SignalRecipe,
     records: Any,
     *,
     id_col: str = "case_id",
+    reserved: "tuple[str, ...] | list[str] | set[str] | frozenset[str]" = (),
 ) -> dict[str, float]:
     """Compile *recipe* into ``{case_id -> value}`` over *records*.
 
@@ -237,6 +397,11 @@ def compile_recipe(
     column, type mismatch, non-numeric result) SKIPS that case rather than aborting,
     so a recipe that only partially applies still yields a usable (smaller) signal;
     an empty result tells the caller the recipe could not be operationalized.
+
+    A recipe's ``where`` condition restricts the rows: a row where it is false,
+    or cannot be evaluated, is skipped like a row with a missing column.
+    *reserved* names further columns no expression may reference (the outcome
+    column, when it is not one of the built-in outcome names).
     """
     if recipe.kind == "code":
         raise NotImplementedError(
@@ -246,41 +411,20 @@ def compile_recipe(
     if recipe.kind != "expr":
         raise RecipeError(f"unknown recipe kind: {recipe.kind!r}")
 
-    expr = (recipe.expr or "").strip()
-    if not expr:
-        raise RecipeError("recipe.expr is empty")
-    try:
-        tree = ast.parse(expr, mode="eval")
-    except SyntaxError as exc:
-        raise RecipeError(f"invalid expr syntax: {exc}") from exc
-    _validate(tree)
-    names = _free_names(tree)
-
-    # Hard leak guard (G4): a recipe must be a function of PREDICTOR signals only,
-    # never the outcome/id. Referencing the label column would make the signal the
-    # label itself — a guaranteed double-dip self-prediction.
-    reserved = _RESERVED_RECIPE_NAMES | {id_col}
-    leaked = sorted(n for n in names if n in reserved)
-    if leaked:
-        raise RecipeError(
-            f"recipe expr may not reference reserved outcome/id column(s): {leaked}"
-        )
+    blocked = _RESERVED_RECIPE_NAMES | {id_col} | set(reserved)
+    tree, names = _parse_expr(recipe.expr, blocked)
+    where = None
+    if (recipe.where or "").strip():
+        where = _parse_expr(recipe.where, blocked, "where")
 
     out: dict[str, float] = {}
     for i, row in enumerate(records or []):
-        env: dict[str, Any] = {}
-        missing = False
-        for n in names:
-            v = _row_get(row, n)
-            if v is None:
-                missing = True
-                break
-            env[n] = v
-        if missing:
-            continue
-        try:
-            value = _ev(tree.body, env)
-        except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        if where is not None:
+            keep = _eval_row(where[0], where[1], row)
+            if keep is _SKIP or not keep:
+                continue
+        value = _eval_row(tree, names, row)
+        if value is _SKIP:
             continue
         fv = _to_float(value)
         if fv is not None:

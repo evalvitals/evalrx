@@ -81,6 +81,42 @@ def _add_explore(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> No
              "when the data has no recognizable outcome.",
     )
     explore.add_argument(
+        "--group-col",
+        default=None,
+        help="Column naming the unit rows were cut from (several rows per source "
+             "item, one prompt answered by several models). Each group is kept on "
+             "one side of the held-out split, and held-out intervals resample "
+             "whole groups. Without it rows are treated as independent.",
+    )
+    explore.add_argument(
+        "--time-col",
+        default=None,
+        help="Name of a time column, when its name does not say so.",
+    )
+    explore.add_argument(
+        "--text-col",
+        default=None,
+        help="Free-text column to mine for keywords: words over-represented on "
+             "either side of the outcome in the exploration half are frozen as "
+             "recipes and re-tested on the held-out half. Needs --holdout-frac.",
+    )
+    explore.add_argument(
+        "--data-card", default=None, metavar="FILE",
+        help="JSON or YAML file answering four questions about the table: unit "
+             "(what a row is), extraction (how it was cut from the raw object), "
+             "threshold (how the outcome was set), aggregation (how results are "
+             "combined in use). Answers are printed in the report's caveats; "
+             "unanswered questions are listed there too.",
+    )
+    explore.add_argument("--row-unit", default=None,
+                         help="Data card: what one row is.")
+    explore.add_argument("--row-extraction", default=None,
+                         help="Data card: how a row was cut from the raw object.")
+    explore.add_argument("--outcome-threshold", default=None,
+                         help="Data card: how the outcome or its threshold was set.")
+    explore.add_argument("--deployment-aggregation", default=None,
+                         help="Data card: how results are combined when the system is used.")
+    explore.add_argument(
         "--out",
         default="evalrx_explore_output",
         help="Output directory for report/code/figures/tables.",
@@ -95,7 +131,12 @@ def _add_explore(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> No
     )
     explore.add_argument("--model", "--coder-model", dest="coder_model", default="")
     explore.add_argument("--coder-binary", default="")
-    explore.add_argument("--max-rows", type=int, default=2000)
+    explore.add_argument(
+        "--max-rows", type=int, default=2000,
+        help="Most rows the host loads (for a held-out split, or for a backend "
+             "without file access). Rows beyond it are dropped, with a warning "
+             "that says how many (default 2000).",
+    )
     explore.add_argument("--max-files", type=int, default=200)
     explore.add_argument("--include-tool-calls", action="store_true")
     explore.add_argument("--timeout-sec", type=int, default=120)
@@ -135,9 +176,22 @@ def _add_explore(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> No
     explore.add_argument("--holdout-seed", type=int, default=0,
                          help="Seed for the held-out split (default 0).")
     explore.add_argument(
-        "--judge-model", default="claude-opus-4-8",
-        help="LLM judge grading each hypothesis against the held-out table "
-             "(only used with --holdout-confirm).",
+        "--judge-backend", default="same",
+        choices=["same", "claude", "antigravity", "codex", "claude_code", "opencode",
+                 "gemini_cli", "kimi_cli"],
+        help="Backend of the judge grading each hypothesis against the held-out "
+             "table (only with --holdout-confirm). 'same' (default) follows "
+             "--backend. A judge that is also the proposer is flagged in the report.",
+    )
+    explore.add_argument(
+        "--judge-model", default="",
+        help="Model of that judge. Default: claude-opus-4-8 on a Claude backend, "
+             "otherwise the model given with --model, otherwise the backend's own default.",
+    )
+    explore.add_argument(
+        "--keep-sandbox", action="store_true",
+        help="Keep the temporary working directory (it holds a copy of the data) "
+             "instead of deleting it once the artifacts are in --out.",
     )
     explore.add_argument("--progress-path", default="",
                          help="Append durable workbench progress events to this JSONL path.")
@@ -168,6 +222,19 @@ def _explore(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     # "job" bookkeeping above/below stays workbench-only (event_sink), not
     # narrated -- it wraps the whole process rather than one M-stage.
     progress_sink = MultiSink(TerminalNarrator() if args.narrate else None, event_sink) or None
+    data_card: dict[str, str] = {}
+    if args.data_card:
+        from evalrx.analysis.explore_run import load_data_card
+
+        try:
+            data_card = load_data_card(args.data_card)
+        except (OSError, ValueError) as exc:
+            parser.error(f"--data-card: {exc}")
+    for key, value in (("unit", args.row_unit), ("extraction", args.row_extraction),
+                       ("threshold", args.outcome_threshold),
+                       ("aggregation", args.deployment_aggregation)):
+        if value:
+            data_card[key] = value
     code = run_explore(
         args.path,
         question=args.question,
@@ -191,6 +258,12 @@ def _explore(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         holdout_confirm=args.holdout_confirm,
         judge_model=args.judge_model,
         progress_sink=progress_sink,
+        group_col=args.group_col,
+        time_col=args.time_col,
+        text_col=args.text_col,
+        data_card=data_card or None,
+        judge_backend=args.judge_backend,
+        keep_sandbox=args.keep_sandbox,
     )
     if event_sink is not None:
         event_sink.emit(

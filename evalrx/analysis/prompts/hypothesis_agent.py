@@ -60,6 +60,19 @@ Propose 1-3 hypotheses. For each give:
   symbols. Numbers and percentages are fine and encouraged.
 - basis: which takeaway(s) or signal(s) above it is grounded in.
 - test: what evidence or analysis would confirm or refute it.
+- predictions (optional, up to 4): the part of the claim that rows which were
+  held out can decide. Each names one candidate signal above that has a
+  recipe, by its signal name, and states what its effect (outcome among rows
+  the recipe flags, minus the outcome among rows it does not) should be:
+  {{"signal": "<signal name>", "relation": ">" | "<" | "abs<" | "nonzero",
+  "value": <number>}}. Use "abs<" for a comparison your hypothesis says
+  should come out small, such as a control. Leave the list empty if no
+  listed signal bears on the claim; do not invent signal names.
+- experiment (optional): only when the claim is about a cause that re-counting
+  existing rows cannot settle. Give four short fields: data_needed (what to
+  collect or re-run), operation (what is changed), expected_result (what is
+  seen if you are right) and falsified_by (what result would show you are
+  wrong). Omit it when the predictions above are enough.
 
 Do not repeat a takeaway verbatim; propose a CAUSE or MECHANISM behind what
 was observed. If the findings are too thin to support any falsifiable

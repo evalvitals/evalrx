@@ -12,9 +12,15 @@ from evalrx.stats.api import (
     compare_multiple,
     compare_paired_rates,
 )
-from evalrx.stats.bootstrap import clustered_bootstrap_diff
+from evalrx.stats.bootstrap import (
+    bootstrap_p_value,
+    clustered_bootstrap_diff,
+    mean_difference_statistic,
+    weighted_bootstrap,
+)
 from evalrx.stats.ebh import ebh
 from evalrx.stats.evalue import e_value_test, evalue_bernoulli, evalue_bounded_mean
+from evalrx.stats.exact import two_group_exact_p
 from evalrx.stats.friedman import chi2_sf, friedman_test, nemenyi_cd, nemenyi_pairs
 from evalrx.stats.mcnemar import mcnemar
 from evalrx.stats.multiplicity import MultiplicityReport, bh, correct_results
@@ -28,10 +34,14 @@ __all__ = [
     "MultiCompareResult",
     "mcnemar",
     "clustered_bootstrap_diff",
+    "weighted_bootstrap",
+    "bootstrap_p_value",
+    "mean_difference_statistic",
     "evalue_bernoulli",
     "e_value_test",
     "evalue_bounded_mean",
     "ebh",
+    "two_group_exact_p",
     "friedman_test",
     "nemenyi_cd",
     "nemenyi_pairs",

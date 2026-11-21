@@ -137,18 +137,101 @@ class FusedReport:
 # Deterministic stratified EXPLORE / CONFIRM split (records level)
 # ---------------------------------------------------------------------------
 
+def _group_key(row: Any, group_col: str, index: int) -> Any:
+    """A row's group, or a key unique to the row when the group is missing."""
+    value = row.get(group_col) if isinstance(row, dict) else getattr(row, group_col, None)
+    if value is None or value == "":
+        return ("__row__", index)
+    return ("v", str(value))
+
+
+def _split_by_group(
+    rows: list[dict[str, Any]],
+    *,
+    n_confirm: int,
+    seed: int,
+    label_col: str,
+    group_col: str,
+) -> "tuple[list[dict], list[dict]]":
+    """Split so that every group lies wholly on one side.
+
+    Groups are stratified by their most common label and, within a stratum,
+    drawn in a seeded random order until the stratum's share of the confirm
+    rows is reached. Group sizes differ, so the confirm share is approximate:
+    the draw stops at whichever group count lands closest to the target.
+    """
+    import random
+    from collections import Counter
+
+    members: dict[Any, list[int]] = {}
+    for i, row in enumerate(rows):
+        members.setdefault(_group_key(row, group_col, i), []).append(i)
+
+    strata: dict[str, list[Any]] = {}
+    distinct = {str(r.get(label_col)) for r in rows}
+    if len(distinct) > 10:
+        # A many-valued outcome (a score) has no "most common label" worth
+        # stratifying on. Stratify groups by the quartile of their mean when
+        # the outcome is numeric, and not at all otherwise.
+        means: dict[Any, float] = {}
+        for key, idxs in members.items():
+            nums = [
+                float(v) for v in (rows[i].get(label_col) for i in idxs)
+                if isinstance(v, (int, float)) and not isinstance(v, bool)
+            ]
+            if nums:
+                means[key] = sum(nums) / len(nums)
+        ranked = sorted(means, key=lambda k: (means[k], str(k)))
+        quartile = {k: f"q{min(3, 4 * pos // max(1, len(ranked)))}"
+                    for pos, k in enumerate(ranked)}
+        for key in members:
+            strata.setdefault(quartile.get(key, "unscored"), []).append(key)
+    else:
+        for key, idxs in members.items():
+            labels = Counter(str(rows[i].get(label_col)) for i in idxs)
+            # Ties resolve to the label that sorts first, so the split is deterministic.
+            top = min(labels, key=lambda lab: (-labels[lab], lab))
+            strata.setdefault(top, []).append(key)
+
+    rng = random.Random(seed)
+    frac = n_confirm / len(rows)
+    confirm_idx: set[int] = set()
+    for label in sorted(strata):
+        keys = strata[label]
+        rng.shuffle(keys)
+        target = frac * sum(len(members[k]) for k in keys)
+        taken = 0
+        for key in keys:
+            size = len(members[key])
+            # Take the group only if that brings the stratum closer to its target.
+            if abs(taken + size - target) > abs(taken - target):
+                continue
+            confirm_idx.update(members[key])
+            taken += size
+    explore = [r for i, r in enumerate(rows) if i not in confirm_idx]
+    confirm = [r for i, r in enumerate(rows) if i in confirm_idx]
+    return explore, confirm
+
+
 def _split_records(
     records: list[dict[str, Any]],
     *,
     frac: float,
     seed: int,
     label_col: str,
+    group_col: str | None = None,
 ) -> "tuple[list[dict], list[dict] | None]":
     """Deterministic, label-stratified ``(explore, confirm)`` split.
 
     Returns ``(explore, confirm)``. Like the in-loop split, returns
     ``(records, None)`` when ``frac <= 0`` or the batch is too small to hold out —
     a no-op, so the caller falls back to in-sample confirmation with a caveat.
+
+    With *group_col*, rows that share a value of that column are kept on one
+    side. Use it when rows are not independent — several rows cut from the
+    same source item, the same prompt answered by several models — because a
+    row-level split would otherwise put near-copies of an explore row in the
+    confirm half and the confirmation would not be held out in any useful sense.
     """
     from evalrx.stats.subset_sampling import stratified_subset
 
@@ -159,6 +242,15 @@ def _split_records(
     if n_confirm <= 0 or n_confirm >= len(rows):
         return rows, None
 
+    if group_col:
+        explore, confirm = _split_by_group(
+            rows, n_confirm=n_confirm, seed=seed, label_col=label_col,
+            group_col=group_col,
+        )
+        if not explore or not confirm:
+            return rows, None
+        return explore, confirm
+
     def _key(row: dict[str, Any]) -> Any:
         return str(row.get(label_col))
 
@@ -168,6 +260,33 @@ def _split_records(
     if not explore or not confirm:
         return rows, None
     return explore, confirm
+
+
+def group_overlap(
+    explore: list[dict[str, Any]],
+    confirm: list[dict[str, Any]],
+    group_col: str,
+) -> dict[str, Any]:
+    """How many confirm rows share a *group_col* value with an explore row.
+
+    A share near zero means the two halves are separated at the group level;
+    a large share means the confirm half repeats groups the explorer has seen.
+    Rows with a missing group value count as not shared.
+    """
+    seen = {
+        str(r.get(group_col)) for r in explore
+        if r.get(group_col) not in (None, "")
+    }
+    present = [r for r in confirm if r.get(group_col) not in (None, "")]
+    shared = sum(1 for r in present if str(r.get(group_col)) in seen)
+    return {
+        "group_col": group_col,
+        "n_confirm_rows": len(confirm),
+        "n_confirm_rows_in_explore_groups": shared,
+        "share": round(shared / len(confirm), 4) if confirm else 0.0,
+        "n_explore_groups": len(seen),
+        "n_confirm_groups": len({str(r.get(group_col)) for r in present}),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +303,7 @@ def run_fused_analysis(
     seed: int = 0,
     id_col: str = "case_id",
     label_col: str = "label",
+    group_col: str | None = None,
 ) -> FusedReport:
     """Run discovery on EXPLORE, confirmation on the held-out CONFIRM split.
 
@@ -194,10 +314,13 @@ def run_fused_analysis(
         stats_agent:    optional :class:`StatsAnalysisAgent`; one is built with a
                         high signal cap when omitted so the whole family is tested.
         confirm_split:  fraction held out for confirmation (0 = in-sample fallback).
+        group_col:      optional column naming the unit rows were cut from; rows
+                        that share a value stay on one side of the split.
     """
     rows = list(records or [])
     explore_rows, confirm_rows = _split_records(
-        rows, frac=confirm_split, seed=seed, label_col=label_col
+        rows, frac=confirm_split, seed=seed, label_col=label_col,
+        group_col=group_col,
     )
     held_out = confirm_rows is not None
     confirm_label = "held_out" if held_out else "in_sample"
@@ -213,6 +336,12 @@ def run_fused_analysis(
         "frac": confirm_split,
         "seed": seed,
     }
+    if group_col:
+        report.split["group_col"] = group_col
+        if held_out:
+            report.split["group_overlap"] = group_overlap(
+                explore_rows, confirm_rows, group_col
+            )
 
     # ── 1. Discovery source A: the LAMBDA explorer (EXPLORE only) ──
     explore_report = explorer.explore_records(explore_rows, question=question)
