@@ -919,8 +919,8 @@ def main() -> None:
             baseline_generation_kwargs={"max_tokens": max_tokens,
                                         "temperature": float(CFG["temperature"]),
                                         "top_p": float(CFG["top_p"])},
-            # Noise model: the baseline is a per-case PASS RATE (frozen sample
-            # + k-1 fresh at the batch's own T), the paired test runs on rate
+            # Noise model: the baseline is a per-case PASS RATE (k fresh
+            # samples at the batch's own T), the paired test runs on rate
             # differences (betting e-value) — sampling-unstable cases are
             # weighed, not dropped, and one T=0.6 sample per arm no longer
             # decides fixed/broken. Candidates default to one pass (coded

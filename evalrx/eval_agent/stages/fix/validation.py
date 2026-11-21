@@ -157,21 +157,23 @@ class CandidateValidator:
           supposedly paired comparison depend on endpoint non-determinism and
           waste a call per case. Cases without an ``observed`` are generated
           once.
-        * ``baseline_repeats == k > 1`` — the frozen sample counts as sample 1
-          and ``k-1`` fresh samples are drawn (all ``k`` fresh when there is no
-          frozen one), so each case gets a rate in ``{0, 1/k, ..., 1}``. A case
-          with ``0 < rate < 1`` is *unstable* (its baseline answer is a coin);
-          it is REPORTED, not dropped: the paired-rates test weighs it by how
-          much a candidate moves its rate, which is the honest accounting for
-          a stochastic model — dropping it removed exactly the cases a
-          variance-reduction scaffold repairs.
+        * ``baseline_repeats == k > 1`` — ``k`` fresh samples, so each case gets
+          a rate in ``{0, 1/k, ..., 1}``. The recorded answer is not one of
+          them: it is the answer the case was labelled by (and, under a
+          majority label, picked to agree with it), so counting it pulls the
+          rate toward the label wherever cases were chosen by label.
+          A case with ``0 < rate < 1`` is *unstable* (its baseline answer is a
+          coin); it is REPORTED, not dropped: the paired-rates test weighs it
+          by how much a candidate moves its rate, which is the honest
+          accounting for a stochastic model — dropping it removed exactly the
+          cases a variance-reduction scaffold repairs.
         """
         k = max(1, int(self.baseline_repeats))
         samples: "dict[str, list[bool]]" = {c.id: [] for c in data}
         need: "list[tuple[Any, int]]" = []
         for case in data:
             observed = getattr(case, "observed", None)
-            if observed is not None:
+            if k == 1 and observed is not None:
                 s0 = score_to_bool(self.score(case, str(observed)))
                 if s0 is not None:
                     samples[case.id].append(bool(s0))
@@ -590,7 +592,7 @@ class CandidateValidator:
         self._captured = {}
         if isinstance(candidate.payload, dict):
             v.exec_error = str(candidate.payload.get("exec_error", "") or "")
-        # Baseline rates: measured by baseline() (frozen sample + k-1 fresh);
+        # Baseline rates: measured by baseline() (k fresh samples per case);
         # a Baseline built from bare booleans carries 0/1 rates.
         matched_baseline = self.matched_baseline(candidate, model, data)
         base_rates: "dict[str, Optional[float]]" = {}

@@ -140,6 +140,14 @@ it to every call that passes none of its own, so an analyzer that calls
 `generate` with no arguments probes the model under the settings its cases were
 labelled with.
 
+A sampling model can answer one case both ways, so one answer labels the case
+by chance. `CaseDiscoveryAgent(n_samples=k)` draws `k` answers per case in one
+batch and labels the case by their majority; `case.observed` is an answer that
+earned that label and `case.metadata["discovery_votes"]` holds the count. The
+benchmark runner uses five when the task samples and one when it decodes
+greedily (`--label-samples`). The fix stage's repeated baseline does not count
+`case.observed` among its samples, because that answer was chosen by the label.
+
 `forward` returns a `Trace`, which is the common carrier for captured internals
 such as tokens, token ids, attentions, hidden states, logits, and backend-specific
 extras.

@@ -142,11 +142,21 @@ def test_the_fresh_baseline_samples_are_one_batch():
 
     baseline = agent.validator.baseline(model, _cases(2))
 
-    # The recorded answer is sample 1; two fresh samples per case, all at once.
-    assert model.batches == [["Q0", "Q0", "Q1", "Q1"]]
+    # Three fresh samples per case, all at once. The recorded "no" labelled the
+    # case and is not counted among them.
+    assert model.batches == [["Q0", "Q0", "Q0", "Q1", "Q1", "Q1"]]
     assert baseline.counts == {"c0": 3, "c1": 3}
-    assert baseline.rates == {"c0": 2 / 3, "c1": 2 / 3}
-    assert [call["operation"] for call in log.calls] == ["fresh_baseline"] * 4
+    assert baseline.rates == {"c0": 1.0, "c1": 1.0}
+    assert [call["operation"] for call in log.calls] == ["fresh_baseline"] * 6
+
+
+def test_an_unrepeated_baseline_is_the_recorded_answer():
+    model = Batched()
+
+    baseline = _agent(baseline_repeats=1).validator.baseline(model, _cases(2))
+
+    assert model.batches == []
+    assert baseline.rates == {"c0": 0.0, "c1": 0.0}
 
 
 _ONE_THREAD_PER_CASE = """
@@ -216,14 +226,14 @@ def test_the_baseline_is_measured_once_for_a_model_and_its_cases():
     other = agent.validator.baseline(model, _cases(3))  # another partition
 
     assert again is first and other is not first
-    assert [len(batch) for batch in model.batches] == [4, 6]
+    assert [len(batch) for batch in model.batches] == [6, 9]
 
     # A deployed template rewrites the prompts under the same case ids.
     rewritten = _cases(2)
     for case in rewritten:
         case.inputs.prompt = "Think. " + case.inputs.prompt
     assert agent.validator.baseline(model, rewritten) is not first
-    assert model.batches[-1] == ["Think. Q0", "Think. Q0", "Think. Q1", "Think. Q1"]
+    assert model.batches[-1] == ["Think. Q0"] * 3 + ["Think. Q1"] * 3
 
 
 def test_a_search_that_records_no_outcome_still_logs_what_the_model_was_asked():

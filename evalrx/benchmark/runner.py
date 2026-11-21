@@ -423,21 +423,42 @@ def _run_config(args, task: T.Task, resolved: Resolved, spec, gen_kwargs: dict, 
     }
 
 
-def _discover(model, candidates, protocol, gen_kwargs: dict, args):
-    """Stage 0: generate an answer per candidate and label it. ``(discovery, seconds)``."""
+def label_samples(task: T.Task, args) -> int:
+    """Answers Stage 0 draws per case. A sampling model can answer one case
+    both ways, so a single answer labels it by chance; the majority of five
+    is the default there, and one answer when decoding is greedy."""
+    if args.label_samples is not None:
+        return max(1, int(args.label_samples))
+    return 5 if generation_settings(task, args)["do_sample"] else 1
+
+
+def _discover(model, candidates, protocol, gen_kwargs: dict, args, task: T.Task):
+    """Stage 0: sample each candidate's answers and label it. ``(discovery, seconds)``."""
     from evalrx.eval_agent import CaseDiscoveryAgent
 
     started = time.monotonic()
     discovery = CaseDiscoveryAgent(
         scorer=T.label_case, generation_kwargs=gen_kwargs, include_unknown=False,
+        n_samples=label_samples(task, args),
     ).discover(model, candidates, protocol=protocol)
     return discovery, time.monotonic() - started
 
 
 def _case_labels(cases) -> list[dict[str, Any]]:
-    return [{
-        "id": c.id, "expected": c.expected, "observed": str(c.observed), "label": c.label.value,
-    } for c in cases]
+    """One row per case; ``votes`` when the label is a majority of several answers."""
+    rows = []
+    for c in cases:
+        row = {"id": c.id, "expected": c.expected, "observed": str(c.observed), "label": c.label.value}
+        if "discovery_votes" in c.metadata:
+            row["votes"] = c.metadata["discovery_votes"]
+        rows.append(row)
+    return rows
+
+
+def _split_votes(cases) -> int:
+    """Cases whose sampled answers did not all score the same."""
+    votes = [c.metadata.get("discovery_votes", {}) for c in cases]
+    return sum(1 for v in votes if v.get("pass") and v.get("fail"))
 
 
 def _mark_short_answers_stopped(task: T.Task, cases) -> None:
@@ -457,7 +478,7 @@ def _label_validation_set(model, val_manifest: Path, protocol, gen_kwargs: dict,
     single frozen-winner gate.
     """
     val_candidates, _ = T.build_cases(task, val_manifest, int(getattr(args, "val_limit", 0) or 0))
-    val_discovery, val_elapsed = _discover(model, val_candidates, protocol, gen_kwargs, args)
+    val_discovery, val_elapsed = _discover(model, val_candidates, protocol, gen_kwargs, args, task)
     val_cases = val_discovery.cases
     val_accuracy = val_discovery.n_pass / max(1, len(val_cases))
     (run_dir / "baseline_val.json").write_text(json.dumps({
@@ -465,6 +486,7 @@ def _label_validation_set(model, val_manifest: Path, protocol, gen_kwargs: dict,
         "n": len(val_cases), "n_pass": val_discovery.n_pass, "n_fail": val_discovery.n_fail,
         "n_unknown": val_discovery.n_unknown, "accuracy": round(val_accuracy, 4),
         "seconds": round(val_elapsed, 1), "manifest": str(val_manifest),
+        "label_samples": label_samples(task, args), "n_split": _split_votes(val_cases),
         "cases": _case_labels(val_cases),
     }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"Validation baseline: PASS={val_discovery.n_pass}, FAIL={val_discovery.n_fail}, "
@@ -531,8 +553,8 @@ def _fix_agent(args, task: T.Task, judge, coder_cfg, gen_kwargs: dict, ctx, raw_
 
     fix_kwargs: dict[str, Any] = {}
     sampled = bool(gen_kwargs.get("do_sample"))
-    # Noise model for a sampled baseline: per-case PASS RATE over k samples (the
-    # frozen Stage 0 output + k-1 fresh), as llm_benchmark does; greedy = 1.
+    # Noise model for a sampled baseline: per-case PASS RATE over k fresh
+    # samples; greedy = 1, the Stage 0 answer itself.
     fix_kwargs["baseline_repeats"] = (args.fix_baseline_repeats if args.fix_baseline_repeats is not None
                                       else (5 if sampled else 1))
     if task.modality == "llm":
@@ -677,7 +699,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
             batch_case_ids=[c.id for c in candidates],
         )
 
-    discovery, elapsed = _discover(discovery_model, candidates, protocol, gen_kwargs, args)
+    discovery, elapsed = _discover(discovery_model, candidates, protocol, gen_kwargs, args, task)
     cases = discovery.cases
     if ctx is not None:
         ctx.config["n_cases"] = len(cases)
@@ -689,6 +711,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         "accuracy": round(accuracy, 4), "seconds": round(elapsed, 1),
         "generation_kwargs": gen_kwargs, "enable_thinking": bool(args.enable_thinking),
         "manifest": str(manifest), "limit": limit,
+        "label_samples": label_samples(task, args), "n_split": _split_votes(cases),
         "cases": _case_labels(cases),
     }
     version = _api_model_version(model)
@@ -699,6 +722,9 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
                                            encoding="utf-8")
     print(f"Baseline: PASS={discovery.n_pass}, FAIL={discovery.n_fail}, UNKNOWN={discovery.n_unknown}, "
           f"accuracy={accuracy:.3f} ({elapsed:.0f}s, {elapsed / max(1, len(cases)):.1f}s/case)")
+    if baseline["label_samples"] > 1:
+        print(f"  labels are the majority of {baseline['label_samples']} sampled answers; "
+              f"{baseline['n_split']} of {len(cases)} cases answered both ways")
     if task.modality == "llm" and not 0.15 <= accuracy <= 0.85:
         print("  NOTE accuracy is outside the usable band [0.15, 0.85]: M2 has little to contrast "
               "and the paired tests downstream are short of power (results valid, weak)")

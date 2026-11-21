@@ -68,6 +68,9 @@ def build_parser(p: argparse.ArgumentParser | None = None) -> argparse.ArgumentP
                         "tasks — greedy Qwen3.5 loops to the cap on reasoning prompts — else 0 = greedy)")
     p.add_argument("--top-p", type=float, default=0.95)
     p.add_argument("--top-k", type=int, default=20)
+    p.add_argument("--label-samples", type=int, default=None,
+                   help="answers Stage 0 samples per case; the label is their majority "
+                        "(default: 5 when sampling, 1 greedy; use an odd number)")
     p.add_argument("--fix-baseline-repeats", type=int, default=None,
                    help="baseline samples per case in the fix stage (default: 5 when sampling, 1 greedy)")
     p.add_argument("--enable-thinking", action="store_true",

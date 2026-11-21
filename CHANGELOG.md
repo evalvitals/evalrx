@@ -6,6 +6,31 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed — Stage 0 labels a sampled case by the majority of five answers
+
+A sampling model can answer one case both ways, so one answer labelled the case
+by chance. On Qwen3.5-2B / BBH causal judgement at T=0.6 (32 cases), two
+independent Stage 0 passes gave a case the same label 17 times out of 32.
+`CaseDiscoveryAgent(n_samples=k)` now draws `k` answers per case in one batch
+and labels the case by their majority; with five, the same two-pass check gave
+25 of 32. `case.observed` is the first answer that earned the label, so scoring
+it reproduces the label, and `case.metadata["discovery_votes"]` holds the count.
+A failed sample does not vote; an even split is `UNKNOWN`. The default stays
+one answer per case.
+
+The benchmark runner uses five when the task samples and one when it decodes
+greedily; `--label-samples` sets it. `baseline.json` gains `label_samples`,
+`n_split` (cases that answered both ways) and each case's `votes`. Stage 0
+generates five times as much: 107-114 s became 516-521 s on those 32 cases.
+The labels are steadier, not settled: 9 of the 32 cases passed 4 to 6 times in
+10, and no vote count makes such a case's label repeatable.
+
+The fix stage's repeated baseline (`baseline_repeats=k > 1`) now draws `k`
+fresh samples instead of counting `case.observed` as the first. That answer is
+the one the case was labelled by, and under a majority label it is picked to
+agree with it, so counting it pulled the baseline rate toward the label. This
+is one more generation per case per baseline.
+
 ### Fixed — the fix search on the explore partition is in the run log
 
 `loop.run_fix` searches on the explore partition with `record=False` and then
