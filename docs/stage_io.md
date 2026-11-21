@@ -258,8 +258,13 @@ object).
 
 **Output:** `list[Hypothesis]`, each with `statement` (technical claim),
 `plain_statement` (jargon-free rewrite), `basis` (which M2 takeaway grounds
-it), `test_design` (what evidence would confirm/refute it). Proposal only —
-generating a hypothesis is not testing one.
+it), `test_design` (what evidence would confirm/refute it). Two optional
+fields appear only when stated: `predictions` (numeric claims about named
+candidate signals, which the host checks on held-out rows) and `experiment`
+(`data_needed`, `operation`, `expected_result`, `falsified_by` — the
+intervention needed when re-counting rows cannot decide the claim). See
+[Held-out Confirmation](holdout_confirmation.md). Proposal only — generating a
+hypothesis is not testing one.
 
 **UI (Tab 3 — Hypotheses):** one card per hypothesis — headline is
 `plain_statement` (falls back to `statement`), technical `statement` shown

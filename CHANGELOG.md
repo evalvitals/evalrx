@@ -6,6 +6,82 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — held-out confirmation that respects groups
+
+Rows cut from one underlying item (frames of a clip, one prompt answered by
+several models) are not independent. `evalrx explore --group-col COLUMN` and
+`split_records(..., group_col=)` keep each group on one side of the split, and
+`holdout_confirm(..., group_col=)` resamples whole groups for every interval.
+`evalrx.stats.weighted_bootstrap` is the cluster bootstrap behind it, and
+`compare(a, b, paired=False, cluster_by=(groups_a, groups_b))` is the clustered
+two-group comparison. A `two_group` sufficient statistic may carry
+`clusters_a` / `clusters_b`. When no group column is named, the profile
+suggests columns that look like one (`DatasetProfile.suggested_group_columns`)
+and a held-out run reports how many held-out rows share a group with an
+explored row. `docs/holdout_confirmation.md` is the guide;
+`docs/validation/holdout_calibration_20261121.md` has the calibration.
+
+### Added — more comparisons a frozen recipe can ask for
+
+A recipe may carry `where` (a subgroup condition), `design: stratified` with
+`strata`, `design: did` with a `modifier`, `design: dose_response` with fixed
+`bins`, and `expect` (`>`, `<`, `abs<` a bound, or `nonzero`). `abs<` is how a
+control is written: it holds only when the whole interval is inside the bound.
+Recipes may call `has_word(column, "word")` and `contains(column, "text")`.
+A numeric outcome is supported (differences of means). Signals whose claim
+holds list `representative_cases`, chosen at each side's median.
+`evalrx.analysis.holdout_designs` implements the designs.
+
+### Added — host-checked predictions and structured experiment plans
+
+A hypothesis may carry `predictions` about named signals; the host checks them
+on the held-out rows and reports `host_verdict` without a model. `experiment`
+(`data_needed`, `operation`, `expected_result`, `falsified_by`) replaces a
+free-text plan for an intervention. `HypothesisAgent` asks for both.
+
+### Added — data card, leakage check, keyword recipes
+
+`--data-card` (or `--row-unit`, `--row-extraction`, `--outcome-threshold`,
+`--deployment-aggregation`) records what a row is and how the table was built;
+answers and gaps are printed in the report's caveats. The profile flags
+columns that almost fully determine the outcome
+(`DatasetProfile.leakage_suspects`). `--group-col` / `--time-col` name column
+roles explicitly, and calendar-like names and ISO date values are recognised
+as time. `--text-col` freezes over-represented words as recipes on the
+exploration half and re-tests them on the held-out half
+(`evalrx.analysis.keywords`).
+
+### Changed — every held-out claim is corrected, and the header says how
+
+All held-out claims — one per adjudicated signal, one per hypothesis
+prediction — share one Benjamini-Hochberg family; `reject` on a signal now
+means its claim survived that correction, and `raw_reject` keeps the
+uncorrected verdict. In-sample `two_group` candidates get a p-value and their
+own BH family instead of an uncorrected interval check. `adjudication.method`
+names the correction actually applied (`"BH"`, `"e-BH"`, `"e-BH + BH"`, or
+`"none"` when nothing could be tested); it no longer says `e-BH` for an empty
+family. Two-group comparisons of a binary outcome with independent rows use
+the exact test for their p-value (`evalrx.stats.two_group_exact_p`).
+`compare(..., paired=False)` reports its method as `two-sample bootstrap
+(unpaired)` unless clusters were given.
+
+### Changed — the held-out judge follows `--backend`
+
+`--judge-backend` (default `same`) picks the judge; it no longer requires the
+Claude CLI on a run that used another backend. `--judge-model` defaults to
+`claude-opus-4-8` only on a Claude backend. `confirm_report.json` records
+whether the judge is the model that proposed the hypotheses and warns when it
+is or may be.
+
+### Changed — row limit and sandbox
+
+A host load that drops rows at `--max-rows` says how many were dropped and
+that the kept rows are not a random sample
+(`load_records_from_path(..., info=)`). `explore(..., out=)` deletes the
+temporary sandbox, which holds a copy of the data, once the artifacts are
+written; `--keep-sandbox` / `keep_sandbox=True` keeps it. Recipes are refused
+if any of their expressions reads the outcome column, whatever its name.
+
 ### Added — typed judge calls
 
 `evalrx.agent_runtime.judge_call.ask_judge(judge, prompt, OutputModel, role=...)`

@@ -192,9 +192,13 @@ report (`exploratory_report.json`), and rendered charts under
 Add `--holdout-frac 0.4 --holdout-confirm` for a held-out design: the split
 is carved off BEFORE exploration (outcome-stratified, deterministic), the
 explorer is told to freeze threshold-explicit recipes, and after M3 the
-held-out rows re-test every recipe verbatim (e-BH, `split_label="held_out"`)
-while an LLM judge grades each hypothesis — `confirm_report.json` lands next
-to the report and fills the *Held-out Verdicts* section.
+held-out rows re-test every recipe verbatim (all claims corrected together
+with Benjamini-Hochberg, `split_label="held_out"`) while an LLM judge grades
+each hypothesis — `confirm_report.json` lands next to the report and fills the
+*Held-out Verdicts* section. If several rows come from one underlying item,
+name it with `--group-col`: the split then keeps each item on one side and the
+intervals count items rather than rows. See
+[Held-out Confirmation](holdout_confirmation.md).
 
 **Agent-trajectory records.** Rows produced by
 `evalrx.analysis.trajectory_records` flow through explore unchanged; use
