@@ -31,7 +31,7 @@ import dataclasses
 from typing import TYPE_CHECKING, Any, Optional
 
 from evalrx.analyzers.reasoning._text import word_ngrams
-from evalrx.core.analyzer import Analyzer
+from evalrx.core.analyzer import Analyzer, Ask, Probe, run_probes
 from evalrx.core.capability import Capability
 from evalrx.core.registry import register_analyzer
 from evalrx.core.result import Result
@@ -122,9 +122,8 @@ class ContaminationProbe(Analyzer):
         )
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
-        per_case: list[dict[str, Any]] = []
-        for case in cases.stratified_head(self.max_cases):
-            per_case.append(self._probe_case(model, case))
+        per_case = run_probes(
+            model, [self._probe_case(case) for case in cases.stratified_head(self.max_cases)])
 
         scored = [c for c in per_case if "guided_overlap" in c]
         flagged = [c for c in scored if c["verbatim_flag"] == 1]
@@ -162,7 +161,7 @@ class ContaminationProbe(Analyzer):
         return Result(analyzer=self.name, model=repr(model), cases=cases, findings=findings)
 
     # ------------------------------------------------------------------
-    def _probe_case(self, model: "Model", case: "FailureCase") -> dict[str, Any]:
+    def _probe_case(self, case: "FailureCase") -> Probe[dict[str, Any]]:
         from evalrx.core.case import Label
 
         text = str(case.inputs.prompt or "")
@@ -175,19 +174,12 @@ class ContaminationProbe(Analyzer):
         cut = max(1, int(len(words) * self.split_frac))
         first_half, second_half = " ".join(words[:cut]), " ".join(words[cut:])
 
-        general = str(model.generate(_bare(case, _GENERAL.format(first_half=first_half))))
-        guided = str(
-            model.generate(
-                _bare(
-                    case,
-                    _GUIDED.format(
-                        first_half=first_half,
-                        dataset=self.dataset_name,
-                        split=self.split,
-                    ),
-                )
-            )
-        )
+        general, guided, *named_out = map(str, (yield Ask([
+            _bare(case, _GENERAL.format(first_half=first_half)),
+            _bare(case, _GUIDED.format(
+                first_half=first_half, dataset=self.dataset_name, split=self.split)),
+            *([_bare(case, _PROVENANCE.format(text=text[:1500]))] if self.ask_provenance else []),
+        ])))
         general_overlap = overlap_score(general, second_half, self.ngram)
         guided_overlap = overlap_score(guided, second_half, self.ngram)
         entry.update(
@@ -203,8 +195,8 @@ class ContaminationProbe(Analyzer):
                 ),
             }
         )
-        if self.ask_provenance:
-            named = str(model.generate(_bare(case, _PROVENANCE.format(text=text[:1500]))))
+        if named_out:
+            named = named_out[0]
             entry["named_dataset"] = named.strip()[:80]
             entry["named_correct"] = int(
                 self.dataset_name.lower().split()[0] in named.lower()

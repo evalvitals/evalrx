@@ -27,7 +27,7 @@ import re
 from collections import Counter
 from typing import TYPE_CHECKING, Any, Optional
 
-from evalrx.core.analyzer import Analyzer
+from evalrx.core.analyzer import Analyzer, Ask, Probe, run_probes
 from evalrx.core.capability import Capability
 from evalrx.core.registry import register_analyzer
 from evalrx.core.result import Result
@@ -167,55 +167,48 @@ class FormatSensitivityAnalyzer(Analyzer):
             rotated,
         )
 
-    def _run(self, model: "Model", cases: "CaseBatch") -> Result:
-        per_case: list[dict[str, Any]] = []
-        for case in cases.stratified_head(self.max_cases):
-            options, block = extract_options(case)
-            entry: dict[str, Any] = {"sample_id": case.id, "n_options": len(options)}
-            if len(options) < 2:
-                entry["skipped"] = "no multiple-choice options found (2..26 required)"
-                per_case.append(entry)
-                continue
-            prompt = case.inputs.prompt or ""
-            shifts = list(range(1, min(self.n_variants, len(options) - 1) + 1))
-            chosen_contents: list[str] = []
-            chosen_letters: list[str] = []
-            n_unparsed = 0
-            # Identity variant: reuse the recorded baseline answer only when the
-            # prompt contains the lettered block the letters decode against;
-            # otherwise every variant (identity included) uses OUR rendered
-            # block, so all letters map to options the model actually saw.
-            if block is not None and case.observed:
-                base_out = str(case.observed)
-            else:
-                identity_prompt, _ = self._variant_prompt(prompt, block, options, 0)
-                base_out = str(
-                    model.generate(dataclasses.replace(case.inputs, prompt=identity_prompt))
-                )
-            base_letter = parse_choice(base_out, len(options))
-            if base_letter:
-                chosen_letters.append(base_letter)
-                chosen_contents.append(options[ord(base_letter) - 65])
-            else:
+    def _probe_case(self, case: Any) -> Probe[dict[str, Any]]:
+        options, block = extract_options(case)
+        entry: dict[str, Any] = {"sample_id": case.id, "n_options": len(options)}
+        if len(options) < 2:
+            entry["skipped"] = "no multiple-choice options found (2..26 required)"
+            return entry
+        prompt = case.inputs.prompt or ""
+        shifts = list(range(1, min(self.n_variants, len(options) - 1) + 1))
+        # Identity variant: reuse the recorded baseline answer only when the
+        # prompt contains the lettered block the letters decode against;
+        # otherwise every variant (identity included) uses OUR rendered
+        # block, so all letters map to options the model actually saw.
+        reuse = block is not None and bool(case.observed)
+        variants = [self._variant_prompt(prompt, block, options, shift)
+                    for shift in ([] if reuse else [0]) + shifts]
+        outs = [str(out) for out in (yield Ask(
+            [dataclasses.replace(case.inputs, prompt=text) for text, _ in variants]))]
+        answered = [(str(case.observed), options)] if reuse else []
+        answered += [(out, rotated) for out, (_, rotated) in zip(outs, variants)]
+        chosen_contents: list[str] = []
+        chosen_letters: list[str] = []
+        n_unparsed = 0
+        for out, shown in answered:
+            letter = parse_choice(out, len(shown))
+            if not letter:
                 n_unparsed += 1
-            for shift in shifts:
-                variant_prompt, rotated = self._variant_prompt(prompt, block, options, shift)
-                out = str(model.generate(dataclasses.replace(case.inputs, prompt=variant_prompt)))
-                letter = parse_choice(out, len(rotated))
-                if not letter:
-                    n_unparsed += 1
-                    continue
-                chosen_letters.append(letter)
-                chosen_contents.append(rotated[ord(letter) - 65])
-            entry["n_variants"] = 1 + len(shifts)
-            entry["n_unparsed"] = n_unparsed
-            if chosen_contents:
-                content_modal = Counter(chosen_contents).most_common(1)[0][1]
-                letter_modal = Counter(chosen_letters).most_common(1)[0]
-                entry["format_flip_rate"] = round(1.0 - content_modal / len(chosen_contents), 4)
-                entry["positional_bias"] = round(letter_modal[1] / len(chosen_letters), 4)
-                entry["modal_letter"] = letter_modal[0]
-            per_case.append(entry)
+                continue
+            chosen_letters.append(letter)
+            chosen_contents.append(shown[ord(letter) - 65])
+        entry["n_variants"] = 1 + len(shifts)
+        entry["n_unparsed"] = n_unparsed
+        if chosen_contents:
+            content_modal = Counter(chosen_contents).most_common(1)[0][1]
+            letter_modal = Counter(chosen_letters).most_common(1)[0]
+            entry["format_flip_rate"] = round(1.0 - content_modal / len(chosen_contents), 4)
+            entry["positional_bias"] = round(letter_modal[1] / len(chosen_letters), 4)
+            entry["modal_letter"] = letter_modal[0]
+        return entry
+
+    def _run(self, model: "Model", cases: "CaseBatch") -> Result:
+        per_case = run_probes(
+            model, [self._probe_case(case) for case in cases.stratified_head(self.max_cases)])
 
         flips = [c["format_flip_rate"] for c in per_case if "format_flip_rate" in c]
         letters = Counter(c.get("modal_letter") for c in per_case if c.get("modal_letter"))

@@ -136,7 +136,7 @@ Most events know their stage (`log_probe` is M1, `log_analysis` is M2).
 
 `log_surgery` is not tag-based: an intervention result whose evidence carries
 `m4_test_name` is a hypothesis verification (M4), anything else an intervention
-(M5). `run_metadata.py` is where `m4_test_name` is set.
+(M5). `loop/metadata.py` is where `m4_test_name` is set.
 
 ## Durability: why every event rewrites its document
 

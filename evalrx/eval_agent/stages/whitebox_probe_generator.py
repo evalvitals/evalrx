@@ -31,6 +31,7 @@ execution with the model handle and are deliberately out of scope.
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import re
@@ -49,6 +50,7 @@ from evalrx.eval_agent.prompts.whitebox_probe_generator import (
     _MANIFEST,
     _RESULT_MARKER,
 )
+from evalrx.eval_agent.stages.probe_generator import run_probe_code
 
 if TYPE_CHECKING:
     from evalrx.agent_runtime.cli_types import CliAgentConfig
@@ -145,11 +147,8 @@ class WhiteboxProbeGenerator:
             self._emit_codegen(name, need, source, "", ok=False, error="empty code produced")
             return None, None
 
-        result = self._run_code(code, name, model, cases)
-        self._emit_codegen(
-            name, need, source, code, ok=result is not None,
-            error="" if result is not None else "sandbox produced no parseable result",
-        )
+        result, error = self._run_code(code, name, model, cases)
+        self._emit_codegen(name, need, source, code, ok=result is not None, error=error)
         if result is None:
             return None, None
         probe = GeneratedWhiteboxProbe(name=name, code=code, need=need, source=source)
@@ -182,7 +181,7 @@ class WhiteboxProbeGenerator:
         """Re-capture and re-run an already-generated probe (no LLM call)."""
         if self._capture(model, cases) == 0:
             return None
-        return self._run_code(probe.code, probe.name, model, cases)
+        return self._run_code(probe.code, probe.name, model, cases)[0]
 
     # ------------------------------------------------------------------
     # Host capture (trusted)
@@ -190,16 +189,12 @@ class WhiteboxProbeGenerator:
 
     def _capture(self, model: "Model", cases: "CaseBatch") -> int:
         """Forward each case, reduce, and dump the attention bundle. Returns n captured."""
-        workdir = Path(self._sandbox.workdir)
-        dump_dir = workdir / _DUMP_DIR
-        dump_dir.mkdir(parents=True, exist_ok=True)
-
         manifest: list[dict[str, Any]] = []
         selected = list(cases)
         if self._max_cases > 0:  # 0 = every case
             selected = selected[: self._max_cases]
         if self.run_logger is not None:
-            from evalrx.eval_agent.model_instrumentation import InstrumentedModel
+            from evalrx.eval_agent.runlog.instrumentation import InstrumentedModel
 
             model = InstrumentedModel(
                 model, self.run_logger,
@@ -228,10 +223,9 @@ class WhiteboxProbeGenerator:
             finally:
                 trace = None  # free the heavy attention tensors promptly
 
-            np.savez_compressed(
-                dump_dir / f"{case.id}.npz",
-                attn_last=rows, image_token_mask=mask_np,
-            )
+            dump = io.BytesIO()
+            np.savez_compressed(dump, attn_last=rows, image_token_mask=mask_np)
+            self._sandbox.put(f"{_DUMP_DIR}/{case.id}.npz", dump.getvalue())
             label = getattr(case, "label", None)
             manifest.append({
                 "id": case.id,
@@ -241,9 +235,7 @@ class WhiteboxProbeGenerator:
                 "tokens": tokens,
             })
 
-        (workdir / _MANIFEST).write_text(
-            json.dumps({"cases": manifest}), encoding="utf-8"
-        )
+        self._sandbox.put(_MANIFEST, json.dumps({"cases": manifest}))
         return len(manifest)
 
     # ------------------------------------------------------------------
@@ -296,15 +288,10 @@ class WhiteboxProbeGenerator:
 
     def _run_code(
         self, code: str, name: str, model: "Model", cases: "CaseBatch",
-    ) -> "Result | None":
-        sandbox_result = self._sandbox.run(code, timeout_sec=self._timeout_sec)
-        if not sandbox_result.ok:
-            logger.warning(
-                "WhiteboxProbeGenerator: sandbox run failed (rc=%s): %s",
-                sandbox_result.returncode, (sandbox_result.stderr or "").strip()[:200],
-            )
-            return None
-        return _parse_result(sandbox_result.stdout, name, model, cases)
+    ) -> "tuple[Result | None, str]":
+        """The probe's Result, or ``None`` and why the run produced none."""
+        return run_probe_code(self._sandbox, code, self._timeout_sec,
+                              lambda stdout: _parse_result(stdout, name, model, cases))
 
 
 # ---------------------------------------------------------------------------

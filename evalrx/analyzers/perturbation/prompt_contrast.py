@@ -185,23 +185,26 @@ class PromptContrastAnalyzer(Analyzer):
         # mixes both, which the McNemar (flips) and the no-free-lunch check
         # (breaks of correct answers) each need.
         selected = cases.stratified_head(self.max_cases)
-        for case in selected:
-            prompt = str(getattr(case.inputs, "prompt", ""))
-            for strat, template in self.strategies.items():
-                rewritten = template.format(prompt=prompt)
-                # dataclasses.replace, not a bare Inputs(prompt=..., image=...):
-                # this analyzer is also compatible with audio models (it
-                # declares "text" in applies_to_modalities, which intersects
-                # any modality set that includes text prompts) — a fresh
-                # Inputs(image=...) silently dropped .audio, so the re-ask
-                # would have answered without hearing the clip.
-                out = str(model.generate(dataclasses.replace(case.inputs, prompt=rewritten)))
-                verdict = score(case, out)
-                answers[strat][case.id] = out[:200]
-                if verdict is None:
-                    n_unscored += 1
-                    continue
-                by_strategy[strat][case.id] = float(bool(verdict))
+        # dataclasses.replace, not a bare Inputs(prompt=..., image=...): this
+        # analyzer is also compatible with audio models (it declares "text" in
+        # applies_to_modalities, which intersects any modality set that
+        # includes text prompts) — a fresh Inputs(image=...) silently dropped
+        # .audio, so the re-ask would have answered without hearing the clip.
+        # The baseline strategy is asked again too, not read from
+        # ``case.observed``: it is the control the other strategies are paired
+        # against.
+        asked = [(case, strat, dataclasses.replace(
+                      case.inputs, prompt=template.format(prompt=str(getattr(case.inputs, "prompt", "")))))
+                 for case in selected for strat, template in self.strategies.items()]
+        outputs = model.generate_batch([inputs for _, _, inputs in asked])
+        for (case, strat, _), out in zip(asked, outputs):
+            out = str(out)
+            verdict = score(case, out)
+            answers[strat][case.id] = out[:200]
+            if verdict is None:
+                n_unscored += 1
+                continue
+            by_strategy[strat][case.id] = float(bool(verdict))
 
         # Per-case repair/breakage flags relative to baseline — stored in
         # ARTIFACTS, not findings["per_case"].  As label-association signals

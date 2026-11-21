@@ -13,7 +13,7 @@ import json
 
 def test_log_probe_persists_full_results_and_failed_analyzers(tmp_path):
     from evalrx.core.result import Result
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
 
     logger = RunLogger(run_dir=tmp_path / "run", observability_mode="offline")
     res = Result(
@@ -47,7 +47,7 @@ def test_log_probe_persists_full_results_and_failed_analyzers(tmp_path):
 def test_log_probe_without_failures_omits_failed_analyzers(tmp_path):
     """No failures -> no failed_analyzers key (kept optional/additive)."""
     from evalrx.core.result import Result
-    from evalrx.eval_agent.run_logger import RunLogger
+    from evalrx.eval_agent.runlog.logger import RunLogger
 
     logger = RunLogger(run_dir=tmp_path / "run", observability_mode="offline")
     logger.log_probe(0, {"pope": Result(analyzer="pope", model="m", findings={"acc": 0.9})})

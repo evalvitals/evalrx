@@ -133,9 +133,10 @@ class FixAgent:
                           unbounded batch makes coded pipelines time out.
         baseline_repeats: Samples per case for the unmodified baseline
                           (default 1 = the frozen ``observed`` output). With
-                          ``k > 1`` the frozen sample counts as one and ``k-1``
-                          fresh samples are drawn, giving each case a baseline
-                          PASS RATE; the paired test then runs on per-case rate
+                          ``k > 1`` it draws ``k`` fresh samples, giving each
+                          case a baseline PASS RATE (the frozen output labelled
+                          the case, so it is not an independent draw and is
+                          left out); the paired test then runs on per-case rate
                           differences (``noise_model="paired_rates"``, betting
                           e-value) instead of one-sample McNemar. A case whose
                           baseline flips across samples is *unstable* — it is
@@ -152,7 +153,7 @@ class FixAgent:
         alpha:            Significance level for the e-value gate (default 0.05;
                           rejects when e >= 1/alpha).  Also sets the power
                           ceiling used to flag underpowered-by-design runs.
-        run_context:      Optional :class:`~evalrx.eval_agent.run_context.RunContext`.
+        run_context:      Optional :class:`~evalrx.eval_agent.runlog.context.RunContext`.
                           When set (directly, or inherited from ``run_logger``),
                           coded-pipeline sandbox workdirs are allocated durably
                           under ``workspace/`` instead of an ephemeral temp dir.
@@ -207,10 +208,6 @@ class FixAgent:
                           cases' ``metadata["generation_config"]``, else no
                           floor is enforced. Both values are also shown to the
                           proposer.
-        concurrency:      Threads used to run a declarative candidate over
-                          the validation batch, and how many bridged model
-                          calls the coded-pipeline host services at once
-                          (default 1 = serial, unchanged behaviour).
         scoring_note:     Free-text description of how outputs are scored /
                           the expected final-answer format, shown to the
                           proposer (a per-call ``FixContext.scoring_note``
@@ -251,7 +248,6 @@ class FixAgent:
         weight_edit: "bool | dict[str, Any] | None" = None,
         verbose: bool = False,
         baseline_generation_kwargs: "dict[str, Any] | None" = None,
-        concurrency: int = 1,
         scoring_note: str = "",
         floor_candidates: "Iterable[str] | None" = ("self_consistency_5",),
         prewritten_code: str = "",
@@ -295,7 +291,6 @@ class FixAgent:
         self._max_tokens_floor: "int | None" = None
 
         score = score_fn or _default_score
-        concurrency = max(1, int(concurrency))
         self.recorder = FixRecorder(run_logger)
         self.coder = PipelineCoder(
             judge=judge,
@@ -306,7 +301,6 @@ class FixAgent:
             run_context=self._run_context,
             sandbox=sandbox,
             exec_timeout_sec=exec_timeout_sec,
-            concurrency=concurrency,
             max_repair_rounds=max(1, int(max_repair_rounds)),
             prewritten_code=prewritten_code,
         )
@@ -329,7 +323,6 @@ class FixAgent:
             recorder=self.recorder,
             coder=self.coder,
             progress=self._progress,
-            concurrency=concurrency,
             baseline_repeats=max(1, int(baseline_repeats)),
             candidate_repeats=max(1, int(candidate_repeats)),
             finetune_pool=finetune_pool,
@@ -392,8 +385,9 @@ class FixAgent:
         remains untouched confirmation data and permits only one round.
 
         ``max_tier`` / ``min_tier`` narrow the tier window for this call only
-        (default: the agent's own).  ``record=False`` writes nothing to the
-        run logger, for a caller that records one combined outcome itself.
+        (default: the agent's own).  ``record=False`` leaves out the ``fix``
+        outcome event, for a caller that records one combined outcome itself;
+        the model and judge exchanges of the search are logged either way.
         """
         window = (
             parse_tier(max_tier) if max_tier is not None else self.max_tier,
@@ -402,7 +396,7 @@ class FixAgent:
         if record:
             return self._search(model, data, hypotheses, prior_attempts, context,
                                 proposal_data, *window)
-        with self.recorder.muted():
+        with self.recorder.without_outcome():
             return self._search(model, data, hypotheses, prior_attempts, context,
                                 proposal_data, *window)
 

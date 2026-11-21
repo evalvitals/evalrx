@@ -38,7 +38,7 @@ def main() -> None:
     ap.add_argument("--max-cycles", type=int, default=1,
                     help="only one M1 pass was frozen, so default 1 cycle")
     ap.add_argument("--skip-m5", action="store_true")
-    ap.add_argument("--judge-model", default=run.CFG.get("judge_model", "claude-opus-4-8"))
+    ap.add_argument("--judge-model", default=run.JUDGE_MODEL)
     ap.add_argument("--judge-effort", default=run.CFG.get("judge_effort", "low"))
     ap.add_argument("--backend", default="claude", choices=["claude", "codex", "agy"],
                     help="coder backend for M2/M5/fix codegen (default claude)")

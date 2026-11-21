@@ -1153,7 +1153,7 @@ class FixProposer:
             # structural no-op.
             defaults = image_defaults if has_images else text_defaults
             # self_refine/least_to_most were only ever offered for text-only
-            # cases, even though run_pipeline already threads the case image
+            # cases, even though run_pipelines already threads the case image
             # through every call of a multi-call strategy (tools.py) --
             # nothing about them is text-specific. On a binary/grounding task
             # (yes_no) the image transforms above are the right first lever;
@@ -1177,7 +1177,7 @@ class FixProposer:
                 # look would catch; self_consistency helps when greedy decoding
                 # is stuck on one answer but the model's distribution actually
                 # has support elsewhere. Majority-vote aggregation already
-                # exists in run_pipeline (tools.py, n_samples > 1) but had
+                # exists in run_pipelines (tools.py, n_samples > 1) but had
                 # never been registered as a default candidate for any task.
                 reasoning_defaults = []
                 if "self_refine" not in prior_names:

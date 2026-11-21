@@ -35,7 +35,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-# The narrator's own geometry (evalrx/eval_agent/narration.py), duplicated here
+# The narrator's own geometry (evalrx/eval_agent/runlog/narration.py), duplicated here
 # so a storyboard can be built without importing evalrx.
 LABEL_WIDTH = 12
 STAGE_LABELS = {"M1": "probe", "M2": "explore", "M3": "diagnose",
@@ -288,7 +288,7 @@ def from_run_dir(path: Path) -> dict[str, Any]:
     import sys
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    from evalrx.eval_agent.narration import LoopNarrator  # noqa: E402
+    from evalrx.eval_agent.runlog.narration import LoopNarrator  # noqa: E402
 
     logs = path / "logs" if (path / "logs" / "run.json").exists() else path
     run = json.loads((logs / "run.json").read_text())

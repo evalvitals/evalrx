@@ -38,7 +38,7 @@ def _print_fix_progress(event):
 
 def _benchmark_agentic_registry(loop, state):
     """Keep repair/CONFIRM access outside the adaptive controller."""
-    from evalrx.eval_agent.agentic.tools import ToolRegistry, build_default_registry
+    from evalrx.eval_agent.loop.judge.tools import ToolRegistry, build_default_registry
 
     full = build_default_registry(loop, state)
     registry = ToolRegistry()
@@ -99,6 +99,7 @@ def load_model(resolved: Resolved, args, task: T.Task):
             extra_body["top_k"] = gen["top_k"]
         runtime = openai_runtime(base_url=args.base_url, api_key=args.api_key,
                                  extra_body=extra_body, **sampling)
+        runtime.concurrency = max(1, int(args.concurrency))
         # the endpoint's generate_fn carries the sampling itself; per-call kwargs are not forwarded
         return compose(spec, "api", runtime, set()), {}, spec
     if resolved.backend == "gemini":
@@ -120,9 +121,13 @@ def load_model(resolved: Resolved, args, task: T.Task):
                                  with_logprobs="auto",
                                  logprobs_model=spec.hf_repo or spec.key,
                                  top_logprobs=5, **sampling)
+        runtime.concurrency = max(1, int(args.concurrency))
         return compose(spec, "api", runtime, set()), {}, spec
     from evalrx.models.backends.base import RuntimeConfig
 
+    # The decoding Stage 0 labels with is the model's own: a probe that calls
+    # generate() with no arguments then answers under the same settings.
+    sampling = {name: value for name, value in gen.items() if name != "max_new_tokens"}
     if resolved.backend == "jax_local":
         # The JAX twin: same spec (template kwargs, modalities, caveats), the
         # gemma library underneath; text, image and audio inputs. apply_chat_template
@@ -134,7 +139,7 @@ def load_model(resolved: Resolved, args, task: T.Task):
         # modalities it can serve accordingly
         engine_kwargs["text_only"] = task.modality == "llm"
         runtime = RuntimeConfig(device=args.device or "auto", dtype=args.dtype, max_new_tokens=max_new,
-                                apply_chat_template=True, engine_kwargs=engine_kwargs)
+                                apply_chat_template=True, engine_kwargs=engine_kwargs, sampling=sampling)
         return compose(spec, "jax_local", runtime, set()), gen, spec
 
     device = args.device or (resolved.size.default_device if resolved.size is not None else "cuda")
@@ -145,7 +150,7 @@ def load_model(resolved: Resolved, args, task: T.Task):
     # tokenises the raw prompt — completion mode — and Qwen3.5 opens its own
     # <think> block and runs to the cap (the llm smokes of 2026-08-21).
     runtime = RuntimeConfig(device=device, dtype=args.dtype, attn_impl=attn, max_new_tokens=max_new,
-                            apply_chat_template=True)
+                            apply_chat_template=True, sampling=sampling)
     want = {Capability.ATTENTION} if attn == "eager" else set()
     model = compose(spec, "hf_local", runtime, want)
     return model, gen, spec
@@ -197,7 +202,7 @@ def load_weights(model, resolved: Resolved, args, task: T.Task):
 def build_judge(args):
     """``(judge, coder_provider, coder_model, coder_extra_args)`` — the same three
     providers as the m1_m5 examples; the benchmark CLI defaults to
-    Claude / claude-opus-5 / high."""
+    Claude / sonnet / medium."""
     if args.judge_provider == "gemini":
         adaptive = getattr(args, "diagnosis_mode", "agentic") == "agentic"
         probe_codegen = adaptive and args.allow_codegen
@@ -219,8 +224,9 @@ def build_judge(args):
         coder = ("antigravity", args.judge_model,
                  (("--effort", args.judge_effort) if args.judge_effort else ()))
     elif args.judge_provider == "claude":
-        name = args.judge_model or "claude-opus-5"
         from evalrx.eval_agent import ClaudeModel
+
+        name = args.judge_model or ClaudeModel.DEFAULT_MODEL
 
         judge = ClaudeModel(model=name, effort=args.judge_effort, timeout_sec=300)
         coder = ("claude_code", name, (("--effort", args.judge_effort) if args.judge_effort else ()))
@@ -417,22 +423,42 @@ def _run_config(args, task: T.Task, resolved: Resolved, spec, gen_kwargs: dict, 
     }
 
 
-def _discover(model, candidates, protocol, gen_kwargs: dict, args):
-    """Stage 0: generate an answer per candidate and label it. ``(discovery, seconds)``."""
+def label_samples(task: T.Task, args) -> int:
+    """Answers Stage 0 draws per case. A sampling model can answer one case
+    both ways, so a single answer labels it by chance; the majority of five
+    is the default there, and one answer when decoding is greedy."""
+    if args.label_samples is not None:
+        return max(1, int(args.label_samples))
+    return 5 if generation_settings(task, args)["do_sample"] else 1
+
+
+def _discover(model, candidates, protocol, gen_kwargs: dict, args, task: T.Task):
+    """Stage 0: sample each candidate's answers and label it. ``(discovery, seconds)``."""
     from evalrx.eval_agent import CaseDiscoveryAgent
 
     started = time.monotonic()
     discovery = CaseDiscoveryAgent(
         scorer=T.label_case, generation_kwargs=gen_kwargs, include_unknown=False,
-        concurrency=getattr(args, "concurrency", 1),
+        n_samples=label_samples(task, args),
     ).discover(model, candidates, protocol=protocol)
     return discovery, time.monotonic() - started
 
 
 def _case_labels(cases) -> list[dict[str, Any]]:
-    return [{
-        "id": c.id, "expected": c.expected, "observed": str(c.observed), "label": c.label.value,
-    } for c in cases]
+    """One row per case; ``votes`` when the label is a majority of several answers."""
+    rows = []
+    for c in cases:
+        row = {"id": c.id, "expected": c.expected, "observed": str(c.observed), "label": c.label.value}
+        if "discovery_votes" in c.metadata:
+            row["votes"] = c.metadata["discovery_votes"]
+        rows.append(row)
+    return rows
+
+
+def _split_votes(cases) -> int:
+    """Cases whose sampled answers did not all score the same."""
+    votes = [c.metadata.get("discovery_votes", {}) for c in cases]
+    return sum(1 for v in votes if v.get("pass") and v.get("fail"))
 
 
 def _mark_short_answers_stopped(task: T.Task, cases) -> None:
@@ -452,7 +478,7 @@ def _label_validation_set(model, val_manifest: Path, protocol, gen_kwargs: dict,
     single frozen-winner gate.
     """
     val_candidates, _ = T.build_cases(task, val_manifest, int(getattr(args, "val_limit", 0) or 0))
-    val_discovery, val_elapsed = _discover(model, val_candidates, protocol, gen_kwargs, args)
+    val_discovery, val_elapsed = _discover(model, val_candidates, protocol, gen_kwargs, args, task)
     val_cases = val_discovery.cases
     val_accuracy = val_discovery.n_pass / max(1, len(val_cases))
     (run_dir / "baseline_val.json").write_text(json.dumps({
@@ -460,6 +486,7 @@ def _label_validation_set(model, val_manifest: Path, protocol, gen_kwargs: dict,
         "n": len(val_cases), "n_pass": val_discovery.n_pass, "n_fail": val_discovery.n_fail,
         "n_unknown": val_discovery.n_unknown, "accuracy": round(val_accuracy, 4),
         "seconds": round(val_elapsed, 1), "manifest": str(val_manifest),
+        "label_samples": label_samples(task, args), "n_split": _split_votes(val_cases),
         "cases": _case_labels(val_cases),
     }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"Validation baseline: PASS={val_discovery.n_pass}, FAIL={val_discovery.n_fail}, "
@@ -486,12 +513,6 @@ def _probe_agent(args, task: T.Task, resolved: Resolved, model, judge, coder_cfg
         if Capability.LOGPROBS in model.capabilities and "logprob_entropy" not in pinned:
             pinned.append("logprob_entropy")
     overrides = _sampling_analyzer_overrides(resolved, args)
-    # In-process generation shares one accelerator model. Concurrent Python
-    # generation loops contend heavily on HF models; JAX already serializes
-    # model access. Keep native probes on the calling thread, while serving
-    # backends can continue issuing concurrent requests.
-    probe_workers = 1 if resolved.backend in {"hf_local", "jax_local"} else 8
-    config["m1_workers"] = probe_workers
     agentic = _is_agentic(args)
     m1_codegen = agentic and args.allow_codegen
     config["m1_codegen"] = bool(m1_codegen)
@@ -505,12 +526,11 @@ def _probe_agent(args, task: T.Task, resolved: Resolved, model, judge, coder_cfg
             judge=None, max_analyzers=len(pinned),
             max_cases_per_analyzer=args.analyzer_max_cases,
             analyzer_overrides=overrides,
-            max_workers=probe_workers,
         )
     return ProbeAgent(judge=judge, allow_codegen=m1_codegen,
                       codegen_config=coder_cfg,
                       max_cases_per_analyzer=args.analyzer_max_cases,
-                      analyzer_overrides=overrides, max_workers=probe_workers)
+                      analyzer_overrides=overrides)
 
 
 def _stats_agent(args, task: T.Task, judge, coder_cfg, ctx):
@@ -533,8 +553,8 @@ def _fix_agent(args, task: T.Task, judge, coder_cfg, gen_kwargs: dict, ctx, raw_
 
     fix_kwargs: dict[str, Any] = {}
     sampled = bool(gen_kwargs.get("do_sample"))
-    # Noise model for a sampled baseline: per-case PASS RATE over k samples (the
-    # frozen Stage 0 output + k-1 fresh), as llm_benchmark does; greedy = 1.
+    # Noise model for a sampled baseline: per-case PASS RATE over k fresh
+    # samples; greedy = 1, the Stage 0 answer itself.
     fix_kwargs["baseline_repeats"] = (args.fix_baseline_repeats if args.fix_baseline_repeats is not None
                                       else (5 if sampled else 1))
     if task.modality == "llm":
@@ -564,7 +584,6 @@ def _fix_agent(args, task: T.Task, judge, coder_cfg, gen_kwargs: dict, ctx, raw_
         max_repair_rounds=max(1, args.fix_repair_rounds),
         exec_timeout_sec=args.fix_exec_timeout,
         prewritten_code=prewritten_code,
-        concurrency=getattr(args, "concurrency", 1),
         floor_candidates=() if _is_agentic(args) else ("self_consistency_5",),
         progress_callback=_print_fix_progress,
         **fix_kwargs,
@@ -662,7 +681,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     discovery_model = model
     if not args.baseline_only:
         from evalrx.eval_agent import RunContext
-        from evalrx.eval_agent.model_instrumentation import InstrumentedModel
+        from evalrx.eval_agent.runlog.instrumentation import InstrumentedModel
 
         # Create the run log before Stage-0 so each discovery request is durable
         # as it happens, including its real latency and any transport error.
@@ -680,7 +699,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
             batch_case_ids=[c.id for c in candidates],
         )
 
-    discovery, elapsed = _discover(discovery_model, candidates, protocol, gen_kwargs, args)
+    discovery, elapsed = _discover(discovery_model, candidates, protocol, gen_kwargs, args, task)
     cases = discovery.cases
     if ctx is not None:
         ctx.config["n_cases"] = len(cases)
@@ -692,6 +711,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         "accuracy": round(accuracy, 4), "seconds": round(elapsed, 1),
         "generation_kwargs": gen_kwargs, "enable_thinking": bool(args.enable_thinking),
         "manifest": str(manifest), "limit": limit,
+        "label_samples": label_samples(task, args), "n_split": _split_votes(cases),
         "cases": _case_labels(cases),
     }
     version = _api_model_version(model)
@@ -702,6 +722,9 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
                                            encoding="utf-8")
     print(f"Baseline: PASS={discovery.n_pass}, FAIL={discovery.n_fail}, UNKNOWN={discovery.n_unknown}, "
           f"accuracy={accuracy:.3f} ({elapsed:.0f}s, {elapsed / max(1, len(cases)):.1f}s/case)")
+    if baseline["label_samples"] > 1:
+        print(f"  labels are the majority of {baseline['label_samples']} sampled answers; "
+              f"{baseline['n_split']} of {len(cases)} cases answered both ways")
     if task.modality == "llm" and not 0.15 <= accuracy <= 0.85:
         print("  NOTE accuracy is outside the usable band [0.15, 0.85]: M2 has little to contrast "
               "and the paired tests downstream are short of power (results valid, weak)")
@@ -731,7 +754,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
                                extra_args=coder_extra)
     policy = None
     if _is_agentic(args):
-        from evalrx.eval_agent.agentic import JudgePolicy
+        from evalrx.eval_agent.loop.judge import JudgePolicy
 
         policy = JudgePolicy(judge, max_actions=args.max_actions,
                              registry_factory=_benchmark_agentic_registry)

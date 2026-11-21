@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 
 import evalrx
-from evalrx.eval_agent.loop import VLDiagnoseLoop
+from evalrx.eval_agent.loop.diagnose import VLDiagnoseLoop
 from evalrx.eval_agent.stages.fix.agent import FixAgent
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 from evalrx.logging_utils import _MARKER_ATTR, TOP_LEVEL_LOGGER_NAME
@@ -57,7 +57,7 @@ def test_loop_stage_narration_is_actually_visible(capsys):
         VLDiagnoseLoop(
             model=FakeModel(), protocol=ExperimentProtocol(description="x"), verbose=True
         )
-        logging.getLogger("evalrx.eval_agent.loop").info("m1 probing started")
+        logging.getLogger("evalrx.eval_agent.loop.diagnose").info("m1 probing started")
         out = capsys.readouterr()
         assert "m1 probing started" in out.out
     finally:

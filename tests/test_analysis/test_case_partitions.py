@@ -9,7 +9,7 @@ from ``run_start``'s explore count and the order the cases were logged in.
 from __future__ import annotations
 
 from evalrx.core import CaseBatch, FailureCase, Label
-from evalrx.eval_agent.run_logger import RunLogger
+from evalrx.eval_agent.runlog.logger import RunLogger
 from evalrx.reporting.dynamic import build_report_data
 
 

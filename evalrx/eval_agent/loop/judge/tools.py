@@ -12,12 +12,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
-from evalrx.eval_agent.policy import RunState, cycle_summary
+from evalrx.eval_agent.loop.stages import finalize_confirmatory_stats
+from evalrx.eval_agent.loop.state import RunState, cycle_summary
 
 if TYPE_CHECKING:
-    from evalrx.eval_agent.agentic.actions import Action
-    from evalrx.eval_agent.agentic.board import EvidenceBoard
-    from evalrx.eval_agent.loop_reports import AutoDiagnoseReport
+    from evalrx.eval_agent.loop.judge.actions import Action
+    from evalrx.eval_agent.loop.judge.board import EvidenceBoard
+    from evalrx.eval_agent.loop.report import AutoDiagnoseReport
 
 
 @dataclass(frozen=True)
@@ -147,7 +148,7 @@ def _summarize_stats(report: Any) -> list[dict[str, Any]]:
 
 def _current_report(loop: Any, state: RunState) -> "AutoDiagnoseReport":
     """Snapshot the run so far into the same report shape run_m5/run_fix expect."""
-    from evalrx.eval_agent.loop_reports import AutoDiagnoseReport
+    from evalrx.eval_agent.loop.report import AutoDiagnoseReport
 
     verified = loop.hypothesis_tester.best_hypotheses(state.all_test_results)
     return AutoDiagnoseReport(
@@ -258,7 +259,7 @@ def _run_probe(loop: Any, state: RunState) -> "Callable[[EvidenceBoard, dict], T
                     f"({_MAX_UNNAMED_PROBE_RUNS}); name the probes to run (see list_probes)",
                     error="max_calls",
                 )
-            probe_results, artifact_pngs = loop._do_m1(
+            probe_results, artifact_pngs = state.stages.probe(
                 state.cycle, state.data, state.all_hypotheses, state.timings
             )
             if not probe_results:
@@ -293,7 +294,7 @@ def _run_probe(loop: Any, state: RunState) -> "Callable[[EvidenceBoard, dict], T
                 call_params[name] = args
         names = list(dict.fromkeys(names))
         try:
-            probe_results, artifact_pngs = loop._do_m1(
+            probe_results, artifact_pngs = state.stages.probe(
                 state.cycle, state.data, state.all_hypotheses, state.timings,
                 analyzers=names, analyzer_params=call_params or None,
             )
@@ -319,7 +320,7 @@ def _run_probe(loop: Any, state: RunState) -> "Callable[[EvidenceBoard, dict], T
 def _run_stats(loop: Any, state: RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
     def handler(board: "EvidenceBoard", params: dict[str, Any]) -> ToolOutcome:
         confirmatory = bool(params.get("confirmatory", True))
-        stats_report = loop._do_m2(
+        stats_report = state.stages.analyze(
             state.cycle, state.probe_results, state.data, state.artifact_pngs,
             state.timings, confirmatory=confirmatory,
         )
@@ -344,7 +345,7 @@ def _explore_data(loop: Any, state: RunState) -> "Callable[[EvidenceBoard, dict]
             or "Explore this dataset and surface the patterns that matter."
         )
         # Reuse host adjudication, artifact capture, and M3 context publication.
-        report = loop._do_explore(
+        report = state.stages.explore(
             state.cycle, state.probe_results, state.data, state.timings, question=question,
         )
         if report is None:
@@ -422,7 +423,7 @@ def _search_probes(loop: Any, state: RunState) -> "Callable[[EvidenceBoard, dict
 
 def _propose_hypotheses(loop: Any, state: RunState) -> "Callable[[EvidenceBoard, dict], ToolOutcome]":
     def handler(board: "EvidenceBoard", params: dict[str, Any]) -> ToolOutcome:
-        diag = loop._do_m3(
+        diag = state.stages.diagnose(
             state.cycle, state.stats_report, state.prior_cycles, state.timings,
             failure_modes=state.failure_modes, cases=state.data,
         )
@@ -456,9 +457,9 @@ def _test_hypothesis(loop: Any, state: RunState) -> "Callable[[EvidenceBoard, di
             return ToolOutcome(
                 False, "no untested hypotheses — call propose_hypotheses first", error="empty"
             )
-        loop._finalize_confirmatory_stats(state.stats_report)
+        finalize_confirmatory_stats(state.stats_report)
         board.stats_confirmatory = True
-        test_results = loop._do_m4(
+        test_results = state.stages.test_hypotheses(
             state.cycle, state.pending_hypotheses, state.stats_report, state.data, state.timings
         )
         for tr in test_results:

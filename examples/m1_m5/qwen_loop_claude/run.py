@@ -371,9 +371,8 @@ def _pick_agy_model() -> str:
     )
 
 
-# Claude judge candidates: the user's session model first (Fable), then
-# cheaper aliases. Probed in order; first responder wins.
-_CLAUDE_JUDGE_CANDIDATES = ("claude-fable-5", "sonnet", "haiku")
+# Claude judge candidates, probed in order; first responder wins.
+_CLAUDE_JUDGE_CANDIDATES = ("sonnet", "haiku")
 
 
 def _pick_claude_model() -> str:

@@ -122,10 +122,12 @@ EXECUTION CONTRACT:
   baseline_output, costs nothing and does not count.  Branch on outputs
   within that budget — e.g. describe first, then decide; vote over
   independent variants.
-- model_generate is thread-safe and concurrent calls are serviced in
-  parallel: fan out over CASES with concurrent.futures.ThreadPoolExecutor
-  (max_workers=8) — a serial loop over every case x several calls is slow and
-  risks the wall-clock limit.
+- model_generate is thread-safe, and the host answers the calls that are
+  waiting at the same moment as ONE batch.  Fan out over CASES with
+  concurrent.futures.ThreadPoolExecutor(max_workers=len(cases)) — one worker
+  per case, each making its own calls in order.  A serial loop over every
+  case x several calls gets a batch of one each time: many times slower, and
+  it risks the wall-clock limit.
 - SELECTION RULE (enforced by the host, without labels): for each case the
   host anchors on baseline_output (or on your plain direct call when a case
   has no record).  Your final "output" may differ from that anchor only when

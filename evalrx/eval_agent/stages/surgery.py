@@ -230,7 +230,7 @@ class SurgeryAgent:
                          sandbox even when a ``RunContext`` is given.
         writer_config:   :class:`~evalrx.eval_agent.experiment_writer.ExperimentWriterConfig`
                          controlling phases and limits.
-        run_context:     Optional :class:`~evalrx.eval_agent.run_context.RunContext`.
+        run_context:     Optional :class:`~evalrx.eval_agent.runlog.context.RunContext`.
                          When set (and *sandbox_dir* is not), each ``operate()``
                          call allocates its own self-contained *trial* under
                          ``experiments/`` (code + sandbox, see

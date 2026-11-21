@@ -49,6 +49,12 @@ from avqa_data import build_protocol, load_manifest, make_avqa_score_fn, answers
 OUT = Path(__file__).parent / "outputs"
 CFG = yaml.safe_load((Path(__file__).parent / "config.yaml").read_text())
 
+# The judge and the coder follow the package default unless config.yaml names a model.
+from evalrx.agent_runtime.judges.claude import ClaudeModel  # noqa: E402
+
+JUDGE_MODEL = str(CFG.get("judge_model") or ClaudeModel.DEFAULT_MODEL)
+CODEGEN_MODEL = str(CFG.get("codegen_model") or ClaudeModel.DEFAULT_MODEL)
+
 # See the module docstring for why this is pinned rather than judge-selected.
 # self_consistency + perturbation_battery are the two analyzers that produced
 # a verified (statistically-supported, protocol-consistent) hypothesis on a
@@ -120,7 +126,7 @@ def main() -> None:
                      help="use MockAVModel instead of the real checkpoint (drift_check "
                           "+ any loop step that calls the model stay wiring-only)")
     ap.add_argument("--skip-m5", action="store_true")
-    ap.add_argument("--judge-model", default=CFG.get("judge_model", "claude-opus-4-8"))
+    ap.add_argument("--judge-model", default=JUDGE_MODEL)
     ap.add_argument("--judge-effort", default=CFG.get("judge_effort", "low"))
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--load-4bit", action="store_true")
@@ -175,7 +181,7 @@ def main() -> None:
     codegen_effort = str(CFG.get("codegen_effort", "") or "")
     codegen = CliAgentConfig(
         provider="claude_code",
-        model=str(CFG.get("codegen_model", "claude-opus-4-8")),
+        model=CODEGEN_MODEL,
         max_budget_usd=float(CFG.get("codegen_budget_usd", 2.0)),
         timeout_sec=int(CFG.get("codegen_timeout_sec", 240)),
         extra_args=(("--effort", codegen_effort) if codegen_effort else ()),

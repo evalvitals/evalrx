@@ -32,6 +32,12 @@ DATA = Path(__file__).parent / "data"
 OUT = Path(__file__).parent / "outputs"
 CFG = yaml.safe_load((Path(__file__).parent / "config.yaml").read_text())
 
+# The judge and the coder follow the package default unless config.yaml names a model.
+from evalrx.agent_runtime.judges.claude import ClaudeModel  # noqa: E402
+
+JUDGE_MODEL = str(CFG.get("judge_model") or ClaudeModel.DEFAULT_MODEL)
+CODEGEN_MODEL = str(CFG.get("codegen_model") or ClaudeModel.DEFAULT_MODEL)
+
 
 # ---------------------------------------------------------------------------
 # 1. Frozen manifest -> CaseBatch (mixed PASS/FAIL — M2/M4 need both groups)
@@ -107,8 +113,8 @@ def drift_check(model, cases, n: int = 10) -> None:
 def build_judge(model_name: str, effort: str):
     """Claude CLI judge for M2/M3/M4 (agy quota exhausted — swapped 2026-06-12).
 
-    Default claude-fable-5 at low effort; pass --judge-model sonnet|haiku for
-    cheap wiring tests. A tiny generation probe catches dead sessions early
+    Default: the package's Claude model at low effort; pass --judge-model haiku
+    for cheap wiring tests. A tiny generation probe catches dead sessions early
     (an empty response means rate-limit/quota, not an error exit).
     """
     from evalrx.eval_agent import ClaudeModel
@@ -154,7 +160,7 @@ def main() -> None:
     ap.add_argument("--max-analyzers", type=int, default=3)
     ap.add_argument("--smoke-test", action="store_true")
     ap.add_argument("--skip-m5", action="store_true")
-    ap.add_argument("--judge-model", default=CFG.get("judge_model", "claude-fable-5"))
+    ap.add_argument("--judge-model", default=JUDGE_MODEL)
     ap.add_argument("--judge-effort", default=CFG.get("judge_effort", "low"))
     ap.add_argument("--max-clean-images", type=int, default=0,
                     help="shrink input by image: keep all fail-images + this many "
@@ -207,7 +213,7 @@ def main() -> None:
     codegen_effort = str(CFG.get("codegen_effort", "") or "")
     codegen = CliAgentConfig(
         provider="claude_code",
-        model=str(CFG.get("codegen_model", "sonnet")),
+        model=CODEGEN_MODEL,
         max_budget_usd=float(CFG.get("codegen_budget_usd", 2.0)),
         timeout_sec=int(CFG.get("codegen_timeout_sec", 240)),
         # claude -p --effort <level>; appended verbatim to the CLI command

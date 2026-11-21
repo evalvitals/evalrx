@@ -14,10 +14,10 @@ model: videollama2.1-7b-av
 model_path: DAMO-NLP-SG/VideoLLaMA2.1-7B-AV
 
 # Judge for M1 selection / M2 / M3 / M4 + codegen coder — both are `claude -p`
-# CLI calls (this host's own authenticated `claude` binary).
-judge_model: sonnet
+# CLI calls (this host's own authenticated `claude` binary). With no model named
+# here they follow the package default (ClaudeModel.DEFAULT_MODEL, currently
+# sonnet); set judge_model / codegen_model to pin one.
 judge_effort: low
-codegen_model: sonnet
 codegen_effort: low
 codegen_budget_usd: 2.0
 codegen_timeout_sec: 240

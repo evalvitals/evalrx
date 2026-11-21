@@ -185,14 +185,18 @@ class AnswerExtractionAudit(Analyzer):
             raise CapabilityError(
                 analyzer=self.name, model=repr(model), missing={Capability.GENERATE}
             )
-        per_case: list[dict[str, Any]] = []
-        n_reasked = 0
-        for case in cases.stratified_head(self.max_cases):
-            entry = self._audit_case(case)
-            if self.reask and entry.get("extraction_suspect") == 1:
-                entry.update(self._reask(model, case))
-                n_reasked += 1
-            per_case.append(entry)
+        selected = list(cases.stratified_head(self.max_cases))
+        per_case = [self._audit_case(case) for case in selected]
+        suspect = [(case, entry) for case, entry in zip(selected, per_case)
+                   if self.reask and entry.get("extraction_suspect") == 1]
+        n_reasked = len(suspect)
+        # The audit itself needs no model; only a re-ask does.
+        answers = model.generate_batch([
+            dataclasses.replace(case.inputs, prompt=f"{case.inputs.prompt or ''}\n\n{_REASK_SUFFIX}")
+            for case, _ in suspect]) if suspect else []
+        for (case, entry), answer in zip(suspect, answers):
+            entry["reask_answer"] = str(answer)[:120]
+            entry["reask_correct"] = int(bool(self.match_fn(str(answer), case.expected)))
 
         gradable = [c for c in per_case if "extraction_suspect" in c]
         failing = [c for c in gradable if c["labelled_fail"] == 1]
@@ -321,11 +325,3 @@ class AnswerExtractionAudit(Analyzer):
             if answer_dir is not None:
                 entry["answered_yes"] = int(answer_dir == "yes")
         return entry
-
-    def _reask(self, model: "Model", case: "FailureCase") -> dict[str, Any]:
-        prompt = f"{case.inputs.prompt or ''}\n\n{_REASK_SUFFIX}"
-        answer = str(model.generate(dataclasses.replace(case.inputs, prompt=prompt)))
-        return {
-            "reask_answer": answer[:120],
-            "reask_correct": int(bool(self.match_fn(answer, case.expected))),
-        }

@@ -24,8 +24,8 @@ import difflib
 import re
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
-from evalrx.analyzers.perturbation._shapley import shapley_values
-from evalrx.core.analyzer import Analyzer
+from evalrx.analyzers.perturbation._shapley import coalitions, shapley_values
+from evalrx.core.analyzer import Analyzer, Ask, Probe, run_probes
 from evalrx.core.capability import Capability
 from evalrx.core.registry import register_analyzer
 from evalrx.core.result import Result
@@ -108,56 +108,8 @@ class ContextShapAnalyzer(Analyzer):
         self.context_fn = context_fn or default_context_fn
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
-        per_case: list[dict[str, Any]] = []
-        for case in cases.stratified_head(self.max_cases):
-            context = self.context_fn(case)
-            prompt = case.inputs.prompt or ""
-            entry: dict[str, Any] = {"sample_id": case.id}
-            if not context:
-                entry["skipped"] = "no context supplied (metadata['context'] or context_fn)"
-                per_case.append(entry)
-                continue
-            if prompt.count(context) != 1:
-                entry["skipped"] = (
-                    "context must occur exactly once verbatim in the prompt "
-                    f"(found {prompt.count(context)} occurrences)"
-                )
-                per_case.append(entry)
-                continue
-            chunks = split_chunks(context, self.granularity, self.max_chunks)
-            entry["n_chunks"] = len(chunks)
-            if len(chunks) < 2:
-                entry["skipped"] = "context has a single chunk — nothing to attribute"
-                per_case.append(entry)
-                continue
-
-            baseline = str(case.observed or "") or str(model.generate(case.inputs))
-
-            def value_fn(kept: set) -> float:
-                kept_text = "\n\n".join(chunks[i] for i in sorted(kept))
-                ablated = prompt.replace(context, kept_text, 1)
-                answer = str(model.generate(dataclasses.replace(case.inputs, prompt=ablated)))
-                return _similarity(answer, baseline)
-
-            coalition_cache: dict[frozenset, float] = {}
-
-            def cached_value(kept: set) -> float:
-                key = frozenset(kept)
-                if key not in coalition_cache:
-                    coalition_cache[key] = value_fn(set(key))
-                return coalition_cache[key]
-
-            phi = shapley_values(
-                range(len(chunks)), cached_value, n_samples=self.n_samples, seed=self.seed
-            )
-            no_context = cached_value(set())
-            top_index = max(phi, key=lambda k: abs(phi[k]))
-            total_abs = sum(abs(v) for v in phi.values()) or 1.0
-            entry["context_dependence"] = round(1.0 - no_context, 4)
-            entry["top_chunk_index"] = int(top_index)
-            entry["top_chunk_share"] = round(abs(phi[top_index]) / total_abs, 4)
-            entry["shapley"] = {str(k): round(v, 4) for k, v in phi.items()}
-            per_case.append(entry)
+        per_case = run_probes(
+            model, [self._probe_case(case) for case in cases.stratified_head(self.max_cases)])
 
         deps = [c["context_dependence"] for c in per_case if "context_dependence" in c]
         findings: dict[str, Any] = {
@@ -178,3 +130,48 @@ class ContextShapAnalyzer(Analyzer):
             ),
         }
         return Result(analyzer=self.name, model=repr(model), cases=cases, findings=findings)
+
+    def _probe_case(self, case: "FailureCase") -> Probe[dict[str, Any]]:
+        """One case's row: every context ablation the estimate needs, asked at once."""
+        context = self.context_fn(case)
+        prompt = case.inputs.prompt or ""
+        entry: dict[str, Any] = {"sample_id": case.id}
+        if not context:
+            entry["skipped"] = "no context supplied (metadata['context'] or context_fn)"
+            return entry
+        if prompt.count(context) != 1:
+            entry["skipped"] = (
+                "context must occur exactly once verbatim in the prompt "
+                f"(found {prompt.count(context)} occurrences)"
+            )
+            return entry
+        chunks = split_chunks(context, self.granularity, self.max_chunks)
+        entry["n_chunks"] = len(chunks)
+        if len(chunks) < 2:
+            entry["skipped"] = "context has a single chunk — nothing to attribute"
+            return entry
+
+        players = range(len(chunks))
+        kept_sets = coalitions(players, n_samples=self.n_samples, seed=self.seed)
+        ablated = [
+            dataclasses.replace(case.inputs, prompt=prompt.replace(
+                context, "\n\n".join(chunks[i] for i in sorted(kept)), 1))
+            for kept in kept_sets
+        ]
+        baseline = str(case.observed or "")
+        if baseline:
+            answers = yield Ask(ablated)
+        else:
+            baseline, *answers = yield Ask([case.inputs, *ablated])
+        value = {kept: _similarity(str(answer), str(baseline))
+                 for kept, answer in zip(kept_sets, answers)}
+
+        phi = shapley_values(players, lambda kept: value[frozenset(kept)],
+                             n_samples=self.n_samples, seed=self.seed)
+        top_index = max(phi, key=lambda k: abs(phi[k]))
+        total_abs = sum(abs(v) for v in phi.values()) or 1.0
+        entry["context_dependence"] = round(1.0 - value[frozenset()], 4)
+        entry["top_chunk_index"] = int(top_index)
+        entry["top_chunk_share"] = round(abs(phi[top_index]) / total_abs, 4)
+        entry["shapley"] = {str(k): round(v, 4) for k, v in phi.items()}
+        return entry

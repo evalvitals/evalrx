@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://evalrx.dev/schemas/run_log.schema.json",
   "title": "EvalRX run event",
-  "description": "One logged event, wherever a run stores it (run.json / M<n>/log.json). Discriminated on `event`; matches schema_version 8. Permissive: extra (additive) fields are allowed.",
+  "description": "One logged event, wherever a run stores it (run.json / M<n>/log.json). Discriminated on `event`; matches schema_version 9. Permissive: extra (additive) fields are allowed.",
   "$defs": {
     "envelope": {
       "type": "object",
@@ -42,7 +42,7 @@
           ]
         },
         "schema_version": {
-          "const": 8
+          "const": 9
         },
         "ts": {
           "type": "string",
@@ -973,6 +973,10 @@
                 "string",
                 "null"
               ]
+            },
+            "batch_size": {
+              "type": "integer",
+              "minimum": 2
             }
           },
           "required": [

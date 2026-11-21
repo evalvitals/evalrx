@@ -25,6 +25,8 @@ DATA in the current working directory:
   contains "im_start", "image_pad", "vision").
 
 REQUIREMENTS:
+- The files above are already there and hold the real captures: never
+  overwrite, move or delete them.
 - numpy only (`import numpy as np`); no network, no other file writes.
 - Compute ONE per-case numeric signal for the mechanism above (e.g. attention
   mass on structural tokens, image-vs-text attention ratio at a layer,

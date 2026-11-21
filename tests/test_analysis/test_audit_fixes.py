@@ -21,7 +21,7 @@ from evalrx.analysis.operationalize import (
     compile_recipes,
     per_case_to_records,
 )
-from evalrx.eval_agent.loop import VLDiagnoseLoop
+from evalrx.eval_agent.loop.stages import Stages
 
 
 class _FakeResult:
@@ -94,12 +94,12 @@ def test_loop_bridge_does_not_overwrite_real_analyzer():
     probe_results = {"explored": real, "saliency": _FakeResult([{"case_id": "c0", "obj_size": 20}])}
     recipe = SignalRecipe(name="small", kind="expr", expr="saliency_obj_size < 40")
     me = SimpleNamespace(
-        _signal_recipes=[recipe],
-        _bridge_analyzer_name="explored",
+        signal_recipes=[recipe],
+        bridge_analyzer_name="explored",
         model="m",
         store=SimpleNamespace(add_result=lambda r: None),
     )
-    VLDiagnoseLoop._bridge_signals(me, probe_results, None)
+    Stages.bridge_signals(me, probe_results, None)
 
     assert probe_results["explored"] is real  # the real analyzer is untouched
     # the bridge landed under a deduped, non-colliding key

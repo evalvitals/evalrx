@@ -277,6 +277,37 @@ def _plain_language_problems(proposal: Proposal) -> str | None:
     )
 
 
+def _unmeasured_test_problems(proposal: Proposal, stats_results: list[Any]) -> str | None:
+    """Feedback for tests that name only evidence M2 did not measure, or ``None``.
+
+    M4 does not judge such a hypothesis: its test is unmet until a later cycle
+    measures what it names. Asking once here keeps a run from spending a
+    hypothesis on a signal name the judge made up or on a case id.
+    """
+    from evalrx.eval_agent.stages.hypothesis_tester import (
+        testable_signals,
+        unmeasured_identifiers,
+    )
+
+    problems = [
+        f"- hypothesis {i}'s test names {', '.join(sorted(missing)[:6])}"
+        for i, d in enumerate(proposal.hypotheses, start=1)
+        for missing in [unmeasured_identifiers(d.test, stats_results)]
+        if missing
+    ]
+    if not problems:
+        return None
+    usable = testable_signals(stats_results)
+    return (
+        "Some tests name identifiers that have no result to check them against "
+        "this cycle. Rewrite only those tests: name one of the signals below "
+        "exactly as written, or, when none of them tests the claim, describe the "
+        "evidence in plain words without identifiers or case ids. Keep every "
+        "other field as it was.\n" + "\n".join(problems)
+        + "\nSignals with a result: " + (", ".join(usable[:30]) or "none")
+    )
+
+
 def _to_hypothesis(draft: HypothesisDraft, model_name: str) -> Hypothesis:
     return Hypothesis(
         statement=draft.hypothesis,
@@ -595,9 +626,16 @@ class DiagnosisAgent:
         # A failed or unreadable proposal raises JudgeError with every exchange;
         # the loop logs them and retries M3 or stops, instead of this stage
         # standing in a guess for the judge's answer.
+        def _problems(proposal: Proposal) -> str | None:
+            found = [text for text in (
+                _plain_language_problems(proposal),
+                _unmeasured_test_problems(proposal, stats_results) if signals else None,
+            ) if text]
+            return "\n\n".join(found) or None
+
         reply = ask_judge(
             self.judge, prompt, Proposal, role="diagnosis_judge",
-            images=_figs, check=_plain_language_problems,
+            images=_figs, check=_problems,
         )
         self._model_calls.extend(e.record() for e in reply.exchanges)
         raw = reply.raw

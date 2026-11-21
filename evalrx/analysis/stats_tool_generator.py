@@ -223,8 +223,7 @@ class StatsToolGenerator:
             "scalars": inp.scalars,
             "groups": inp.groups,
         }
-        path = Path(self._sandbox.workdir) / _INPUT_FILENAME
-        path.write_text(json.dumps(payload), encoding="utf-8")
+        self._sandbox.put(_INPUT_FILENAME, json.dumps(payload))
 
     def _write_code(self, need: str, inp: StatsInput) -> tuple[str, str]:
         """Return ``(code, source)`` from the CLI agent or the judge."""

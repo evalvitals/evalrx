@@ -529,10 +529,7 @@ class HypothesisTester:
         3. **shared** — all signal tools as shared evidence (historical
            aggregated-signal behaviour).
         """
-        signal_res = [
-            r for r in stats_results
-            if r.ok and r.tool in _SIGNAL_TOOLS and r.effect is not None
-        ]
+        signal_res = _signal_results(stats_results)
         global_res = [r for r in stats_results if r.ok and r.tool in _GLOBAL_TOOLS]
 
         def _tool_text(r: "StatsToolResult") -> str:
@@ -853,6 +850,31 @@ _GENERIC_KW = frozenset({
 def _identifiers(text: str) -> set[str]:
     """Underscore / dotted identifiers in *text*, lower-cased (backticks ignored)."""
     return {m.group(0) for m in _IDENT_RE.finditer(str(text or "").lower())}
+
+
+def _signal_results(stats_results: "list[StatsToolResult]") -> "list[StatsToolResult]":
+    """The M2 results a hypothesis can be judged on: one signal, with an effect."""
+    return [r for r in stats_results
+            if r.ok and r.tool in _SIGNAL_TOOLS and r.effect is not None]
+
+
+def testable_signals(stats_results: "list[StatsToolResult]") -> list[str]:
+    """The ``analyzer.signal`` keys M4 has a result to judge a hypothesis on."""
+    return list(dict.fromkeys(filter(None, map(_tool_signal, _signal_results(stats_results)))))
+
+
+def unmeasured_identifiers(test_design: str, stats_results: "list[StatsToolResult]") -> set[str]:
+    """The identifiers *test_design* names when M2 measured none of them.
+
+    Empty when the design names no identifier, or when at least one is a
+    measured signal or its analyzer: the same reading :meth:`_route` uses to
+    decide the design is unmet, available to M3 before the hypothesis is filed.
+    """
+    named = _identifiers(test_design)
+    measured: set[str] = set()
+    for result in _signal_results(stats_results):
+        measured |= _tool_ids(result, level="signal") | _tool_ids(result, level="analyzer")
+    return set() if named & measured else named
 
 
 def _signal_keywords(text: str) -> set[str]:

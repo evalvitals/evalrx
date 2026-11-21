@@ -120,7 +120,8 @@ bash run_attn_pipeline.sh                      # full arc (phase 3 on GPU)
 SKIP_FIX=1 bash run_attn_pipeline.sh           # stop after held-out testing (no GPU)
 ```
 
-Env overrides: `CODER_MODEL` / `JUDGE_MODEL` (e.g. `claude-opus-4-8`),
+Env overrides: `CODER_MODEL` / `JUDGE_MODEL` (unset = the package's default
+Claude model, currently `sonnet`),
 `CODER_PROVIDER` (`claude_code`/`antigravity`/`codex`), `OUT_ROOT`
 (default `outputs_pipeline`), `DEVICE` (default `cuda`), `TIMEOUT_SEC`,
 `SKIP_FIX=1`, `PY` (python interpreter for the host phases).

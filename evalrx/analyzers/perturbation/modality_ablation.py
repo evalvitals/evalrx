@@ -143,24 +143,34 @@ class ModalityAblationAnalyzer(Analyzer):
         ungrounded = {s: 0 for s in MEDIA_SLOTS}
         modes_used: dict[str, str] = {}
 
+        # One batch: each case as asked (the control, asked again rather than
+        # read from ``case.observed``) and once per ablated slot.
+        plan: list[tuple[Any, list[tuple[str, str]]]] = []
+        asked: list[Any] = []
         for case in selected:
-            base_answer = str(model.generate(case.inputs))
+            asked.append(case.inputs)
+            ablations: list[tuple[str, str]] = []
+            for slot in self._slots_of(case):
+                donor: Any = self._donor(selected, slot, case) if self.mode == "swap" else None
+                # swap with no donor degrades to drop rather than skipping: the
+                # weaker evidence is still evidence, and silently probing nothing
+                # would look identical to a fully-grounded model.
+                ablations.append((slot, "swap" if donor is not None else "drop"))
+                asked.append(dataclasses.replace(case.inputs, **{slot: donor}))
+            plan.append((case, ablations))
+        answers = iter(str(out) for out in model.generate_batch(asked))
+
+        for case, ablations in plan:
+            base_answer = next(answers)
             base_key = _norm_answer(base_answer)
             base_verdict = score(case, base_answer)
             if base_verdict is not None:
                 by_strategy[BASELINE][case.id] = float(bool(base_verdict))
 
             row: dict[str, Any] = {"sample_id": case.id}
-            for slot in self._slots_of(case):
-                donor: Any = self._donor(selected, slot, case) if self.mode == "swap" else None
-                # swap with no donor degrades to drop rather than skipping: the
-                # weaker evidence is still evidence, and silently probing nothing
-                # would look identical to a fully-grounded model.
-                effective = "swap" if donor is not None else "drop"
+            for slot, effective in ablations:
                 modes_used[slot] = effective
-                ablated = dataclasses.replace(case.inputs, **{slot: donor})
-
-                answer = str(model.generate(ablated))
+                answer = next(answers)
                 changed = _norm_answer(answer) != base_key
 
                 probed[slot] += 1

@@ -7,9 +7,9 @@ prompt-enforced.
 from __future__ import annotations
 
 from evalrx.core.result import Result
-from evalrx.eval_agent.agentic.actions import Action
-from evalrx.eval_agent.agentic.board import EvidenceBoard
-from evalrx.eval_agent.agentic.tools import (
+from evalrx.eval_agent.loop.judge.actions import Action
+from evalrx.eval_agent.loop.judge.board import EvidenceBoard
+from evalrx.eval_agent.loop.judge.tools import (
     ToolOutcome,
     ToolRegistry,
     ToolSpec,

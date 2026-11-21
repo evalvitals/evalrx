@@ -105,6 +105,7 @@ class SelfConsistencyAnalyzer(Analyzer):
 
     name = "self_consistency"
     requires = frozenset({Capability.GENERATE})
+    single_case = True
     applies_to_modalities = frozenset({"text", "image"})
     signal_docs = {
         'consistency': ('Answer stability', 'How often the model gave the same answer when asked the same question repeatedly. Low means unstable reasoning.'),
@@ -134,7 +135,7 @@ class SelfConsistencyAnalyzer(Analyzer):
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
         case = cases[0]
-        samples = [model.generate(case.inputs, **self.gen_kwargs) for _ in range(self.n)]
+        samples = model.generate_batch([case.inputs] * self.n, **self.gen_kwargs)
         raw = [str(s).strip().lower() for s in samples]
         if self.answer_fn is not None:
             norm = [str(self.answer_fn(s) or "").strip().lower() for s in samples]

@@ -52,3 +52,20 @@ def shapley_values(
             phi[p] += cur - prev
             prev = cur
     return {p: phi[p] / n_samples for p in players}
+
+
+def coalitions(players: Iterable, n_samples: int = 64, seed: int = 0) -> "list[frozenset]":
+    """Every coalition :func:`shapley_values` evaluates for these arguments.
+
+    The sampler never looks at a value, so an analyzer can ask the model for
+    all of them in one batch and hand :func:`shapley_values` a lookup. In
+    first-use order; the empty coalition is first.
+    """
+    seen: "dict[frozenset, None]" = {}
+
+    def record(kept: set) -> float:
+        seen.setdefault(frozenset(kept))
+        return 0.0
+
+    shapley_values(players, record, n_samples=n_samples, seed=seed)
+    return list(seen)

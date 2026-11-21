@@ -4,7 +4,7 @@ One JSON document per pipeline stage (``M1/log.json`` .. ``M5/log.json``) plus
 ``run.json`` for what is not stage content; every event of one kind is one
 array in one file; everything text-shaped is a string value in the JSON, and
 only binary media (figures, tensors, audio) is a separate file. See
-``RUN_LOGGER.md`` beside this file for the layout and the reasoning.
+``README.md`` beside this file for the layout and the reasoning.
 
 This module is the class and what only it can do: route an event to its
 document, stamp it, and write the document atomically. What an event records
@@ -28,8 +28,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from evalrx.eval_agent.log_schema import RUN_LOG_SCHEMA_VERSION
-from evalrx.eval_agent.run_log_entries import (
+from evalrx.eval_agent.runlog.entries import (
     analysis_entry,
     diagnose_report_entry,
     diagnosis_entry,
@@ -40,13 +39,14 @@ from evalrx.eval_agent.run_log_entries import (
     probe_entry,
     surgery_entry,
 )
-from evalrx.eval_agent.run_log_files import (
+from evalrx.eval_agent.runlog.files import (
     artifact_to_numpy,
     atomic_write_json,
     inline_workspace,
     save_artifact_figure,
 )
-from evalrx.eval_agent.run_log_tracing import (
+from evalrx.eval_agent.runlog.schema import RUN_LOG_SCHEMA_VERSION
+from evalrx.eval_agent.runlog.tracing import (
     trace_agent_decision,
     trace_analysis,
     trace_diagnosis,
@@ -64,7 +64,7 @@ if TYPE_CHECKING:
     from evalrx.analysis.analysis_module import AnalysisReport
     from evalrx.core.result import Result
     from evalrx.eval_agent.hypothesis import Hypothesis
-    from evalrx.eval_agent.loop_reports import AutoDiagnoseReport
+    from evalrx.eval_agent.loop.report import AutoDiagnoseReport
     from evalrx.eval_agent.stages.diagnosis import DiagnosisResult
     from evalrx.eval_agent.stages.surgery import InterventionResult
 
@@ -76,7 +76,7 @@ _STAGE_RE = re.compile(r"m([1-5])", re.IGNORECASE)
 
 #: Tags used somewhere in the codebase that carry no "m<N>" substring at all
 #: (checked against every literal `module=`/`stage=` value passed to a
-#: log_* method as of this writing — see RUN_LOGGER.md's "routing" table).
+#: log_* method as of this writing — see README.md's "routing" table).
 _STAGE_ALIASES: dict[str, str] = {
     "fix_pipeline": "M5",
     "fix": "M5",
@@ -138,7 +138,7 @@ class RunLogger:
                   (``[M1] probe cycle=0``). Ignored when *narrate* is set.
         narrate:  Print live, aligned M1-M5 narration instead — the same
                   visual style as ``evalrx explore``'s terminal output (see
-                  :mod:`evalrx.eval_agent.narration.LoopNarrator`), built
+                  :mod:`evalrx.eval_agent.runlog.narration.LoopNarrator`), built
                   from real per-stage counts instead of a raw event dump.
         trace_id: Ties every event to one Langfuse trace; auto-generated if
                   omitted.
@@ -179,12 +179,12 @@ class RunLogger:
 
         self.trace_id: str = trace_id or str(uuid.uuid4())
         self.current_cycle: int = -1
-        # Live M1-M5 terminal narration (see evalrx.eval_agent.narration) --
+        # Live M1-M5 terminal narration (see evalrx.eval_agent.runlog.narration) --
         # opt-in, takes over from the plain `verbose` one-liner below rather
         # than stacking with it, so a run never prints each event twice.
         self._narrator = None
         if narrate:
-            from evalrx.eval_agent.narration import LoopNarrator
+            from evalrx.eval_agent.runlog.narration import LoopNarrator
 
             self._narrator = LoopNarrator()
         self.verbose = verbose
@@ -279,7 +279,7 @@ class RunLogger:
         record.setdefault("ts", self._ts())
         if self._validate_events:
             try:
-                from evalrx.eval_agent.log_schema import _validator, build_schema
+                from evalrx.eval_agent.runlog.schema import _validator, build_schema
 
                 if self._event_validator is None:
                     self._event_validator = _validator(build_schema())
@@ -312,6 +312,17 @@ class RunLogger:
         elif self.verbose:
             print(_EventLine.line(stage, key, record))
         return stage
+
+    def progress(self, stage: str, text: str) -> None:
+        """Print one line about work still running inside *stage*.
+
+        Console only: a stage that takes minutes says what it is on, and the
+        event log keeps its one record per finished step.
+        """
+        if self._narrator is not None:
+            self._narrator.progress(stage, text)
+        elif self.verbose:
+            print(f"[{stage}] {text}")
 
     def _append_run(self, key: str, record: "dict[str, Any]") -> None:
         """Append *record* to the (always list-valued) run.json bucket *key*.
@@ -578,6 +589,7 @@ class RunLogger:
         case_id: "str | None" = None,
         batch_case_ids: "list[str] | None" = None,
         n_batch_cases: "int | None" = None,
+        batch_size: int = 1,
     ) -> None:
         record: dict[str, Any] = {
             "ts": self._ts(), "cycle": cycle, "analyzer": analyzer,
@@ -587,6 +599,8 @@ class RunLogger:
             "inputs": inputs, "kwargs": kwargs, "output": output,
             "duration_sec": round(duration_sec, 4),
         }
+        if batch_size > 1:
+            record["batch_size"] = batch_size
         if error is not None:
             record["error"] = error
         with self._lock:

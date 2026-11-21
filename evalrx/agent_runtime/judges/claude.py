@@ -16,11 +16,16 @@ class ClaudeModel:
 
     key = "claude"
 
+    #: The model a stage gets when the caller names none. Measured on recorded
+    #: prompts (2026-11-20): a 28k-char M3 review took 71-124 s on the largest
+    #: model and 5 s on this one, and a run spends most of its time in judge calls.
+    DEFAULT_MODEL = "sonnet"
+
     def __init__(
         self,
         binary_path: str = "",
         timeout_sec: int = 240,
-        model: str = "",
+        model: str = DEFAULT_MODEL,
         effort: str = "",
     ) -> None:
         from evalrx.core.capability import Capability
