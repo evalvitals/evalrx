@@ -6,6 +6,26 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed — a generated probe no longer loses its input file to the agent that wrote it
+
+M1 sometimes logged `sandbox produced no parseable result` for a generated
+probe. The coding agent writes the script in the sandbox directory, where the
+host had already put the cases file. In 3 of 19 sessions the agent tried its
+script by overwriting that file with two invented cases and deleted it
+afterwards, so the real run failed with `FileNotFoundError`.
+
+`ExperimentSandbox.put(name, data)` places a file the generated code will read
+and keeps its content; `run()` writes back any such file that was changed or
+removed. The M1 probe generators, the M2 statistics-tool generator, the explore
+agent and the M5 experiment writer place their inputs with it
+(`SandboxProtocol` gained `put`). The two probe prompts now say the file is the
+real data and must be left alone. With both changes, 12 of 12 sessions produced
+a result.
+
+A failed probe run is logged with what happened (`the probe script exited with
+code 1: FileNotFoundError: …`, `was killed after 60s`, `printed no readable
+PROBE_RESULT_JSON= line`) in place of the one fixed sentence.
+
 ### Changed — the fix stage asks the model in batches and has no thread pool
 
 `FixAgent`, `CandidateValidator`, `PipelineCoder` and `run_coded_pipeline` no

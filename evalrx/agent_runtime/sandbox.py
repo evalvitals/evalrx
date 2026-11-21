@@ -180,6 +180,8 @@ class SandboxResult:
 class SandboxProtocol(Protocol):
     """Structural type for sandbox backends (subprocess, Docker, SSH, …)."""
 
+    def put(self, name: str, data: "str | bytes") -> Path: ...
+
     def run(self, code: str, *, timeout_sec: int = 60) -> SandboxResult: ...
 
     def run_project(
@@ -288,10 +290,40 @@ class ExperimentSandbox:
         self._counter_lock = threading.Lock()
         self._preexec_fn = _make_resource_preexec(max_memory_bytes, max_cpu_seconds)
         self._cleanup = cleanup
+        self._inputs: dict[str, bytes] = {}
 
     # ------------------------------------------------------------------
     # Public interface
     # ------------------------------------------------------------------
+
+    def put(self, name: str, data: "str | bytes") -> Path:
+        """Place a file the generated code will read; *name* is relative to ``workdir``.
+
+        The sandbox keeps the content and writes it back before every
+        :meth:`run`. The coding agent that writes the script works in this same
+        directory and does not leave it alone: in 3 of 19 probe-writing
+        sessions it overwrote the input with two invented cases to try its
+        script, then deleted the file, and the real run found nothing to read.
+        """
+        payload = data.encode("utf-8") if isinstance(data, str) else bytes(data)
+        self._inputs[name] = payload
+        path = self.workdir / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
+        return path
+
+    def _restore_inputs(self) -> None:
+        for name, payload in self._inputs.items():
+            path = self.workdir / name
+            try:
+                intact = path.read_bytes() == payload
+            except OSError:
+                intact = False
+            if not intact:
+                logger.warning("Sandbox input %s was changed or removed after it was "
+                               "written; restoring it before the run", name)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(payload)
 
     def run(self, code: str, *, timeout_sec: int = 60) -> SandboxResult:
         """Write *code* to a numbered script file and execute it.
@@ -303,6 +335,7 @@ class ExperimentSandbox:
         Returns:
             :class:`SandboxResult` with parsed metrics.
         """
+        self._restore_inputs()
         with self._counter_lock:
             self._run_counter += 1
             counter = self._run_counter
