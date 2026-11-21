@@ -578,6 +578,7 @@ class RunLogger:
         case_id: "str | None" = None,
         batch_case_ids: "list[str] | None" = None,
         n_batch_cases: "int | None" = None,
+        batch_size: int = 1,
     ) -> None:
         record: dict[str, Any] = {
             "ts": self._ts(), "cycle": cycle, "analyzer": analyzer,
@@ -587,6 +588,8 @@ class RunLogger:
             "inputs": inputs, "kwargs": kwargs, "output": output,
             "duration_sec": round(duration_sec, 4),
         }
+        if batch_size > 1:
+            record["batch_size"] = batch_size
         if error is not None:
             record["error"] = error
         with self._lock:

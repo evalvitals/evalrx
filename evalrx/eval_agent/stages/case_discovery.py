@@ -134,13 +134,11 @@ class CaseDiscoveryAgent:
         """
         workers = self._workers(model, len(cases))
         if workers <= 1:
-            out: "list[tuple[FailureCase, Any, Exception | None]]" = []
-            for case in cases:
-                try:
-                    out.append((case, model.generate(case.inputs, **self.generation_kwargs), None))
-                except Exception as exc:  # noqa: BLE001
-                    out.append((case, None, exc))
-            return out
+            # One batch call: a local backend pads the prompts into batches.
+            answers = model.try_generate_batch(
+                [case.inputs for case in cases], **self.generation_kwargs)
+            return [(case, None, answer) if isinstance(answer, Exception) else (case, answer, None)
+                    for case, answer in zip(cases, answers)]
 
         from concurrent.futures import ThreadPoolExecutor
 

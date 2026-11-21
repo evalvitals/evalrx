@@ -280,3 +280,74 @@ def test_hf_local_generate_treats_max_tokens_as_max_new_tokens_alias():
     assert recorder.captured["temperature"] == 0.7
     assert recorder.captured["stop_strings"] == ["DONE"]
     assert recorder.captured["tokenizer"] is m._hf[1]
+
+
+class _BatchTokenizer(FakeTokenizer):
+    """Pads a list of prompts on the left; one id per word."""
+
+    pad_token_id = 0
+
+    def __call__(self, text, return_tensors="pt", padding=False, padding_side="right",
+                 add_special_tokens=True):
+        if isinstance(text, str):
+            return super().__call__(text)
+        assert padding and padding_side == "left"
+        rows = [list(range(1, len(t.split()) + 1)) for t in text]
+        width = max(map(len, rows))
+        ids = torch.tensor([[0] * (width - len(r)) + r for r in rows])
+
+        class Encoding(dict):
+            def to(self, device):
+                return self
+
+        return Encoding(input_ids=ids, attention_mask=(ids != 0).long())
+
+    def batch_decode(self, ids, skip_special_tokens=False):
+        return [f"new{int(row[0])}" for row in ids]
+
+
+class _RecordingLM(nn.Module):
+    """Appends one token to each row: 100 + the row's prompt length."""
+
+    def __init__(self):
+        super().__init__()
+        self.param = nn.Parameter(torch.zeros(1))
+        self.calls: list[dict] = []
+
+    def generate(self, **kwargs):
+        self.calls.append(kwargs)
+        ids = kwargs["input_ids"]
+        new = 100 + kwargs["attention_mask"].sum(dim=1, keepdim=True) if "attention_mask" in kwargs \
+            else torch.full((ids.shape[0], 1), 99)
+        return torch.cat([ids, new], dim=1)
+
+
+def test_hf_local_generate_batch_pads_longest_first_and_keeps_input_order():
+    m = evalrx.wrap(FakeCausalLM(), FakeTokenizer())
+    m.runtime.batch_size = 2
+    lm = _RecordingLM()
+    m._hf = (lm, _BatchTokenizer())
+
+    out = m.generate_batch(["one", "one two three", "one two"], max_new_tokens=5)
+
+    assert out == ["new101", "new103", "new102"]            # answers follow the inputs
+    assert [call["input_ids"].shape for call in lm.calls] == [(2, 3), (1, 1)]  # longest first
+    assert all(call["max_new_tokens"] == 5 for call in lm.calls)
+
+
+def test_hf_local_uses_the_runtime_sampling_unless_the_call_passes_its_own():
+    m = evalrx.wrap(FakeCausalLM(), FakeTokenizer())
+    m.runtime.sampling = {"do_sample": True, "temperature": 0.6, "top_p": 0.95}
+    lm = _RecordingLM()
+    m._hf = (lm, FakeTokenizer())
+
+    m.generate(Inputs(prompt="hi"))
+    assert {k: lm.calls[-1][k] for k in ("do_sample", "temperature", "top_p")} == {
+        "do_sample": True, "temperature": 0.6, "top_p": 0.95}
+
+    m.generate(Inputs(prompt="hi"), temperature=1.0)
+    assert lm.calls[-1]["temperature"] == 1.0 and lm.calls[-1]["do_sample"] is True
+
+    m.generate(Inputs(prompt="hi"), do_sample=False)     # greedy: no sampling knobs reach HF
+    assert lm.calls[-1]["do_sample"] is False
+    assert not {"temperature", "top_p"} & set(lm.calls[-1])

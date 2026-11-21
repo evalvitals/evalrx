@@ -6,6 +6,63 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — batch generation is part of the `Model` interface
+
+`Model.generate_batch(inputs, **kwargs)` returns one answer per input, in order.
+`hf_local` pads a text-only spec's prompts into batches of
+`RuntimeConfig.batch_size` (default 16, longest first, halved on a CUDA
+out-of-memory error); `vllm_offline` passes the engine the whole list, where it
+sent one prompt per call before; `api` keeps `RuntimeConfig.concurrency`
+(default 8) requests in flight; every other model asks one at a time.
+`try_generate_batch` returns an input's exception in its place. Multimodal specs
+on `hf_local` still answer one input at a time.
+
+Measured on Qwen3.5-2B, 24 BBH causal-judgement prompts, one GPU: greedy
+decoding 217 s one at a time and 19.8 s batched; sampled at the benchmark's
+settings (2048-token cap) about 20 s per prompt one at a time and 4.4 s batched.
+In float32 the batched answers equal the single ones on 16 of 16 prompts. In
+bfloat16 they differ after the first tokens, including for an unpadded batch:
+half-precision rounding depends on the batch shape.
+
+`evalrx.core.analyzer` adds `Ask`, `Probe` and `run_probes`: an analyzer writes
+its per-case logic as a generator that yields an `Ask` for the answers it needs,
+and `run_probes` batches each round across the cases. `labelled_answers` reads
+`case.observed` and asks only for the cases without one.
+
+Analyzers now on batches: `prompt_contrast`, `cot_faithfulness`,
+`perturbation_battery`, `modality_ablation`, `coverage_verification_gap`,
+`calibration` (its verbalized-confidence questions), `self_consistency`,
+`selfcheck_consistency`, `format_sensitivity`, `knowledge_reasoning_split`,
+`self_repair`, `step_rollout_value`, `termination_audit`, `contamination_score`,
+`rise`; Stage 0 (`CaseDiscoveryAgent`) on a local backend; and
+`ProbeGenerator`'s output collection. Within one analyzer the calls now go out
+round by round across cases, not case by case.
+
+### Changed — decoding settings belong to the model
+
+`RuntimeConfig.sampling` holds the decoding a model is deployed with;
+`hf_local` and `jax_local` apply it to every `generate` call that passes none of
+its own, and `vllm_offline` now reads `max_new_tokens`, `do_sample`, `top_p` and
+`top_k` where it dropped them. The benchmark sets it from the Stage 0 settings.
+Before, Stage 0 labelled the llm tasks under sampling (T=0.6) while analyzers,
+which pass no arguments, ran greedy, so an analyzer's "baseline" was not the
+answer the label described.
+
+`pope` and `chair` score the answer the case was labelled on (`case.observed`)
+and no longer ask for it again; `ProbeGenerator` reads it too. Analyzers that
+pair a baseline against a changed prompt (`prompt_contrast`,
+`perturbation_battery`, `cot_faithfulness`, `modality_ablation`) still ask for a
+fresh one, now under the same decoding.
+
+A model under test must be a `Model`: stages call `generate_batch` on it, so an
+object that only has `generate` no longer works.
+
+### Changed — run log schema v9
+
+`model_call.batch_size` marks a call that was one input of a batch; its
+`duration_sec` is that input's share of the batch's wall time, so the records
+still sum to the time spent.
+
 ### Changed — the Claude judge defaults to `sonnet`
 
 `ClaudeModel.DEFAULT_MODEL = "sonnet"` is the one place the default lives. The

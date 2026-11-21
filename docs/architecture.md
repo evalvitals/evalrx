@@ -106,8 +106,23 @@ doubled-`.model.` / no-`.model` / fused-experts traps.
 
 ```python
 model.generate(inputs, **kwargs) -> str
+model.generate_batch([inputs, ...], **kwargs) -> list[str]   # same order as the inputs
 model.forward(inputs, capture={...}, spec=None) -> Trace
 ```
+
+`generate_batch` is the call for several independent questions. Each backend
+answers it the fastest way it has: `hf_local` pads a text-only spec's prompts
+into batches of `RuntimeConfig.batch_size` (halved on a CUDA out-of-memory
+error), `vllm_offline` hands the engine the whole list, `api` keeps
+`RuntimeConfig.concurrency` requests in flight, and any other model asks one at
+a time. `try_generate_batch` returns an input's exception in its place, for a
+caller that must keep the other answers.
+
+The decoding a model is deployed with lives in `RuntimeConfig.sampling`
+(`do_sample`, `temperature`, `top_p`, `top_k`). `hf_local` and `jax_local` apply
+it to every call that passes none of its own, so an analyzer that calls
+`generate` with no arguments probes the model under the settings its cases were
+labelled with.
 
 `forward` returns a `Trace`, which is the common carrier for captured internals
 such as tokens, token ids, attentions, hidden states, logits, and backend-specific
@@ -117,6 +132,32 @@ extras.
 
 `Analyzer` is the EvalRX analogue of an sklearn estimator. It has explicit
 constructor parameters, declares required capabilities, and returns a `Result`.
+
+An analyzer that asks the model several questions per case writes them as a
+per-case probe: a generator that yields an `Ask` wherever it needs answers and
+returns the case's row. `run_probes` advances every case's probe together and
+sends each round to `model.generate_batch`, so the code reads as one case at a
+time and runs as batches:
+
+```python
+from evalrx.core.analyzer import Analyzer, Ask, Probe, run_probes
+
+class MyProbe(Analyzer):
+    def _run(self, model, cases):
+        rows = run_probes(model, [self._probe_case(case) for case in cases])
+        ...
+
+    def _probe_case(self, case) -> Probe[dict]:
+        direct, reasoned = yield Ask([case.inputs, with_suffix(case.inputs, COT)])
+        (checked,) = yield Ask([follow_up(case.inputs, reasoned)])   # needs the answer above
+        return {"sample_id": case.id, ...}
+```
+
+To read the answer a case was labelled on, use `labelled_answers(model, cases)`:
+it returns `case.observed` and asks only for the cases that carry none. An
+analyzer that compares that answer against a re-ask under a changed prompt asks
+for a fresh control instead, because the labelled answer is the one the FAIL
+cases were selected on.
 
 ```python
 analyzer = SomeAnalyzer(**params)

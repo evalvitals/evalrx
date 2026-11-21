@@ -25,7 +25,7 @@ class ClaudeModel:
         self,
         binary_path: str = "",
         timeout_sec: int = 240,
-        model: str = "",
+        model: str = DEFAULT_MODEL,
         effort: str = "",
     ) -> None:
         from evalrx.core.capability import Capability

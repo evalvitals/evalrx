@@ -198,13 +198,19 @@ class ProbeGenerator:
                 case_prompts={c.inputs.prompt: c.id for c in selected},
                 batch_case_ids=[c.id for c in selected],
             )
-        for case in selected:
+        # The answer each case was labelled on; only cases that carry none are asked.
+        outputs = ["" if getattr(case, "observed", None) is None else str(case.observed)
+                   for case in selected]
+        missing = [i for i, text in enumerate(outputs)
+                   if not text and getattr(selected[i], "inputs", None) is not None]
+        fresh = model.try_generate_batch([selected[i].inputs for i in missing]) if missing else []
+        for i, answer in zip(missing, fresh):
+            if isinstance(answer, Exception):  # a probe over partial outputs is still useful
+                logger.debug("ProbeGenerator: generate failed for %s: %s", selected[i].id, answer)
+            else:
+                outputs[i] = str(answer)
+        for case, output in zip(selected, outputs):
             inp = getattr(case, "inputs", None)
-            try:
-                output = str(model.generate(inp)) if inp is not None else ""
-            except Exception as exc:  # a probe over partial outputs is still useful
-                logger.debug("ProbeGenerator: generate failed for %s: %s", case.id, exc)
-                output = ""
             label = getattr(case, "label", None)
             records.append({
                 "id": case.id,

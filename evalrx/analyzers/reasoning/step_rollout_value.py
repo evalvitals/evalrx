@@ -28,7 +28,7 @@ import re
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from evalrx.analyzers.reasoning._text import answer_equal, extract_answer
-from evalrx.core.analyzer import Analyzer
+from evalrx.core.analyzer import Analyzer, Ask, Probe, run_probes
 from evalrx.core.capability import Capability
 from evalrx.core.registry import register_analyzer
 from evalrx.core.result import Result
@@ -109,22 +109,10 @@ class StepRolloutValueAnalyzer(Analyzer):
         self.answer_fn = answer_fn or extract_answer
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
-        per_case: list[dict[str, Any]] = []
+        per_case = run_probes(
+            model, [self._probe_case(case) for case in cases.stratified_head(self.max_cases)])
         step_values_by_case: dict[str, list[float]] = {}
-        for case in cases.stratified_head(self.max_cases):
-            if case.expected is None:
-                per_case.append({"sample_id": case.id, "skipped": "no gold answer"})
-                continue
-            chain = case.observed
-            if not str(chain or "").strip():
-                chain = str(
-                    model.generate(
-                        dataclasses.replace(
-                            case.inputs, prompt=f"{case.inputs.prompt or ''}\n\n{_COT_SUFFIX}"
-                        )
-                    )
-                )
-            entry = self._probe_case(model, case, str(chain))
+        for entry in per_case:
             # Contract: a per-case row carries one level of scalars — a numeric
             # vector there looks like a signal and reaches no statistic. The
             # trajectory moves to findings["step_values_by_case"]; every scalar
@@ -133,7 +121,6 @@ class StepRolloutValueAnalyzer(Analyzer):
             values = entry.pop("step_values", None)
             if values is not None:
                 step_values_by_case[entry["sample_id"]] = values
-            per_case.append(entry)
 
         scored = [c for c in per_case if "break_step_idx" in c]
         breaks = [c["break_step_idx"] for c in scored if c["break_step_idx"] is not None]
@@ -166,29 +153,31 @@ class StepRolloutValueAnalyzer(Analyzer):
         return Result(analyzer=self.name, model=repr(model), cases=cases, findings=findings)
 
     # ------------------------------------------------------------------
-    def _probe_case(self, model: "Model", case: "FailureCase", chain: str) -> dict[str, Any]:
+    def _probe_case(self, case: "FailureCase") -> Probe[dict[str, Any]]:
+        if case.expected is None:
+            return {"sample_id": case.id, "skipped": "no gold answer"}
+        chain = str(case.observed or "")
+        if not chain.strip():
+            chain = str((yield Ask([dataclasses.replace(
+                case.inputs, prompt=f"{case.inputs.prompt or ''}\n\n{_COT_SUFFIX}")]))[0])
         steps = split_steps(chain, self.max_steps)
         entry: dict[str, Any] = {"sample_id": case.id, "n_steps": len(steps)}
         if not steps:
             entry["skipped"] = "no reasoning steps to roll out from"
             return entry
 
+        # Every step's rollouts are independent of each other: one Ask.
+        prefixes = [dataclasses.replace(case.inputs, prompt=(
+            f"{case.inputs.prompt or ''}\n\n"
+            + _CONTINUE.format(prefix=chr(10).join(steps[: i + 1]))))
+            for i in range(len(steps))]
+        rollouts = iter((yield Ask(
+            [prefix for prefix in prefixes for _ in range(self.n_rollouts)], self.gen_kwargs)))
         values: list[float] = []
-        for i in range(len(steps)):
-            prefix = "\n".join(steps[: i + 1])
-            prompt = f"{case.inputs.prompt or ''}\n\n{_CONTINUE.format(prefix=prefix)}"
-            hits = 0
-            graded = 0
-            for _ in range(self.n_rollouts):
-                out = model.generate(
-                    dataclasses.replace(case.inputs, prompt=prompt), **self.gen_kwargs
-                )
-                verdict = self.grader(out, case)
-                if verdict is None:
-                    continue
-                graded += 1
-                hits += int(verdict)
-            values.append(round(hits / graded, 4) if graded else 0.0)
+        for _ in prefixes:
+            verdicts = [self.grader(next(rollouts), case) for _ in range(self.n_rollouts)]
+            graded = [v for v in verdicts if v is not None]
+            values.append(round(sum(map(int, graded)) / len(graded), 4) if graded else 0.0)
 
         entry["step_values"] = values
         entry["initial_value"] = values[0]

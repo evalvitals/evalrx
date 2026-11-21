@@ -16,6 +16,7 @@ No mixins, no per-model wiring — the shim is derived from capabilities.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Protocol
 
@@ -135,6 +136,36 @@ class Model(ABC):
     @abstractmethod
     def generate(self, inputs: Any, **kwargs) -> str:
         """Produce a text response for *inputs* (a prompt or :class:`Inputs`)."""
+
+    def generate_batch(self, inputs: Sequence[Any], **kwargs: Any) -> list[str]:
+        """Text for each of *inputs*, in the same order.
+
+        The call to use for several independent questions. A backend answers
+        it the fastest way it has — padded batches (``hf_local``), an engine's
+        own batching (``vllm_offline``), concurrent requests (``api``); the
+        default here asks one at a time.
+        """
+        return [self.generate(item, **kwargs) for item in inputs]
+
+    def try_generate_batch(self, inputs: Sequence[Any], **kwargs: Any) -> "list[str | Exception]":
+        """:meth:`generate_batch` that returns an input's error in its place.
+
+        For callers that must keep every other answer when one input fails. A
+        backend with a real batch call gets it tried first, and each input is
+        asked on its own only if that raises.
+        """
+        if type(self).generate_batch is not Model.generate_batch:
+            try:
+                return list(self.generate_batch(inputs, **kwargs))
+            except Exception:  # noqa: BLE001 - find which input it was
+                pass
+        return [self._generate_or_error(item, kwargs) for item in inputs]
+
+    def _generate_or_error(self, item: Any, kwargs: dict[str, Any]) -> "str | Exception":
+        try:
+            return self.generate(item, **kwargs)
+        except Exception as exc:  # noqa: BLE001 - the caller reads it
+            return exc
 
     @abstractmethod
     def forward(

@@ -16,14 +16,95 @@ from __future__ import annotations
 
 import inspect
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from collections.abc import Generator, Iterable, Sequence
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from evalrx.core.capability import Capability, CapabilityError
-from evalrx.core.case import CaseBatch, as_casebatch
+from evalrx.core.case import CaseBatch, FailureCase, as_casebatch
 
 if TYPE_CHECKING:
     from evalrx.core.model import Model
     from evalrx.core.result import Result
+
+
+def labelled_answers(model: "Model", cases: Iterable[FailureCase], **kwargs: Any) -> list[str]:
+    """Each case's answer to its own prompt, as the case was labelled.
+
+    A case from Stage 0 carries that answer in ``observed``; only the cases
+    that carry none are asked, in one batch. This *reads* the model's answer.
+    An analyzer that compares it against a re-ask under a changed prompt needs
+    a fresh control from ``model.generate_batch`` instead: the labelled answer
+    is the one the FAIL cases were selected on, so a fresh sample beats it by
+    regression to the mean alone.
+    """
+    cases = list(cases)
+    answers = ["" if case.observed is None else str(case.observed) for case in cases]
+    missing = [i for i, answer in enumerate(answers) if not answer]
+    if missing:
+        fresh = model.generate_batch([cases[i].inputs for i in missing], **kwargs)
+        for i, text in zip(missing, fresh):
+            answers[i] = str(text)
+    return answers
+
+
+@dataclass
+class Ask:
+    """What one case's probe wants generated next: *inputs*, all with *kwargs*.
+
+    Inputs in one ``Ask`` must not depend on each other's answers; a probe that
+    needs an answer before it can write the next prompt yields twice.
+    """
+
+    inputs: list[Any]
+    kwargs: dict[str, Any] = field(default_factory=dict)
+
+
+_T = TypeVar("_T")
+#: A per-case probe: yields each :class:`Ask`, is sent that Ask's answers (one
+#: per input, in order), and returns the case's row.
+Probe = Generator[Ask, list[Any], _T]
+
+
+def run_probes(model: "Model", probes: Sequence[Probe[_T]], *, tolerant: bool = False) -> list[_T]:
+    """Run one probe per case, batching what they ask for across the cases.
+
+    The probes advance together: every probe's current :class:`Ask` goes to the
+    model in one ``generate_batch`` (one per distinct ``kwargs``), each probe is
+    resumed with its own answers, and the next round collects what they ask
+    next. A probe is ordinary sequential code for one case; the batching is
+    here. Results come back in the order of *probes*.
+
+    With ``tolerant`` a failed generation reaches its probe as the exception
+    instead of ending the run, for a probe that records it and carries on.
+    """
+    results: dict[int, _T] = {}
+    waiting: dict[int, Ask] = {}
+
+    def advance(index: int, answers: "list[Any] | None") -> None:
+        try:
+            waiting[index] = next(probes[index]) if answers is None else probes[index].send(answers)
+        except StopIteration as done:
+            waiting.pop(index, None)
+            results[index] = done.value
+
+    for index in range(len(probes)):
+        advance(index, None)
+    generate = model.try_generate_batch if tolerant else model.generate_batch
+    while waiting:
+        answers: dict[int, list[Any]] = {index: [] for index in waiting}
+        groups: dict[str, list[tuple[int, Any]]] = {}
+        for index, ask in waiting.items():
+            groups.setdefault(repr(sorted(ask.kwargs.items())), []).extend(
+                (index, item) for item in ask.inputs)
+        for members in groups.values():
+            kwargs = waiting[members[0][0]].kwargs
+            outputs = generate([item for _, item in members], **kwargs)
+            for (index, _), output in zip(members, outputs):
+                answers[index].append(output)
+        for index in list(waiting):
+            advance(index, answers[index])
+    return [results[index] for index in range(len(probes))]
 
 
 class Analyzer(ABC):

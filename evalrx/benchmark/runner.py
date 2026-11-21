@@ -123,6 +123,9 @@ def load_model(resolved: Resolved, args, task: T.Task):
         return compose(spec, "api", runtime, set()), {}, spec
     from evalrx.models.backends.base import RuntimeConfig
 
+    # The decoding Stage 0 labels with is the model's own: a probe that calls
+    # generate() with no arguments then answers under the same settings.
+    sampling = {name: value for name, value in gen.items() if name != "max_new_tokens"}
     if resolved.backend == "jax_local":
         # The JAX twin: same spec (template kwargs, modalities, caveats), the
         # gemma library underneath; text, image and audio inputs. apply_chat_template
@@ -134,7 +137,7 @@ def load_model(resolved: Resolved, args, task: T.Task):
         # modalities it can serve accordingly
         engine_kwargs["text_only"] = task.modality == "llm"
         runtime = RuntimeConfig(device=args.device or "auto", dtype=args.dtype, max_new_tokens=max_new,
-                                apply_chat_template=True, engine_kwargs=engine_kwargs)
+                                apply_chat_template=True, engine_kwargs=engine_kwargs, sampling=sampling)
         return compose(spec, "jax_local", runtime, set()), gen, spec
 
     device = args.device or (resolved.size.default_device if resolved.size is not None else "cuda")
@@ -145,7 +148,7 @@ def load_model(resolved: Resolved, args, task: T.Task):
     # tokenises the raw prompt — completion mode — and Qwen3.5 opens its own
     # <think> block and runs to the cap (the llm smokes of 2026-08-21).
     runtime = RuntimeConfig(device=device, dtype=args.dtype, attn_impl=attn, max_new_tokens=max_new,
-                            apply_chat_template=True)
+                            apply_chat_template=True, sampling=sampling)
     want = {Capability.ATTENTION} if attn == "eager" else set()
     model = compose(spec, "hf_local", runtime, want)
     return model, gen, spec

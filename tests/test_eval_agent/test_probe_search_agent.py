@@ -9,6 +9,7 @@ import pytest
 
 from evalrx.core.case import CaseBatch, FailureCase, Inputs
 from evalrx.eval_agent.stages.probe_search_agent import ProbeSearchAgent
+from tests.conftest import FakeModel
 
 
 def _seed_pool() -> CaseBatch:
@@ -39,12 +40,12 @@ class _ScriptedJudge:
         return '{"label": "PASS", "reason": "observed matches expected"}'
 
 
-class _AlwaysWrongModel:
+class _AlwaysWrongModel(FakeModel):
     def generate(self, inputs, **kwargs) -> str:
         return "WRONG"
 
 
-class _AlwaysRightModel:
+class _AlwaysRightModel(FakeModel):
     def generate(self, inputs, **kwargs) -> str:
         return "definitely correct"
 

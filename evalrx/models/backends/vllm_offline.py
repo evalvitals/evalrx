@@ -15,6 +15,7 @@ capture is ``hf_local``'s job.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from evalrx.core.capability import Capability, CapabilityError
@@ -58,19 +59,31 @@ class VLLMOfflineModel(Model):
     def _as_prompt(inputs: Any) -> str:
         return inputs.prompt if isinstance(inputs, Inputs) else str(inputs)
 
-    def _sampling(self, *, max_tokens: int | None = None, temperature: float = 0.0, logprobs: int | None = None, **_):
+    def _sampling(self, *, logprobs: int | None = None, **kwargs: Any):
+        """vLLM sampling for one call: its own kwargs over ``runtime.sampling``,
+        under hf_local's names (``max_new_tokens`` or ``max_tokens``; greedy
+        when ``do_sample`` is False or the temperature is not positive)."""
         from vllm import SamplingParams
 
-        return SamplingParams(
-            max_tokens=max_tokens or self.runtime.max_new_tokens,
-            temperature=temperature,
-            logprobs=logprobs,
-        )
+        kwargs = {**self.runtime.sampling, **kwargs}
+        max_tokens = kwargs.get("max_new_tokens") or kwargs.get("max_tokens") or self.runtime.max_new_tokens
+        temperature = float(kwargs.get("temperature") or 0.0)
+        if kwargs.get("do_sample") is False:
+            temperature = 0.0
+        elif kwargs.get("do_sample") and "temperature" not in kwargs:
+            temperature = 1.0
+        extra = {name: kwargs[name] for name in ("top_p", "top_k") if temperature > 0 and name in kwargs}
+        return SamplingParams(max_tokens=int(max_tokens), temperature=temperature, logprobs=logprobs, **extra)
 
     # -- interface -----------------------------------------------------
     def generate(self, inputs: Any, **kwargs) -> str:
-        out = self._engine.generate([self._as_prompt(inputs)], self._sampling(**kwargs))
-        return out[0].outputs[0].text
+        return self.generate_batch([inputs], **kwargs)[0]
+
+    def generate_batch(self, inputs: Sequence[Any], **kwargs) -> list[str]:
+        """One engine call for all *inputs*; vLLM batches them continuously."""
+        prompts = [self._as_prompt(item) for item in inputs]
+        outs = self._engine.generate(prompts, self._sampling(**kwargs)) if prompts else []
+        return [out.outputs[0].text for out in outs]
 
     def chat(self, messages: list, tools=None) -> ChatTurn:
         if Capability.TOOL_CALLS not in self.capabilities:

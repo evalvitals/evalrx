@@ -487,7 +487,7 @@ def _spends_gpu(cls) -> bool:
         src = inspect.getsource(cls)
     except (OSError, TypeError):
         return True  # unknown: cap it rather than risk another straggler
-    return "model.generate(" in src or "model.logprobs(" in src
+    return any(call in src for call in ("model.generate(", "model.generate_batch(", "Ask(", "model.logprobs("))
 
 
 def build_analyzer_overrides(max_cases: int, model=None, verbose: bool = True) -> dict:

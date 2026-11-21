@@ -19,6 +19,7 @@ lazily so this module imports on a torch-free install.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from typing import Any
 
 from evalrx.core.capability import Capability, CapabilityError
@@ -358,6 +359,66 @@ class HFLocalModel(ContrastiveDecodingMixin, SpecialistRepairsMixin, Model):
             prompt = self._as_prompt(inputs)
             enc = self._encode(prompt)
         enc.pop("token_type_ids", None)  # some VLM processors emit this; generate() rejects it
+        with torch.no_grad():
+            out = model.generate(**enc, **self._decoding(tok, kwargs))
+        new = _new_tokens(out[0], enc["input_ids"][0])
+        return tok.decode(new, skip_special_tokens=True)
+
+    def generate_batch(self, inputs: Sequence[Any], **kwargs) -> list[str]:
+        """Padded batches of ``runtime.batch_size`` prompts for a text-only spec.
+
+        Prompts are grouped longest first, so a batch pads little and an
+        out-of-memory error shows on the first batch; the batch size is then
+        halved and the run continues. A multimodal spec answers one input at a
+        time: its processors do not share one padding contract.
+        """
+        import torch
+
+        inputs = list(inputs)
+        if self.spec.needs_multimodal_encode or len(inputs) < 2:
+            return [self.generate(item, **kwargs) for item in inputs]
+        model, processor = self._loaded
+        tok = getattr(processor, "tokenizer", processor)
+        if tok.pad_token_id is None:
+            tok.pad_token = tok.eos_token
+        prompts = [self._as_prompt(item) for item in inputs]
+        texts = [self._render_text_prompt(tok, prompt) for prompt in prompts]
+        rendered = texts[0] is not prompts[0]  # a rendered template already carries BOS
+        decoding = self._decoding(tok, kwargs)
+        device = next(model.parameters()).device
+        order = sorted(range(len(texts)), key=lambda i: -len(texts[i]))
+        outputs = [""] * len(texts)
+        size, start = max(1, int(self.runtime.batch_size)), 0
+        while start < len(order):
+            rows = order[start:start + size]
+            enc = tok([texts[i] for i in rows], return_tensors="pt", padding=True,
+                      padding_side="left", add_special_tokens=not rendered).to(device)
+            enc.pop("token_type_ids", None)
+            try:
+                with torch.no_grad():
+                    out = model.generate(**enc, **decoding)
+            except torch.cuda.OutOfMemoryError:
+                if size == 1:
+                    raise
+                del enc
+                torch.cuda.empty_cache()
+                size //= 2
+                logger.warning("%s: out of memory at this batch size; continuing with %d",
+                               self.spec.key, size)
+                continue
+            new = out[:, enc["input_ids"].shape[1]:]
+            for i, text in zip(rows, tok.batch_decode(new, skip_special_tokens=True)):
+                outputs[i] = text
+            start += len(rows)
+        return outputs
+
+    def _decoding(self, tok: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """``model.generate`` keyword arguments for one call.
+
+        The call's own *kwargs* win over ``runtime.sampling``, the decoding the
+        model is deployed with.
+        """
+        kwargs = {**self.runtime.sampling, **kwargs}
         # "max_tokens" is the OpenAI-style name FixAgent's judge-proposed L2
         # PipelineSpecs use (see fix_tools._safe_generation_kwargs and the
         # _L2_PROMPT schema); transformers' generate() only recognises
@@ -375,22 +436,17 @@ class HFLocalModel(ContrastiveDecodingMixin, SpecialistRepairsMixin, Model):
         # two controls that Hugging Face does not accept verbatim instead of
         # letting run_pipeline swallow a ValueError and report 0 coverage.
         temperature = kwargs.get("temperature")
-        if temperature is not None:
-            if float(temperature) <= 0.0:
-                kwargs.pop("temperature", None)
-                kwargs["do_sample"] = False
-                kwargs.pop("top_p", None)
-                kwargs.pop("top_k", None)
-            else:
-                kwargs.setdefault("do_sample", True)
+        if kwargs.get("do_sample") is False or (temperature is not None and float(temperature) <= 0.0):
+            kwargs["do_sample"] = False
+            for name in ("temperature", "top_p", "top_k"):
+                kwargs.pop(name, None)
+        elif temperature is not None:
+            kwargs.setdefault("do_sample", True)
         stop = kwargs.pop("stop", None)
         if stop:
             kwargs["stop_strings"] = stop
             kwargs["tokenizer"] = tok
-        with torch.no_grad():
-            out = model.generate(**enc, max_new_tokens=max_new, **kwargs)
-        new = _new_tokens(out[0], enc["input_ids"][0])
-        return tok.decode(new, skip_special_tokens=True)
+        return {"max_new_tokens": max_new, **kwargs}
 
     def logprobs(
         self, inputs: Any, max_new_tokens: int = 64, top_k: int = 5, **kwargs

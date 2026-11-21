@@ -9,6 +9,7 @@ from evalrx.core.case import CaseBatch, FailureCase, Inputs
 from evalrx.eval_agent.loop.judge.board import EvidenceBoard
 from evalrx.eval_agent.loop.judge.tools import build_default_registry
 from evalrx.eval_agent.loop.state import RunState
+from tests.conftest import FakeModel
 
 
 class _ScriptedJudge:
@@ -29,7 +30,7 @@ class _ScriptedJudge:
         return '{"label": "PASS", "reason": "match"}'
 
 
-class _AlwaysWrongModel:
+class _AlwaysWrongModel(FakeModel):
     def generate(self, inputs, **kwargs) -> str:
         return "WRONG"
 

@@ -30,7 +30,7 @@ import dataclasses
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from evalrx.analyzers.reasoning._text import answer_equal, extract_answer
-from evalrx.core.analyzer import Analyzer
+from evalrx.core.analyzer import Analyzer, Ask, Probe, run_probes
 from evalrx.core.capability import Capability
 from evalrx.core.registry import register_analyzer
 from evalrx.core.result import Result
@@ -99,12 +99,8 @@ class KnowledgeReasoningSplit(Analyzer):
         self.grader = grader or _default_grader
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
-        per_case: list[dict[str, Any]] = []
-        for case in cases.stratified_head(self.max_cases):
-            if case.expected is None:
-                per_case.append({"sample_id": case.id, "skipped": "no gold answer"})
-                continue
-            per_case.append(self._probe_case(model, case))
+        per_case = run_probes(
+            model, [self._probe_case(case) for case in cases.stratified_head(self.max_cases)])
 
         scored = [c for c in per_case if "deficit_class" in c]
         failed = [c for c in scored if c["baseline_correct"] == 0]
@@ -165,30 +161,26 @@ class KnowledgeReasoningSplit(Analyzer):
         return Result(analyzer=self.name, model=repr(model), cases=cases, findings=findings)
 
     # ------------------------------------------------------------------
-    def _probe_case(self, model: "Model", case: "FailureCase") -> dict[str, Any]:
+    def _probe_case(self, case: "FailureCase") -> Probe[dict[str, Any]]:
+        if case.expected is None:
+            return {"sample_id": case.id, "skipped": "no gold answer"}
         entry: dict[str, Any] = {"sample_id": case.id}
-        baseline = self.grader(model.generate(self._ask(case, _BASELINE)), case)
-        decomposed = self.grader(model.generate(self._ask(case, _DECOMPOSE)), case)
+        baseline_out, decomposed_out, facts = yield Ask([
+            self._ask(case, _BASELINE), self._ask(case, _DECOMPOSE), self._ask(case, _RECALL)])
+        baseline = self.grader(baseline_out, case)
+        decomposed = self.grader(decomposed_out, case)
 
-        facts = str(model.generate(self._ask(case, _RECALL)))
-        fact_lines = [ln.strip() for ln in facts.splitlines() if ln.strip()]
+        fact_lines = [ln.strip() for ln in str(facts).splitlines() if ln.strip()]
         entry["n_listed_facts"] = len(fact_lines)
         entry["own_facts_parsed"] = int(bool(fact_lines))
-        own_facts = None
-        if fact_lines:
-            own_facts = self.grader(
-                model.generate(
-                    self._ask(case, _FROM_FACTS.format(facts="\n".join(fact_lines)))
-                ),
-                case,
-            )
-
         context = self._context_for(case)
-        open_book = None
-        if context:
-            open_book = self.grader(
-                model.generate(self._ask(case, _OPEN_BOOK.format(context=context))), case
-            )
+        # Answering from its own facts needs the facts; the open-book question rides along.
+        second = iter((yield Ask([
+            *([self._ask(case, _FROM_FACTS.format(facts="\n".join(fact_lines)))] if fact_lines else []),
+            *([self._ask(case, _OPEN_BOOK.format(context=context))] if context else []),
+        ])))
+        own_facts = self.grader(next(second), case) if fact_lines else None
+        open_book = self.grader(next(second), case) if context else None
 
         if baseline is None:
             entry["skipped"] = "ungradable baseline"

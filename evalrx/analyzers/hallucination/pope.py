@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Optional
 
-from evalrx.core.analyzer import Analyzer
+from evalrx.core.analyzer import Analyzer, labelled_answers
 from evalrx.core.capability import Capability
 from evalrx.core.registry import register_analyzer
 from evalrx.core.result import Result
@@ -63,9 +63,9 @@ class POPEAnalyzer(Analyzer):
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
         tp = fp = fn = tn = unparsed = 0
         per_case = []
-        for case in cases:
+        for case, answer in zip(cases, labelled_answers(model, cases)):
             gold = str(case.metadata.get(self.label_key, "")).strip().lower()
-            pred = parse_yes_no(model.generate(case.inputs))
+            pred = parse_yes_no(answer)
             is_correct = pred == gold if gold in {"yes", "no"} and pred is not None else None
             per_case.append({
                 "id": case.id,

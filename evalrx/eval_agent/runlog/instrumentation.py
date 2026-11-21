@@ -61,6 +61,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from evalrx.core.capability import Capability
     from evalrx.core.model import CaptureSpec, Judge, Model, Trace
     from evalrx.eval_agent.runlog.logger import RunLogger
@@ -192,6 +194,7 @@ class InstrumentedModel(_ProxyBase):
     def _record(
         self, method: str, inputs: Any, kwargs: "dict[str, Any] | None",
         output: Any, duration_sec: float, error: "str | None",
+        batch_size: int = 1,
     ) -> None:
         prompt = inputs if isinstance(inputs, str) else getattr(inputs, "prompt", None)
         case_id = self._case_prompts.get(str(prompt)) if prompt is not None else None
@@ -205,6 +208,7 @@ class InstrumentedModel(_ProxyBase):
                     "batch_case_ids": self._batch_case_ids_inline,
                     "n_batch_cases": self._n_batch_cases,
                     "kwargs": {k: str(v) for k, v in (kwargs or {}).items()},
+                    "batch_size": batch_size,
                 },
             )
             return
@@ -221,7 +225,36 @@ class InstrumentedModel(_ProxyBase):
             output=output,
             duration_sec=duration_sec,
             error=error,
+            batch_size=batch_size,
         )
+
+    def generate_batch(self, inputs: "Sequence[Any]", **kwargs: Any) -> list[str]:
+        inputs = list(inputs)
+        t0 = time.monotonic()
+        try:
+            outs = self._model.generate_batch(inputs, **kwargs)
+        except Exception as exc:  # noqa: BLE001 - record the failure, then re-raise it
+            self._record_batch(inputs, kwargs, [exc] * len(inputs), time.monotonic() - t0)
+            raise
+        self._record_batch(inputs, kwargs, outs, time.monotonic() - t0)
+        return outs
+
+    def try_generate_batch(self, inputs: "Sequence[Any]", **kwargs: Any) -> "list[str | Exception]":
+        inputs = list(inputs)
+        t0 = time.monotonic()
+        outs = self._model.try_generate_batch(inputs, **kwargs)
+        self._record_batch(inputs, kwargs, outs, time.monotonic() - t0)
+        return outs
+
+    def _record_batch(self, inputs: list, kwargs: "dict[str, Any]", outs: "Sequence[Any]",
+                      duration_sec: float) -> None:
+        """One record per input. ``duration_sec`` is the input's share of the
+        batch's wall time, so the records still sum to the time spent."""
+        share = duration_sec / max(1, len(inputs))
+        for item, out in zip(inputs, outs):
+            failed = isinstance(out, Exception)
+            self._record("generate", item, kwargs, None if failed else str(out), share,
+                         repr(out) if failed else None, batch_size=len(inputs))
 
     def generate(self, inputs: Any, **kwargs: Any) -> str:
         t0 = time.monotonic()

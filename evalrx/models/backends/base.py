@@ -29,6 +29,17 @@ class RuntimeConfig:
     dtype: str = "bfloat16"
     attn_impl: Optional[str] = None          # hf_local forces "eager" when attention is wanted
     max_new_tokens: int = 512
+    #: The decoding the model is deployed with (``do_sample``, ``temperature``,
+    #: ``top_p``, ``top_k``). ``hf_local`` and ``jax_local`` apply it to every
+    #: generate call that does not pass its own, so a probe run with no
+    #: arguments answers the way the labelled run did. The api backends carry
+    #: their sampling in ``generate_fn``.
+    sampling: dict[str, Any] = field(default_factory=dict)
+    #: hf_local: prompts per padded batch in ``generate_batch`` (halved on a
+    #: CUDA out-of-memory error).
+    batch_size: int = 16
+    #: api: requests in flight at once in ``generate_batch``.
+    concurrency: int = 8
     #: hf_local, TEXT-ONLY specs: render ``inputs.prompt`` as one user turn through
     #: the tokenizer's chat template (with ``spec.chat_template_kwargs``, e.g.
     #: ``enable_thinking=False``) before generate()/logprobs(). Off by default: a

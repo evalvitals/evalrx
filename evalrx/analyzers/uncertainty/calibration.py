@@ -106,7 +106,13 @@ class CalibrationAnalyzer(Analyzer):
         labelled = CaseBatch([c for c in cases if c.label in (Label.PASS, Label.FAIL)])
         n_unlabelled = len(list(cases)) - len(list(labelled))
         has_logprobs = Capability.LOGPROBS in getattr(model, "capabilities", frozenset())
-        for case in labelled.stratified_head(self.max_cases):
+        selected = list(labelled.stratified_head(self.max_cases))
+        # A failed request is evidence missing for one case, so the batch is
+        # asked for errors in place rather than raising on the first.
+        verbalized = model.try_generate_batch([
+            dataclasses.replace(case.inputs, prompt=(case.inputs.prompt or "") + self.elicit)
+            for case in selected])
+        for case, raw in zip(selected, verbalized):
             correct = case.label == Label.PASS
             entry: dict[str, Any] = {"sample_id": case.id, "correct": int(correct)}
 
@@ -128,16 +134,11 @@ class CalibrationAnalyzer(Analyzer):
                 entry["conf_logprob"] = round(conf_lp, 4)
                 lp_pairs.append((conf_lp, correct))
 
-            elicited = dataclasses.replace(
-                case.inputs, prompt=(case.inputs.prompt or "") + self.elicit
-            )
-            try:
-                raw = str(model.generate(elicited))
-            except Exception as exc:
-                entry["verbalized_error"] = f"{type(exc).__name__}: {str(exc)[:160]}"
+            if isinstance(raw, Exception):
+                entry["verbalized_error"] = f"{type(raw).__name__}: {str(raw)[:160]}"
                 per_case.append(entry)
                 continue
-            conf_vb = _parse_conf(raw)
+            conf_vb = _parse_conf(str(raw))
             if conf_vb is not None:
                 entry["conf_verbal"] = round(conf_vb, 4)
                 vb_pairs.append((conf_vb, correct))
