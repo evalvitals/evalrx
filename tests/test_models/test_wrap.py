@@ -371,6 +371,59 @@ def test_hf_local_runs_inputs_one_at_a_time_when_their_media_do_not_stack(monkey
     assert [call["input_ids"].shape[0] for call in lm.calls] == [1, 1]
 
 
+def test_hf_local_batches_inputs_with_and_without_an_image_separately(monkeypatch):
+    spec = ModelSpec(key="fake-vlm", family="fake", model_type="qwen3_5", hf_repo="",
+                     auto_class="AutoModelForImageTextToText", processor_class="AutoProcessor",
+                     vision=VisionSpec(image_token_id_attr="image_token_id"))
+    m = HFLocalModel(spec, RuntimeConfig(max_new_tokens=4))
+    lm = _RecordingLM()
+
+    class Processor:
+        tokenizer = _PaddingTokenizer()
+
+    def encode(inputs, model, processor):
+        n = len(inputs.prompt.split())
+        enc = {"input_ids": torch.arange(1, n + 1).unsqueeze(0)}
+        if inputs.image is not None:
+            enc["pixel_values"] = torch.zeros(1, 3)
+        return enc, [], [], None
+
+    m._hf = (lm, Processor())
+    monkeypatch.setattr(m, "_encode_vlm", encode)
+
+    out = m.generate_batch([Inputs(prompt="a", image=1), Inputs(prompt="a b"),
+                            Inputs(prompt="a b c", image=1), Inputs(prompt="a b c d")])
+
+    assert out == ["t101", "t102", "t103", "t104"]
+    assert [("pixel_values" in call, call["input_ids"].shape[0]) for call in lm.calls] == [
+        (True, 2), (False, 2)]
+
+
+def test_hf_local_encodes_a_long_list_a_window_at_a_time():
+    m = evalrx.wrap(FakeCausalLM(), FakeTokenizer())
+    m.runtime.batch_size = 2
+    events: list[str] = []
+
+    class Tok(_PaddingTokenizer):
+        def __call__(self, text, return_tensors="pt"):
+            events.append("encode")
+            return super().__call__(text, return_tensors)
+
+    class LM(_RecordingLM):
+        def generate(self, **kwargs):
+            events.append(f"generate{kwargs['input_ids'].shape[0]}")
+            return super().generate(**kwargs)
+
+    m._hf = (LM(), Tok())
+
+    out = m.generate_batch(["one"] * 20)
+
+    assert out == ["t101"] * 20
+    # Eight encodings, their four batches, then the next eight: never all twenty at once.
+    assert events[:12] == ["encode"] * 8 + ["generate2"] * 4
+    assert events.count("encode") == 20 and events.count("generate2") == 10
+
+
 def test_hf_local_does_not_batch_a_multimodal_family_that_was_not_checked(monkeypatch):
     spec = ModelSpec(key="fake-vlm", family="fake", model_type="some_new_vlm", hf_repo="",
                      auto_class="AutoModelForImageTextToText", processor_class="AutoProcessor",

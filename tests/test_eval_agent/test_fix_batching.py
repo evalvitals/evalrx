@@ -213,3 +213,10 @@ def test_the_baseline_is_measured_once_for_a_model_and_its_cases():
 
     assert again is first and other is not first
     assert [len(batch) for batch in model.batches] == [4, 6]
+
+    # A deployed template rewrites the prompts under the same case ids.
+    rewritten = _cases(2)
+    for case in rewritten:
+        case.inputs.prompt = "Think. " + case.inputs.prompt
+    assert agent.validator.baseline(model, rewritten) is not first
+    assert model.batches[-1] == ["Think. Q0", "Think. Q0", "Think. Q1", "Think. Q1"]

@@ -11,7 +11,10 @@ Versions follow [Semantic Versioning](https://semver.org/).
 `hf_local` now has one batching path for text and multimodal specs. Each input
 is encoded on its own, as a single call encodes it, and the encodings are
 stacked: token-level tensors are left-padded, image and audio tensors are
-concatenated. `generate` is `generate_batch` with one input. A multimodal family
+concatenated. `generate` is `generate_batch` with one input. A long list is
+encoded a window of four batches at a time, so the encodings alive at once do
+not grow with the list, and inputs that carry different tensors (with an image,
+without one) batch separately. A multimodal family
 batches only when it is listed in `BATCHED_MULTIMODAL_FAMILIES`; the others run
 one input at a time, as do inputs whose media tensors do not stack. Listed, each
 checked on a real checkpoint in float32 with greedy decoding and inputs of
@@ -105,8 +108,8 @@ depend on each other and the model runs them its own way, as M1 does:
   thread per case instead of `max_workers=8`.
 - Registered repairs, visual search and the matched baseline call a method on
   the model that hooks it while it generates; they run one case at a time.
-- The fresh baseline is measured once for a model and a set of cases and shared
-  by every tier of the search. Each tier had drawn its own 64 samples, so the
+- The fresh baseline is measured once for a model and a set of cases (their
+  prompts and recorded answers) and shared by every tier of the search. Each tier had drawn its own 64 samples, so the
   tiers of one e-BH family were paired against different baselines.
 
 `Model.concurrency` (default 1) is how many `generate` calls the default

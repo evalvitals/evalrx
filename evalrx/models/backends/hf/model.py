@@ -384,50 +384,60 @@ class HFLocalModel(ContrastiveDecodingMixin, SpecialistRepairsMixin, Model):
 
         Every input is encoded on its own, the way a single call encodes it,
         and the encodings are stacked (:func:`collate_encodings`), so text and
-        multimodal specs take the same path. Inputs go longest first: a batch
-        pads little, and an out-of-memory error shows on the first batch; the
-        batch is then halved and the run continues. Encodings that cannot be
-        stacked (media tensors of different shapes) run one input at a time,
-        and so does a multimodal family outside
-        :data:`BATCHED_MULTIMODAL_FAMILIES`.
+        multimodal specs take the same path. Inputs are taken a window of four
+        batches at a time, so the encodings alive at once stay bounded however
+        long the list is (one ``vl_shap`` case asks for hundreds of masked
+        images). Within a window, inputs that carry the same tensors (with an
+        image, without one) batch together, longest first so a batch pads
+        little. On a CUDA out-of-memory error the batch is halved and the run
+        continues. Encodings that cannot be stacked (media tensors of different
+        shapes) run one input at a time, and so does a multimodal family
+        outside :data:`BATCHED_MULTIMODAL_FAMILIES`.
         """
         import torch
 
         model, processor = self._loaded
         tok = getattr(processor, "tokenizer", processor)
-        encodings = [self._encode_any(item) for item in inputs]
-        order = sorted(range(len(encodings)), key=lambda i: -encodings[i]["input_ids"].shape[1])
-        results: "list[Any]" = [None] * len(encodings)
         stacks = (not self.spec.needs_multimodal_encode
                   or self.spec.model_type in BATCHED_MULTIMODAL_FAMILIES)
-        size, start = max(1, int(self.runtime.batch_size)) if stacks else 1, 0
-        while start < len(order):
-            rows = order[start:start + size]
-            if len(rows) == 1:
-                batch = encodings[rows[0]]
-            else:
-                if tok.pad_token_id is None:
-                    tok.pad_token = tok.eos_token
-                batch = collate_encodings([encodings[i] for i in rows], tok.pad_token_id)
-                if batch is None:
-                    logger.info("%s: these inputs do not stack into one batch; "
-                                "running them one at a time", self.spec.key)
-                    size = 1
-                    continue
-            try:
-                outputs = run(batch)
-            except torch.cuda.OutOfMemoryError:
-                if len(rows) == 1:
-                    raise
-                del batch
-                torch.cuda.empty_cache()
-                size = len(rows) // 2
-                logger.warning("%s: out of memory at this batch size; continuing with %d",
-                               self.spec.key, size)
-                continue
-            for i, output in zip(rows, outputs):
-                results[i] = output
-            start += len(rows)
+        size = max(1, int(self.runtime.batch_size)) if stacks else 1
+        window = 4 * size
+        results: "list[Any]" = [None] * len(inputs)
+        for offset in range(0, len(inputs), window):
+            encodings = {offset + i: self._encode_any(item)
+                         for i, item in enumerate(inputs[offset:offset + window])}
+            alike: "dict[frozenset[str], list[int]]" = {}
+            for index, enc in encodings.items():
+                alike.setdefault(frozenset(enc), []).append(index)
+            for group in alike.values():
+                group.sort(key=lambda i: -encodings[i]["input_ids"].shape[1])
+                stackable, start = True, 0
+                while start < len(group):
+                    rows = group[start:start + (size if stackable else 1)]
+                    batch = encodings[rows[0]]
+                    if len(rows) > 1:
+                        if tok.pad_token_id is None:
+                            tok.pad_token = tok.eos_token
+                        batch = collate_encodings([encodings[i] for i in rows], tok.pad_token_id)
+                        if batch is None:
+                            logger.info("%s: these inputs do not stack into one batch; "
+                                        "running them one at a time", self.spec.key)
+                            stackable = False
+                            continue
+                    try:
+                        outputs = run(batch)
+                    except torch.cuda.OutOfMemoryError:
+                        if len(rows) == 1:
+                            raise
+                        del batch
+                        torch.cuda.empty_cache()
+                        size = len(rows) // 2
+                        logger.warning("%s: out of memory at this batch size; continuing "
+                                       "with %d", self.spec.key, size)
+                        continue
+                    for i, output in zip(rows, outputs):
+                        results[i] = output
+                    start += len(rows)
         return results
 
     def _encode_any(self, inputs: Any) -> Any:

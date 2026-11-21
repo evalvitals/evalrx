@@ -115,8 +115,8 @@ class CandidateValidator:
         # case id -> the final output that was scored, filled while a
         # candidate runs and moved onto its FixValidation.
         self._captured: "dict[str, str]" = {}
-        # (model, case ids, baseline) for every baseline measured so far.
-        self._baselines: "list[tuple[Model, tuple[str, ...], Baseline]]" = []
+        # (model, what was asked, baseline) for every baseline measured so far.
+        self._baselines: "list[tuple[Model, tuple[Any, ...], Baseline]]" = []
 
     @property
     def rates_mode(self) -> bool:
@@ -131,12 +131,19 @@ class CandidateValidator:
         against the same baseline samples; re-drawing them per tier cost 64
         generations each time and gave each tier a different baseline.
         """
-        ids = tuple(case.id for case in data)
-        for seen_model, seen_ids, measured in self._baselines:
-            if seen_model is model and seen_ids == ids:
+        # What the samples depend on besides the model: the prompt asked and the
+        # recorded answer that counts as sample one. A deployed template keeps
+        # the case ids and changes the prompts, so ids alone would not do.
+        asked = tuple(
+            (case.id, str(getattr(case.inputs, "prompt", "")),
+             None if case.observed is None else str(case.observed))
+            for case in data
+        )
+        for seen_model, seen_asked, measured in self._baselines:
+            if seen_model is model and seen_asked == asked:
                 return measured
         measured = self._measure_baseline(model, data)
-        self._baselines.append((model, ids, measured))
+        self._baselines.append((model, asked, measured))
         return measured
 
     def _measure_baseline(self, model: "Model", data: "CaseBatch") -> Baseline:

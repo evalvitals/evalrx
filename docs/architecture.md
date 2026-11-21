@@ -122,8 +122,9 @@ answers. `logprobs_batch` is the same call for `logprobs`.
 
 `hf_local` builds a batch by encoding every input on its own, exactly as a
 single call does, and stacking the encodings: token-level tensors are padded on
-the left, image and audio tensors are concatenated. A text-only spec always
-batches. A multimodal family batches once it is listed in
+the left, image and audio tensors are concatenated. A long list is encoded a
+window of four batches at a time, and inputs with and without an image batch
+separately. A text-only spec always batches. A multimodal family batches once it is listed in
 `BATCHED_MULTIMODAL_FAMILIES` (`models/backends/hf/model.py`), which means its
 batched answers were compared with one-at-a-time answers on a real checkpoint in
 float32 and came out identical; an unlisted family, and inputs whose media
