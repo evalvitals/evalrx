@@ -778,6 +778,19 @@ def main() -> int:
     diagnosis_agent = None if args.analysis_only else DiagnosisAgent(judge=judge)
     hypothesis_tester = None if args.analysis_only else HypothesisTester(judge=judge, min_effect=0.05)
 
+    from evalrx.eval_agent import CliAgentConfig, SurgeryAgent
+    from evalrx.eval_agent.stages.experiment_writer import ExperimentWriterConfig
+
+    coder_cfg = CliAgentConfig(
+        provider={"agy": "antigravity", "claude": "claude_code", "codex": "codex"}[args.judge_provider],
+        model=(args.judge_model or "gpt-5.6-terra") if args.judge_provider == "codex" else args.judge_model,
+        timeout_sec=900,
+        extra_args=(
+            () if args.judge_provider in {"agy", "codex"}
+            else (("--effort", args.judge_effort) if args.judge_effort else ())
+        ),
+    )
+
     fix_agent = FixAgent(
         judge=judge,
         max_tier=args.fix_max_tier,
@@ -804,18 +817,6 @@ def main() -> int:
     print(f"  explore/confirm split: {len(cases) - n_confirm} explore "
           f"(M1-M4 discovery) / {n_confirm} confirm (held out for run_fix)")
 
-    from evalrx.eval_agent import CliAgentConfig, SurgeryAgent
-    from evalrx.eval_agent.stages.experiment_writer import ExperimentWriterConfig
-
-    coder_cfg = CliAgentConfig(
-        provider={"agy": "antigravity", "claude": "claude_code", "codex": "codex"}[args.judge_provider],
-        model=(args.judge_model or "gpt-5.6-terra") if args.judge_provider == "codex" else args.judge_model,
-        timeout_sec=900,
-        extra_args=(
-            () if args.judge_provider in {"agy", "codex"}
-            else (("--effort", args.judge_effort) if args.judge_effort else ())
-        ),
-    )
     explorer = None
     if args.explore and not args.analysis_only:
         from evalrx.agent_runtime.sandbox import ExperimentSandbox
