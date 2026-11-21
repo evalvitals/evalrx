@@ -6,6 +6,46 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed — hf_local batches multimodal inputs and logprobs; the last per-case loops batch
+
+`hf_local` now has one batching path for text and multimodal specs. Each input
+is encoded on its own, as a single call encodes it, and the encodings are
+stacked: token-level tensors are left-padded, image and audio tensors are
+concatenated. `generate` is `generate_batch` with one input. A multimodal family
+batches only when it is listed in `BATCHED_MULTIMODAL_FAMILIES`; the others run
+one input at a time, as do inputs whose media tensors do not stack. Listed, each
+checked on a real checkpoint in float32 with greedy decoding and inputs of
+different sizes (batched text identical to one-at-a-time text on every input;
+logprobs within 1e-3): `qwen3_5` (Qwen3.5-2B, 10/10), `qwen2_5_vl`
+(Qwen2.5-VL-3B, 10/10), `qwen3_vl` (Qwen3-VL-2B, 10/10), `qwen2_vl`
+(Qwen2-VL-2B, 10/10), `qwen2_audio` (Qwen2-Audio-7B, 8/8). Not listed because no checkpoint was at hand: LLaVA,
+InstructBLIP, Gemma 4, GLM-4V, Kimi-VL, Llama 4, the Qwen omni models and
+Nemotron omni.
+
+`Model.logprobs_batch(inputs)` is new: `hf_local` runs it in padded batches and
+ends each row at its own end-of-sequence token, `vllm_offline` hands the engine
+the whole list, and every other model calls `logprobs` per input,
+`Model.concurrency` at a time. The run log records one
+`logprobs` call per input with its `batch_size`.
+
+Analyzers:
+
+- `context_shap` asks every context ablation of every case in one round.
+  `_shapley.coalitions()` lists the coalitions `shapley_values` will evaluate
+  for given arguments; the sampler never looks at a value, so they can be asked
+  up front.
+- `vl_shap` and `mm_shap` score every masked input of their case in one
+  `logprobs_batch` (a caller-supplied `region_score_fn` / `score_fn` is still
+  called per coalition).
+- `calibration` scores its cases' logprobs in one batch and asks each case on
+  its own only when that batch fails.
+- `arith_audit(generate_missing=True)` and `answer_extraction_audit(reask=True)`
+  generate their missing chains and re-asks as one batch.
+
+Left as they are: `verbalized_confidence` and `logprob_entropy` make one model
+call for one case, so there is nothing to batch (`calibration` is the batch-level
+counterpart of both).
+
 ### Changed — the examples follow the package's default Claude model
 
 No example names a Claude model any more. `deco_hallu`, `deco_chair`,

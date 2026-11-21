@@ -116,3 +116,46 @@ def test_a_batch_is_logged_as_one_call_per_input_sharing_its_time(tmp_path):
     assert [c["output"] for c in calls] == ["<a>", "<b>", "<c>", None]
     assert all(c["batch_size"] == 2 for c in calls) and "TimeoutError" in calls[-1]["error"]
     assert [c["call_index"] for c in calls] == [1, 2, 3, 4]
+
+
+def test_a_model_runs_its_concurrency_of_generate_calls_at_once_and_keeps_the_order():
+    import threading
+    import time
+
+    class Endpoint(Echo):
+        concurrency = 4
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.now = self.peak = 0
+            self._lock = threading.Lock()
+
+        def generate(self, inputs, **kwargs) -> str:
+            with self._lock:
+                self.now += 1
+                self.peak = max(self.peak, self.now)
+            time.sleep(0.05)
+            with self._lock:
+                self.now -= 1
+            return super().generate(inputs, **kwargs)
+
+    model = Endpoint()
+    prompts = [str(i) for i in range(12)]
+
+    assert model.generate_batch(prompts) == [f"<{p}>" for p in prompts]
+    assert model.peak == 4
+    out = model.try_generate_batch(["a", "boom", "b"])
+    assert out[0] == "<a>" and isinstance(out[1], TimeoutError) and out[2] == "<b>"
+
+
+def test_logprobs_batch_scores_each_input_and_logs_one_call_each(tmp_path):
+    ctx = RunContext(tmp_path / "run", verbose=False)
+    model = InstrumentedModel(FakeModel(), ctx.logger, cycle=0, analyzer="probe")
+
+    rows = model.logprobs_batch(["a", "b", "c"])
+    ctx.finalize()
+
+    assert len(rows) == 3 and all(row and row[0].token for row in rows)
+    calls = [e for e in read_run_events(ctx.root) if e["event"] == "model_call"]
+    assert [c["method"] for c in calls] == ["logprobs"] * 3
+    assert all(c["batch_size"] == 3 for c in calls)

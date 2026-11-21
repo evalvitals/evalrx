@@ -111,14 +111,23 @@ model.forward(inputs, capture={...}, spec=None) -> Trace
 ```
 
 `generate_batch` is the call for several independent questions. Each backend
-answers it the fastest way it has: `hf_local` pads a text-only spec's prompts
-into batches of `RuntimeConfig.batch_size` (32 by default, halved on a CUDA
+answers it the fastest way it has: `hf_local` runs left-padded batches of
+`RuntimeConfig.batch_size` inputs (32 by default, halved on a CUDA
 out-of-memory error), and `vllm_offline` hands the engine the whole list. Any
 other model calls `generate` for each input, `Model.concurrency` at a time: 1 by
 default, `RuntimeConfig.concurrency` for the `api` backend, and whatever a
 `Model` subclass that calls an endpoint sets on itself. `try_generate_batch`
 returns an input's exception in its place, for a caller that must keep the other
-answers.
+answers. `logprobs_batch` is the same call for `logprobs`.
+
+`hf_local` builds a batch by encoding every input on its own, exactly as a
+single call does, and stacking the encodings: token-level tensors are padded on
+the left, image and audio tensors are concatenated. A text-only spec always
+batches. A multimodal family batches once it is listed in
+`BATCHED_MULTIMODAL_FAMILIES` (`models/backends/hf/model.py`), which means its
+batched answers were compared with one-at-a-time answers on a real checkpoint in
+float32 and came out identical; an unlisted family, and inputs whose media
+tensors do not stack, run one at a time.
 
 No stage owns a thread pool for the model under test. A stage hands over the
 questions that do not depend on each other and the model decides how many run

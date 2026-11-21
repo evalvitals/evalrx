@@ -25,7 +25,7 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING, Callable, Optional
 
-from evalrx.analyzers.perturbation._shapley import shapley_values
+from evalrx.analyzers.perturbation._shapley import coalitions, shapley_values
 from evalrx.core.analyzer import Analyzer
 from evalrx.core.capability import Capability
 from evalrx.core.case import Inputs
@@ -67,6 +67,11 @@ class VLShapAnalyzer(Analyzer):
                          n_samples=n_samples, top_k=top_k, seed=seed)
 
     def _default_region_value(self, model: "Model", case) -> Callable[[set], float]:
+        """The model's mean answer logprob with only the kept regions visible.
+
+        Every masked image the estimate needs is scored in one
+        ``logprobs_batch``; the returned function looks the value up.
+        """
         from PIL import Image  # lazy
 
         image = case.inputs.image
@@ -76,17 +81,21 @@ class VLShapAnalyzer(Analyzer):
         W, H = image.size
         cw, ch = W / side, H / side
 
-        def value(kept: set) -> float:
-            masked = image.copy()
+        def masked(kept: frozenset) -> Inputs:
+            visible = image.copy()
             black = Image.new(image.mode, (max(1, int(cw)), max(1, int(ch))), 0)
             for r in range(self.n_regions):
                 if r in kept:
                     continue
                 gx, gy = r % side, r // side
-                masked.paste(black, (int(gx * cw), int(gy * ch)))
-            lps = model.logprobs(Inputs(prompt=case.inputs.prompt, image=masked))
-            return sum(t.logprob for t in lps) / len(lps) if lps else 0.0
-        return value
+                visible.paste(black, (int(gx * cw), int(gy * ch)))
+            return Inputs(prompt=case.inputs.prompt, image=visible)
+
+        kept_sets = coalitions(range(self.n_regions), n_samples=self.n_samples, seed=self.seed)
+        rows = model.logprobs_batch([masked(kept) for kept in kept_sets])
+        values = {kept: (sum(t.logprob for t in lps) / len(lps) if lps else 0.0)
+                  for kept, lps in zip(kept_sets, rows)}
+        return lambda kept: values[frozenset(kept)]
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
         case = cases[0]

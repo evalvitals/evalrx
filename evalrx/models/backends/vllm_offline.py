@@ -96,20 +96,32 @@ class VLLMOfflineModel(Model):
         return ChatTurn(text=out[0].outputs[0].text, raw_tool_calls=None)  # codec parses the text
 
     def logprobs(self, inputs: Any, top_k: int = 5, **kwargs) -> list[TokenLogprob]:
-        out = self._engine.generate([self._as_prompt(inputs)], self._sampling(logprobs=top_k, **kwargs))
-        comp = out[0].outputs[0]
+        return self.logprobs_batch([inputs], top_k=top_k, **kwargs)[0]
+
+    def logprobs_batch(
+        self, inputs: Sequence[Any], top_k: int = 5, **kwargs
+    ) -> list[list[TokenLogprob]]:
+        """One engine call for all *inputs*, each answer with its token logprobs."""
+        prompts = [self._as_prompt(item) for item in inputs]
+        if not prompts:
+            return []
+        outs = self._engine.generate(prompts, self._sampling(logprobs=top_k, **kwargs))
         tok = self._engine.get_tokenizer()
-        result: list[TokenLogprob] = []
-        for tid, lp_dict in zip(comp.token_ids, comp.logprobs or []):
-            entry = lp_dict.get(tid)
-            chosen = float(getattr(entry, "logprob", entry)) if entry is not None else 0.0
-            chosen_tok = getattr(entry, "decoded_token", None) or tok.decode([tid])
-            top = {
-                (getattr(v, "decoded_token", None) or tok.decode([k])): float(getattr(v, "logprob", v))
-                for k, v in lp_dict.items()
-            }
-            result.append(TokenLogprob(token=chosen_tok, logprob=chosen, top=top))
-        return result
+        rows: list[list[TokenLogprob]] = []
+        for out in outs:
+            comp = out.outputs[0]
+            result: list[TokenLogprob] = []
+            for tid, lp_dict in zip(comp.token_ids, comp.logprobs or []):
+                entry = lp_dict.get(tid)
+                chosen = float(getattr(entry, "logprob", entry)) if entry is not None else 0.0
+                chosen_tok = getattr(entry, "decoded_token", None) or tok.decode([tid])
+                top = {
+                    (getattr(v, "decoded_token", None) or tok.decode([k])): float(getattr(v, "logprob", v))
+                    for k, v in lp_dict.items()
+                }
+                result.append(TokenLogprob(token=chosen_tok, logprob=chosen, top=top))
+            rows.append(result)
+        return rows
 
     def forward(self, inputs: Any, capture: set[Capability], spec=None) -> Trace:
         raise CapabilityError(  # vLLM exposes no internals — use hf_local for white-box

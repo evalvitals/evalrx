@@ -217,6 +217,14 @@ class Model(ABC):
             f"{type(self).__name__} does not implement logprobs(); it is not LOGPROBS-capable."
         )
 
+    def logprobs_batch(self, inputs: Sequence[Any], **kwargs: Any) -> "list[list[TokenLogprob]]":
+        """:meth:`logprobs` for each of *inputs*, in the same order.
+
+        The default calls :meth:`logprobs` for each input, :attr:`concurrency`
+        at a time; ``hf_local`` runs padded batches.
+        """
+        return self._each(lambda item: self.logprobs(item, **kwargs), inputs)
+
 
     # ------------------------------------------------------------------
     # Capability checks

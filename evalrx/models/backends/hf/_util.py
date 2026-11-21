@@ -166,3 +166,39 @@ def _collect_message_images(messages: list) -> list:
                 if img is not None:
                     images.append(_resolve_image(img))
     return images
+
+
+def collate_encodings(encodings: "list[Any]", pad_token_id: int) -> "dict[str, Any] | None":
+    """One left-padded batch from single-input encodings, or ``None``.
+
+    Each encoding is what a tokenizer or processor returned for one input.
+    Tensors that run along the token sequence (``input_ids`` and everything of
+    its shape) are padded on the left to the longest; every other tensor is
+    concatenated on its first axis, which is how the processors themselves
+    batch images and audio: a per-input tensor ``(1, ...)`` becomes
+    ``(batch, ...)`` and a flat per-image or per-patch tensor stays flat, in
+    input order. ``None`` when the encodings do not line up that way (different
+    keys, or media tensors of different shapes); the caller then runs them one
+    at a time.
+    """
+    import torch
+    import torch.nn.functional as F
+
+    keys = set(encodings[0]) | {"attention_mask"}
+    if any(set(enc) | {"attention_mask"} != keys for enc in encodings):
+        return None
+    width = max(enc["input_ids"].shape[1] for enc in encodings)
+    batch: "dict[str, Any]" = {}
+    for key in encodings[0] if "attention_mask" in encodings[0] else [*encodings[0], "attention_mask"]:
+        tensors = [
+            enc[key] if key in enc else torch.ones_like(enc["input_ids"])
+            for enc in encodings
+        ]
+        if all(t.shape == enc["input_ids"].shape for t, enc in zip(tensors, encodings)):
+            fill = pad_token_id if key == "input_ids" else 0
+            tensors = [F.pad(t, (width - t.shape[1], 0), value=fill) for t in tensors]
+        try:
+            batch[key] = torch.cat(tensors, dim=0)
+        except (RuntimeError, TypeError):
+            return None
+    return batch

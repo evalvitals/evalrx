@@ -290,6 +290,23 @@ class InstrumentedModel(_ProxyBase):
         self._record("logprobs", inputs, kwargs, summary, time.monotonic() - t0, None)
         return toks
 
+    def logprobs_batch(self, inputs: "Sequence[Any]", **kwargs: Any) -> "list[list[Any]]":
+        inputs = list(inputs)
+        t0 = time.monotonic()
+        try:
+            rows = self._model.logprobs_batch(inputs, **kwargs)
+        except Exception as exc:  # noqa: BLE001
+            share = (time.monotonic() - t0) / max(1, len(inputs))
+            for item in inputs:
+                self._record("logprobs", item, kwargs, None, share, repr(exc),
+                             batch_size=len(inputs))
+            raise
+        share = (time.monotonic() - t0) / max(1, len(inputs))
+        for item, toks in zip(inputs, rows):
+            summary = [{"token": t.token, "logprob": round(t.logprob, 4)} for t in toks]
+            self._record("logprobs", item, kwargs, summary, share, None, batch_size=len(inputs))
+        return rows
+
     def chat(self, messages: list, tools: "list | None" = None) -> Any:
         t0 = time.monotonic()
         try:
