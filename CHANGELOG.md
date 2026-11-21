@@ -6,6 +6,15 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed — the fix search on the explore partition is in the run log
+
+`loop.run_fix` searches on the explore partition with `record=False` and then
+confirms one candidate. `record=False` muted the whole recorder, so the run log
+held the confirm phase only: none of the model calls of the candidates that were
+searched, and none of the judge calls that proposed them. It now leaves out only
+the `fix` outcome event, which the caller writes once for the combined result
+(`FixRecorder.muted()` became `without_outcome()`).
+
 ### Changed — hf_local batches multimodal inputs and logprobs; the last per-case loops batch
 
 `hf_local` now has one batching path for text and multimodal specs. Each input

@@ -45,13 +45,17 @@ class Batched(Model):
 
 
 class Exchanges:
-    """A run logger that keeps the fix stage's model exchanges."""
+    """A run logger that keeps the fix stage's model exchanges and outcomes."""
 
     def __init__(self) -> None:
         self.calls: list[dict] = []
+        self.outcomes: list = []
 
     def log_model_exchange(self, stage, **fields):
         self.calls.append(fields)
+
+    def log_fix(self, outcome):
+        self.outcomes.append(outcome)
 
 
 def _cases(n: int = 4, observed: "str | None" = "no") -> CaseBatch:
@@ -220,3 +224,20 @@ def test_the_baseline_is_measured_once_for_a_model_and_its_cases():
         case.inputs.prompt = "Think. " + case.inputs.prompt
     assert agent.validator.baseline(model, rewritten) is not first
     assert model.batches[-1] == ["Think. Q0", "Think. Q0", "Think. Q1", "Think. Q1"]
+
+
+def test_a_search_that_records_no_outcome_still_logs_what_the_model_was_asked():
+    from evalrx.eval_agent.hypothesis import Hypothesis
+
+    log = Exchanges()
+    agent = _agent(run_logger=log)
+    hypothesis = Hypothesis(statement="it guesses", target_model="m", predicted_failure_mode="x")
+
+    outcome = agent.propose_and_validate(Batched(), _cases(), [hypothesis], max_tier="L1",
+                                         min_tier="L1", record=False)
+
+    assert outcome.attempted and log.outcomes == []
+    asked = [call for call in log.calls if call["role"] == "target_model"]
+    assert len(asked) == 4 * len(outcome.attempted)   # one exchange per case per candidate
+    agent.propose_and_validate(Batched(), _cases(), [hypothesis], max_tier="L1", min_tier="L1")
+    assert len(log.outcomes) == 1

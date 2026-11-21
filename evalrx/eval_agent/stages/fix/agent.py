@@ -384,8 +384,9 @@ class FixAgent:
         remains untouched confirmation data and permits only one round.
 
         ``max_tier`` / ``min_tier`` narrow the tier window for this call only
-        (default: the agent's own).  ``record=False`` writes nothing to the
-        run logger, for a caller that records one combined outcome itself.
+        (default: the agent's own).  ``record=False`` leaves out the ``fix``
+        outcome event, for a caller that records one combined outcome itself;
+        the model and judge exchanges of the search are logged either way.
         """
         window = (
             parse_tier(max_tier) if max_tier is not None else self.max_tier,
@@ -394,7 +395,7 @@ class FixAgent:
         if record:
             return self._search(model, data, hypotheses, prior_attempts, context,
                                 proposal_data, *window)
-        with self.recorder.muted():
+        with self.recorder.without_outcome():
             return self._search(model, data, hypotheses, prior_attempts, context,
                                 proposal_data, *window)
 

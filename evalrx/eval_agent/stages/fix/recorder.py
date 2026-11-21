@@ -27,19 +27,25 @@ class FixRecorder:
 
     def __init__(self, run_logger: "Any | None" = None) -> None:
         self.run_logger = run_logger
+        self._outcomes = True
 
     @contextmanager
-    def muted(self) -> "Iterator[None]":
-        """Write nothing inside the block (the caller records a combined outcome)."""
-        run_logger, self.run_logger = self.run_logger, None
+    def without_outcome(self) -> "Iterator[None]":
+        """Record no ``fix`` outcome inside the block; the caller records one
+        that combines several searches.
+
+        Every model and judge exchange is still logged: they are the only
+        record of what a candidate asked and what it got back.
+        """
+        self._outcomes = False
         try:
             yield
         finally:
-            self.run_logger = run_logger
+            self._outcomes = True
 
     def outcome(self, outcome: "FixOutcome") -> None:
         """Record the stage outcome as a ``fix`` event."""
-        if self.run_logger is None:
+        if self.run_logger is None or not self._outcomes:
             return
         try:
             self.run_logger.log_fix(outcome)
