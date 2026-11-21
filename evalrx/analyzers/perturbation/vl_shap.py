@@ -32,6 +32,8 @@ from evalrx.core.case import Inputs
 from evalrx.core.registry import register_analyzer
 from evalrx.core.result import Result
 
+_MASKED_IMAGES_AT_ONCE = 64
+
 if TYPE_CHECKING:
     from evalrx.core.case import CaseBatch
     from evalrx.core.model import Model
@@ -69,8 +71,8 @@ class VLShapAnalyzer(Analyzer):
     def _default_region_value(self, model: "Model", case) -> Callable[[set], float]:
         """The model's mean answer logprob with only the kept regions visible.
 
-        Every masked image the estimate needs is scored in one
-        ``logprobs_batch``; the returned function looks the value up.
+        Every masked image the estimate needs is scored up front, in
+        ``logprobs_batch`` calls; the returned function looks the value up.
         """
         from PIL import Image  # lazy
 
@@ -92,9 +94,14 @@ class VLShapAnalyzer(Analyzer):
             return Inputs(prompt=case.inputs.prompt, image=visible)
 
         kept_sets = coalitions(range(self.n_regions), n_samples=self.n_samples, seed=self.seed)
-        rows = model.logprobs_batch([masked(kept) for kept in kept_sets])
-        values = {kept: (sum(t.logprob for t in lps) / len(lps) if lps else 0.0)
-                  for kept, lps in zip(kept_sets, rows)}
+        values: dict[frozenset, float] = {}
+        # A chunk at a time: each coalition is its own copy of the image, and
+        # the defaults ask for several hundred of them.
+        for start in range(0, len(kept_sets), _MASKED_IMAGES_AT_ONCE):
+            chunk = kept_sets[start:start + _MASKED_IMAGES_AT_ONCE]
+            rows = model.logprobs_batch([masked(kept) for kept in chunk])
+            values.update((kept, sum(t.logprob for t in lps) / len(lps) if lps else 0.0)
+                          for kept, lps in zip(chunk, rows))
         return lambda kept: values[frozenset(kept)]
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:

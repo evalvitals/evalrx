@@ -37,9 +37,10 @@ Analyzers:
   `_shapley.coalitions()` lists the coalitions `shapley_values` will evaluate
   for given arguments; the sampler never looks at a value, so they can be asked
   up front.
-- `vl_shap` and `mm_shap` score every masked input of their case in one
-  `logprobs_batch` (a caller-supplied `region_score_fn` / `score_fn` is still
-  called per coalition).
+- `vl_shap` and `mm_shap` score every masked input of their case up front with
+  `logprobs_batch`; `vl_shap` does it 64 masked images at a time, since each is
+  its own copy of the image (a caller-supplied `region_score_fn` / `score_fn` is
+  still called per coalition).
 - `calibration` scores its cases' logprobs in one batch and asks each case on
   its own only when that batch fails.
 - `arith_audit(generate_missing=True)` and `answer_extraction_audit(reask=True)`
@@ -119,8 +120,8 @@ itself. `APIModel` no longer overrides `generate_batch`.
 
 This also removes a fault in the previous entry's change: with `--concurrency`
 defaulting to 8, the benchmark passed 8 to `FixAgent` on `hf_local` too, so eight
-threads generated on one in-process model. The fresh-baseline step that took
-25 min serially took 64 min that way.
+threads generated on one in-process model. In the one run that had it, on a
+shared GPU, the fresh-baseline step took 64 min; it took 25 min serially.
 
 The `llm_benchmark` example drops `fix_concurrency`; its `concurrency` setting
 now covers M1 and the fix stage as well.
