@@ -105,6 +105,9 @@ depend on each other and the model runs them its own way, as M1 does:
   thread per case instead of `max_workers=8`.
 - Registered repairs, visual search and the matched baseline call a method on
   the model that hooks it while it generates; they run one case at a time.
+- The fresh baseline is measured once for a model and a set of cases and shared
+  by every tier of the search. Each tier had drawn its own 64 samples, so the
+  tiers of one e-BH family were paired against different baselines.
 
 `Model.concurrency` (default 1) is how many `generate` calls the default
 `generate_batch` runs at once. The `api` backend sets it from

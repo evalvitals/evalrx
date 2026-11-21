@@ -676,7 +676,8 @@ sentence in `BUILTIN_DESCRIPTIONS`. A new candidate kind is one execution
 method on `CandidateValidator` plus its entry in the kind map.
 
 The validator asks the model in batches. The fresh baseline samples are one
-`try_generate_batch`; a template candidate is one; a spec (`run_pipelines`) runs
+`try_generate_batch`, drawn once for a model and a set of cases and shared by
+every tier of the search; a template candidate is one; a spec (`run_pipelines`) runs
 every case and every sample of its strategy as probes, one round of generation
 per strategy step. A coded pipeline runs in a sandbox and reaches the model
 through a bridge: one host thread answers the calls that arrive together as one

@@ -115,6 +115,8 @@ class CandidateValidator:
         # case id -> the final output that was scored, filled while a
         # candidate runs and moved onto its FixValidation.
         self._captured: "dict[str, str]" = {}
+        # (model, case ids, baseline) for every baseline measured so far.
+        self._baselines: "list[tuple[Model, tuple[str, ...], Baseline]]" = []
 
     @property
     def rates_mode(self) -> bool:
@@ -122,7 +124,23 @@ class CandidateValidator:
         return self.baseline_repeats > 1 or self.candidate_repeats > 1
 
     def baseline(self, model: "Model", data: "CaseBatch") -> Baseline:
-        """Measure the unmodified baseline as a per-case PASS RATE.
+        """The unmodified model's per-case PASS RATE on *data*, measured once.
+
+        A search climbs one tier at a time over the same cases, and its
+        candidates are one family that e-BH corrects together, so they all pair
+        against the same baseline samples; re-drawing them per tier cost 64
+        generations each time and gave each tier a different baseline.
+        """
+        ids = tuple(case.id for case in data)
+        for seen_model, seen_ids, measured in self._baselines:
+            if seen_model is model and seen_ids == ids:
+                return measured
+        measured = self._measure_baseline(model, data)
+        self._baselines.append((model, ids, measured))
+        return measured
+
+    def _measure_baseline(self, model: "Model", data: "CaseBatch") -> Baseline:
+        """Draw the baseline samples and summarise them per case.
 
         Returns the modal per-case scores, the per-case rates and sample
         counts (for the paired-rates test) and the unstable case ids.

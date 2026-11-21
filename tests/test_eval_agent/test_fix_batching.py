@@ -201,3 +201,15 @@ print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": rows}))
     # Sampled and default decoding never share a batch.
     assert not any({"P Q0", "P Q1"} & set(batch) and {"P Q2", "P Q3"} & set(batch)
                    for batch in model.batches)
+
+
+def test_the_baseline_is_measured_once_for_a_model_and_its_cases():
+    agent = _agent(baseline_repeats=3)
+    model, cases = Batched(), _cases(2)
+
+    first = agent.validator.baseline(model, cases)
+    again = agent.validator.baseline(model, cases)     # the next tier of the same search
+    other = agent.validator.baseline(model, _cases(3))  # another partition
+
+    assert again is first and other is not first
+    assert [len(batch) for batch in model.batches] == [4, 6]
