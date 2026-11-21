@@ -38,6 +38,7 @@ class LogprobEntropyAnalyzer(Analyzer):
 
     name = "logprob_entropy"
     requires = frozenset({Capability.LOGPROBS})
+    single_case = True
     applies_to_modalities = frozenset({"text", "image"})
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:

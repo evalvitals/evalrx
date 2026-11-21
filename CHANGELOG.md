@@ -6,6 +6,28 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed — M1 is bounded by default
+
+`ProbeAgent` now caps a probe round at 6 analyzers (`max_analyzers=6`; `None`
+removes the cap) and at 30 minutes (`time_budget_sec=1800`; 0 removes it). An
+analyzer that has not started when the time is spent is skipped and named in
+the selection rationale. The agentic benchmark path had neither limit: one run
+selected 17 analyzers and spent 10,081 s in a single M1.
+
+While M1 runs, the console prints the plan and one line per analyzer as it
+finishes (`RunLogger.progress`); it printed nothing until the stage ended.
+
+Nine analyzers explain one input and read only the first case of a batch
+(`rise`, `vl_shap`, `mm_shap`, `logprob_entropy`, `self_consistency`,
+`verbalized_confidence`, `attention_rollout`, `cka`, `token_entropy`). They now
+declare `single_case = True` and selection does not offer them on a batch of
+several cases, where they gave M2 one row. A caller that names one
+(`analyzers=[...]`) still gets it.
+
+A selection is no longer padded up to `max_analyzers`: the static selector
+replaces a choice that cannot run, it does not add analyzers the judge or the
+caller did not ask for.
+
 ### Added — batch generation is part of the `Model` interface
 
 `Model.generate_batch(inputs, **kwargs)` returns one answer per input, in order.

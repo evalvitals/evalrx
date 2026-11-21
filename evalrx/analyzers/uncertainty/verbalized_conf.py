@@ -38,6 +38,7 @@ class VerbalizedConfidenceAnalyzer(Analyzer):
 
     name = "verbalized_confidence"
     requires = frozenset({Capability.GENERATE})
+    single_case = True
     applies_to_modalities = frozenset({"text", "image"})
 
     elicit: str

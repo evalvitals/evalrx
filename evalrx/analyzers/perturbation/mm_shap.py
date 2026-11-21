@@ -51,6 +51,7 @@ class MMShapAnalyzer(Analyzer):
 
     name = "mm_shap"
     requires = frozenset({Capability.LOGPROBS})
+    single_case = True
     applies_to_modalities = frozenset({"text", "image", "audio", "video"})
     signal_docs = {
         'audio_contribution': 'How much the audio drove the answer.',

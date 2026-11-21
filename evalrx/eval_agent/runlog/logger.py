@@ -313,6 +313,17 @@ class RunLogger:
             print(_EventLine.line(stage, key, record))
         return stage
 
+    def progress(self, stage: str, text: str) -> None:
+        """Print one line about work still running inside *stage*.
+
+        Console only: a stage that takes minutes says what it is on, and the
+        event log keeps its one record per finished step.
+        """
+        if self._narrator is not None:
+            self._narrator.progress(stage, text)
+        elif self.verbose:
+            print(f"[{stage}] {text}")
+
     def _append_run(self, key: str, record: "dict[str, Any]") -> None:
         """Append *record* to the (always list-valued) run.json bucket *key*.
 

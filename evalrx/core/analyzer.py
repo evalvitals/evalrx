@@ -136,6 +136,11 @@ class Analyzer(ABC):
     #: ran and reported ``n_trajectories: 0``. Selection gates on this against
     #: the batch actually in hand.
     requires_trajectories: bool = False
+    #: True when the analysis explains ONE input: given a batch it reads the
+    #: first case and ignores the rest. Fine for ``analyzer.run(model, prompt)``;
+    #: on a labelled batch it yields one row, which no PASS-versus-FAIL
+    #: statistic can use, so selection does not offer it there.
+    single_case: bool = False
     #: Modality slots that must actually be FILLED in the batch for this analysis
     #: to mean anything — the data-shape counterpart of ``applies_to_modalities``.
     #:

@@ -44,6 +44,7 @@ class RISEAnalyzer(Analyzer):
 
     name = "rise"
     requires = frozenset({Capability.GENERATE})
+    single_case = True
     applies_to_modalities = frozenset({"text"})
 
     score_fn: Optional[Callable[[str], float]]

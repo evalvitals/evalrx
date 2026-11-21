@@ -87,6 +87,10 @@ class LoopNarrator:
     def _print(self, key: str, detail: str) -> None:
         print(self._row(key, detail), file=self.stream, flush=True)
 
+    def progress(self, stage: str, text: str) -> None:
+        """One line about work still running inside *stage*."""
+        self._print(stage, self._c(_DIM, text))
+
     # -- stage events (M1-M5), from RunLogger._append_stage -------------
 
     def on_event(self, stage: str, key: str, record: dict[str, Any]) -> None:
