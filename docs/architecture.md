@@ -112,8 +112,8 @@ model.forward(inputs, capture={...}, spec=None) -> Trace
 
 `generate_batch` is the call for several independent questions. Each backend
 answers it the fastest way it has: `hf_local` pads a text-only spec's prompts
-into batches of `RuntimeConfig.batch_size` (halved on a CUDA out-of-memory
-error), `vllm_offline` hands the engine the whole list, `api` keeps
+into batches of `RuntimeConfig.batch_size` (32 by default, halved on a CUDA
+out-of-memory error), `vllm_offline` hands the engine the whole list, `api` keeps
 `RuntimeConfig.concurrency` requests in flight, and any other model asks one at
 a time. `try_generate_batch` returns an input's exception in its place, for a
 caller that must keep the other answers.

@@ -32,7 +32,7 @@ caller did not ask for.
 
 `Model.generate_batch(inputs, **kwargs)` returns one answer per input, in order.
 `hf_local` pads a text-only spec's prompts into batches of
-`RuntimeConfig.batch_size` (default 16, longest first, halved on a CUDA
+`RuntimeConfig.batch_size` (default 32, longest first, halved on a CUDA
 out-of-memory error); `vllm_offline` passes the engine the whole list, where it
 sent one prompt per call before; `api` keeps `RuntimeConfig.concurrency`
 (default 8) requests in flight; every other model asks one at a time.
@@ -41,7 +41,8 @@ on `hf_local` still answer one input at a time.
 
 Measured on Qwen3.5-2B, 24 BBH causal-judgement prompts, one GPU: greedy
 decoding 217 s one at a time and 19.8 s batched; sampled at the benchmark's
-settings (2048-token cap) about 20 s per prompt one at a time and 4.4 s batched.
+settings (2048-token cap) about 20 s per prompt one at a time, and batched 4.3 s
+at a batch size of 16, 2.8 s at 32 and 1.6 s at 64 (8.4 GB peak).
 In float32 the batched answers equal the single ones on 16 of 16 prompts. In
 bfloat16 they differ after the first tokens, including for an unpadded batch:
 half-precision rounding depends on the batch shape.

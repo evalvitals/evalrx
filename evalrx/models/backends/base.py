@@ -36,8 +36,10 @@ class RuntimeConfig:
     #: their sampling in ``generate_fn``.
     sampling: dict[str, Any] = field(default_factory=dict)
     #: hf_local: prompts per padded batch in ``generate_batch`` (halved on a
-    #: CUDA out-of-memory error).
-    batch_size: int = 16
+    #: CUDA out-of-memory error). A batch runs until its longest answer ends,
+    #: so throughput grows almost linearly with it: Qwen3.5-2B at a 2048-token
+    #: cap took 4.3 s per prompt at 16, 2.8 s at 32 and 1.6 s at 64 (8.4 GB).
+    batch_size: int = 32
     #: api: requests in flight at once in ``generate_batch``.
     concurrency: int = 8
     #: hf_local, TEXT-ONLY specs: render ``inputs.prompt`` as one user turn through
