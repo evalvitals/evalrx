@@ -553,8 +553,8 @@ def _fix_agent(args, task: T.Task, judge, coder_cfg, gen_kwargs: dict, ctx, raw_
 
     fix_kwargs: dict[str, Any] = {}
     sampled = bool(gen_kwargs.get("do_sample"))
-    # Noise model for a sampled baseline: per-case PASS RATE over k fresh
-    # samples; greedy = 1, the Stage 0 answer itself.
+    # Noise model for a sampled baseline: per-case PASS RATE over k samples (the
+    # first answer Stage 0 drew + k-1 fresh), as llm_benchmark does; greedy = 1.
     fix_kwargs["baseline_repeats"] = (args.fix_baseline_repeats if args.fix_baseline_repeats is not None
                                       else (5 if sampled else 1))
     if task.modality == "llm":

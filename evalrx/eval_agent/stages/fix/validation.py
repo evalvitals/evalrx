@@ -13,6 +13,7 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
+from evalrx.eval_agent.stages.case_discovery import recorded_draw
 from evalrx.eval_agent.stages.fix.codegen import PipelineCoder
 from evalrx.eval_agent.stages.fix.internals import INTERNALS_PRIMITIVES, run_lora_repair
 from evalrx.eval_agent.stages.fix.pipeline import score_outputs
@@ -135,8 +136,7 @@ class CandidateValidator:
         # recorded answer that counts as sample one. A deployed template keeps
         # the case ids and changes the prompts, so ids alone would not do.
         asked = tuple(
-            (case.id, str(getattr(case.inputs, "prompt", "")),
-             None if case.observed is None else str(case.observed))
+            (case.id, str(getattr(case.inputs, "prompt", "")), recorded_draw(case))
             for case in data
         )
         for seen_model, seen_asked, measured in self._baselines:
@@ -152,29 +152,32 @@ class CandidateValidator:
         Returns the modal per-case scores, the per-case rates and sample
         counts (for the paired-rates test) and the unstable case ids.
 
+        The frozen output below is :func:`recorded_draw`: ``case.observed``, or
+        the first answer discovery drew when it labelled the case by a majority
+        (``observed`` is then picked to agree with the label, and counting it
+        would pull the baseline toward the label).
+
         * ``baseline_repeats == 1`` — the frozen ``observed`` output is the
           baseline (one sample; rate 0/1). Re-generating it would make a
           supposedly paired comparison depend on endpoint non-determinism and
           waste a call per case. Cases without an ``observed`` are generated
           once.
-        * ``baseline_repeats == k > 1`` — ``k`` fresh samples, so each case gets
-          a rate in ``{0, 1/k, ..., 1}``. The recorded answer is not one of
-          them: it is the answer the case was labelled by (and, under a
-          majority label, picked to agree with it), so counting it pulls the
-          rate toward the label wherever cases were chosen by label.
-          A case with ``0 < rate < 1`` is *unstable* (its baseline answer is a
-          coin); it is REPORTED, not dropped: the paired-rates test weighs it
-          by how much a candidate moves its rate, which is the honest
-          accounting for a stochastic model — dropping it removed exactly the
-          cases a variance-reduction scaffold repairs.
+        * ``baseline_repeats == k > 1`` — the frozen sample counts as sample 1
+          and ``k-1`` fresh samples are drawn (all ``k`` fresh when there is no
+          frozen one), so each case gets a rate in ``{0, 1/k, ..., 1}``. A case
+          with ``0 < rate < 1`` is *unstable* (its baseline answer is a coin);
+          it is REPORTED, not dropped: the paired-rates test weighs it by how
+          much a candidate moves its rate, which is the honest accounting for
+          a stochastic model — dropping it removed exactly the cases a
+          variance-reduction scaffold repairs.
         """
         k = max(1, int(self.baseline_repeats))
         samples: "dict[str, list[bool]]" = {c.id: [] for c in data}
         need: "list[tuple[Any, int]]" = []
         for case in data:
-            observed = getattr(case, "observed", None)
-            if k == 1 and observed is not None:
-                s0 = score_to_bool(self.score(case, str(observed)))
+            observed = recorded_draw(case)
+            if observed is not None:
+                s0 = score_to_bool(self.score(case, observed))
                 if s0 is not None:
                     samples[case.id].append(bool(s0))
             fresh = k - len(samples[case.id])
@@ -336,7 +339,7 @@ class CandidateValidator:
             executor_name = str(candidate.payload.get("executor", ""))
             kwargs = dict(candidate.payload.get("kwargs") or {})
             if candidate.payload.get("pass_baseline_answer"):
-                kwargs["baseline_answer"] = str(getattr(case, "observed", ""))
+                kwargs["baseline_answer"] = recorded_draw(case) or ""
             try:
                 executor = getattr(model, executor_name)
                 output = executor(case.inputs, **kwargs)
@@ -372,7 +375,7 @@ class CandidateValidator:
                 search = getattr(model, method)
                 output = search(
                     case.inputs,
-                    baseline_answer=getattr(case, "observed", None),
+                    baseline_answer=recorded_draw(case),
                     **candidate.payload,
                 )
                 self.recorder.target_exchange(
@@ -592,7 +595,7 @@ class CandidateValidator:
         self._captured = {}
         if isinstance(candidate.payload, dict):
             v.exec_error = str(candidate.payload.get("exec_error", "") or "")
-        # Baseline rates: measured by baseline() (k fresh samples per case);
+        # Baseline rates: measured by baseline() (frozen sample + k-1 fresh);
         # a Baseline built from bare booleans carries 0/1 rates.
         matched_baseline = self.matched_baseline(candidate, model, data)
         base_rates: "dict[str, Optional[float]]" = {}

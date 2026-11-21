@@ -25,11 +25,16 @@ generates five times as much: 107-114 s became 516-521 s on those 32 cases.
 The labels are steadier, not settled: 9 of the 32 cases passed 4 to 6 times in
 10, and no vote count makes such a case's label repeatable.
 
-The fix stage's repeated baseline (`baseline_repeats=k > 1`) now draws `k`
-fresh samples instead of counting `case.observed` as the first. That answer is
-the one the case was labelled by, and under a majority label it is picked to
-agree with it, so counting it pulled the baseline rate toward the label. This
-is one more generation per case per baseline.
+An answer picked to agree with the label is not a fair sample of the model.
+Discovery therefore keeps the first answer it drew
+(`case.metadata["discovery_first_answer"]`, when it is not the one in
+`observed`), and `recorded_draw(case)` returns it. The fix stage reads
+`recorded_draw` wherever it compares a candidate with the unmodified model: the
+first baseline sample, the text a coded pipeline's plain call is replayed from
+and anchored on, the frozen-model control, the fallback of a spec's
+baseline-override gate, and the `baseline_answer` handed to a registered
+repair. Reading `observed` there would hand a candidate that changes nothing
+the majority answer and score it against single answers.
 
 ### Fixed — the fix search on the explore partition is in the run log
 

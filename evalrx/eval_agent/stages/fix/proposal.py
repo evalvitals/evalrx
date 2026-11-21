@@ -25,6 +25,7 @@ from evalrx.eval_agent.prompts.fix_agent import (
     _L4_PROMPT,
     _REPAIR_CATALOG_PROMPT,
 )
+from evalrx.eval_agent.stages.case_discovery import recorded_draw
 from evalrx.eval_agent.stages.fix.codegen import PipelineCoder
 from evalrx.eval_agent.stages.fix.descriptions import judge_description
 from evalrx.eval_agent.stages.fix.internals import (
@@ -152,7 +153,7 @@ def _malformed_choice_predicate(case: Any) -> bool:
     """Gold-free gate for re-asking only malformed multiple-choice outputs."""
     task = str((getattr(case, "metadata", {}) or {}).get("task", ""))
     return task == "multiple_choice_letter" and not _explicit_multiple_choice_answer(
-        getattr(case, "observed", None)
+        recorded_draw(case)
     )
 
 

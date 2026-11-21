@@ -142,21 +142,11 @@ def test_the_fresh_baseline_samples_are_one_batch():
 
     baseline = agent.validator.baseline(model, _cases(2))
 
-    # Three fresh samples per case, all at once. The recorded "no" labelled the
-    # case and is not counted among them.
-    assert model.batches == [["Q0", "Q0", "Q0", "Q1", "Q1", "Q1"]]
+    # The recorded answer is sample 1; two fresh samples per case, all at once.
+    assert model.batches == [["Q0", "Q0", "Q1", "Q1"]]
     assert baseline.counts == {"c0": 3, "c1": 3}
-    assert baseline.rates == {"c0": 1.0, "c1": 1.0}
-    assert [call["operation"] for call in log.calls] == ["fresh_baseline"] * 6
-
-
-def test_an_unrepeated_baseline_is_the_recorded_answer():
-    model = Batched()
-
-    baseline = _agent(baseline_repeats=1).validator.baseline(model, _cases(2))
-
-    assert model.batches == []
-    assert baseline.rates == {"c0": 0.0, "c1": 0.0}
+    assert baseline.rates == {"c0": 2 / 3, "c1": 2 / 3}
+    assert [call["operation"] for call in log.calls] == ["fresh_baseline"] * 4
 
 
 _ONE_THREAD_PER_CASE = """
@@ -226,14 +216,14 @@ def test_the_baseline_is_measured_once_for_a_model_and_its_cases():
     other = agent.validator.baseline(model, _cases(3))  # another partition
 
     assert again is first and other is not first
-    assert [len(batch) for batch in model.batches] == [6, 9]
+    assert [len(batch) for batch in model.batches] == [4, 6]
 
     # A deployed template rewrites the prompts under the same case ids.
     rewritten = _cases(2)
     for case in rewritten:
         case.inputs.prompt = "Think. " + case.inputs.prompt
     assert agent.validator.baseline(model, rewritten) is not first
-    assert model.batches[-1] == ["Think. Q0"] * 3 + ["Think. Q1"] * 3
+    assert model.batches[-1] == ["Think. Q0", "Think. Q0", "Think. Q1", "Think. Q1"]
 
 
 def test_a_search_that_records_no_outcome_still_logs_what_the_model_was_asked():
@@ -251,3 +241,41 @@ def test_a_search_that_records_no_outcome_still_logs_what_the_model_was_asked():
     assert len(asked) == 4 * len(outcome.attempted)   # one exchange per case per candidate
     agent.propose_and_validate(Batched(), _cases(), [hypothesis], max_tier="L1", min_tier="L1")
     assert len(log.outcomes) == 1
+
+
+# ── a case labelled by a majority: the fix stage compares with a fair draw ────
+
+def _voted_cases(n: int = 2) -> CaseBatch:
+    """Cases whose ``observed`` was picked to agree with a FAIL majority while
+    the first answer drawn passed."""
+    cases = _cases(n)
+    for case in cases:
+        case.metadata["discovery_first_answer"] = "yes, first"
+    return cases
+
+
+def test_the_baseline_counts_the_first_answer_drawn_not_the_one_picked_for_the_label():
+    baseline = _agent(baseline_repeats=1).validator.baseline(Batched(), _voted_cases())
+
+    assert baseline.rates == {"c0": 1.0, "c1": 1.0}  # observed "no" would give 0.0
+
+
+def test_a_coded_pipeline_is_handed_and_replayed_the_first_answer_drawn(tmp_path):
+    from evalrx.eval_agent.stages.fix.pipeline import cases_payload
+
+    cases = _voted_cases()
+    code = '''
+import json
+cases = json.load(open("fix_cases.json"))["cases"]
+rows = [{"sample_id": c["id"], "output": model_generate(c["id"]) + "|" + c["baseline_output"]}
+        for c in cases]
+print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": rows}))
+'''
+    model = Batched()
+
+    result = run_coded_pipeline(code, model, cases, workdir=tmp_path)
+
+    assert [row["baseline_output"] for row in cases_payload(cases)["cases"]] == ["yes, first"] * 2
+    assert result.ok, result.error
+    assert result.outputs == {"c0": "yes, first|yes, first", "c1": "yes, first|yes, first"}
+    assert model.batches == [] and result.n_replayed == 2

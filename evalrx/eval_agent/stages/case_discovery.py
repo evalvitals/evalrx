@@ -107,6 +107,9 @@ class CaseDiscoveryAgent:
                 case.metadata["discovery_error"] = failed[0]
             if self.n_samples > 1:
                 case.metadata["discovery_votes"] = {"pass": n_pass, "fail": n_fail}
+                first = next((s for s in samples if not s.error), shown)
+                if first is not shown:
+                    case.metadata[_FIRST_ANSWER] = str(first.observed)
                 case.metadata["discovery_reason"] = (
                     f"{n_pass} of {len(samples)} sampled answers passed; {shown.reason}")
             counts[label] += 1
@@ -188,6 +191,22 @@ class CaseDiscoveryAgent:
 
 
 _FAILED = "model generation or scoring raised an exception"
+_FIRST_ANSWER = "discovery_first_answer"
+
+
+def recorded_draw(case: Any) -> "str | None":
+    """One answer of the unmodified model to *case*, drawn without regard to its label.
+
+    That is ``case.observed``, except under a majority label: discovery then
+    picks ``observed`` to agree with the label, so it is no longer a fair
+    sample, and keeps the first answer it drew beside it. A comparison against
+    the unmodified model (a baseline rate, a fallback, a replay) reads this.
+    """
+    first = (getattr(case, "metadata", None) or {}).get(_FIRST_ANSWER)
+    if first is not None:
+        return str(first)
+    observed = getattr(case, "observed", None)
+    return None if observed is None else str(observed)
 
 
 @dataclass

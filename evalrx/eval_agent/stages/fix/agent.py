@@ -133,10 +133,9 @@ class FixAgent:
                           unbounded batch makes coded pipelines time out.
         baseline_repeats: Samples per case for the unmodified baseline
                           (default 1 = the frozen ``observed`` output). With
-                          ``k > 1`` it draws ``k`` fresh samples, giving each
-                          case a baseline PASS RATE (the frozen output labelled
-                          the case, so it is not an independent draw and is
-                          left out); the paired test then runs on per-case rate
+                          ``k > 1`` the frozen sample counts as one and ``k-1``
+                          fresh samples are drawn, giving each case a baseline
+                          PASS RATE; the paired test then runs on per-case rate
                           differences (``noise_model="paired_rates"``, betting
                           e-value) instead of one-sample McNemar. A case whose
                           baseline flips across samples is *unstable* — it is

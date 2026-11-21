@@ -55,10 +55,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional, cast
 
+from evalrx.eval_agent.stages.case_discovery import recorded_draw
 from evalrx.eval_agent.stages.fix.tools import apply_image_ops, score_to_bool
 
 if TYPE_CHECKING:
-    from evalrx.core.case import CaseBatch, FailureCase
+    from evalrx.core.case import CaseBatch
     from evalrx.core.model import Model
 
 logger = logging.getLogger(__name__)
@@ -155,8 +156,9 @@ def cases_payload(cases: "CaseBatch") -> "dict[str, Any]":
     """Serialise cases for the sandbox: id, prompt and the model's ORIGINAL
     answer — never a label, expected answer, or rubric.
 
-    ``baseline_output`` is the recorded baseline generation (``case.observed``,
-    ``None`` when the case carries none). It is not a label: it is what the
+    ``baseline_output`` is the recorded baseline generation
+    (:func:`recorded_draw`: ``case.observed``, or the first answer drawn when
+    the case was labelled by a majority; ``None`` when the case carries none). It is not a label: it is what the
     unchanged model already said, which a scaffold may legitimately compare
     against, vote with, or ask the model to double-check. It carries no
     information about correctness — the frozen-model control replays exactly
@@ -168,11 +170,10 @@ def cases_payload(cases: "CaseBatch") -> "dict[str, Any]":
     """
     out = []
     for c in cases:
-        observed = getattr(c, "observed", None)
         out.append({
             "id": c.id,
             "prompt": str(getattr(getattr(c, "inputs", None), "prompt", "")),
-            "baseline_output": None if observed is None else str(observed),
+            "baseline_output": recorded_draw(c),
         })
     return {"cases": out}
 
@@ -189,7 +190,7 @@ class CodedPipelineResult:
     guarded_ids: "list[str]" = field(default_factory=list)
     # Plain direct calls answered from the recorded baseline (no model time).
     n_replayed: int = 0
-    # Cases the guard anchored on ``case.observed`` because the pipeline made
+    # Cases the guard anchored on the recorded draw because the pipeline made
     # no direct call (the common, legitimate shape since the coder is handed
     # ``baseline_output``).
     n_anchored_from_recorded: int = 0
@@ -242,7 +243,7 @@ def run_coded_pipeline(
 
     ``consensus_min_support`` (> 0 switches the gold-free selection guard
     on): a case's final answer may differ from its anchor — the recorded
-    ``case.observed``, or the pipeline's own direct call when the case has no
+    draw (:func:`recorded_draw`), or the pipeline's own direct call when the case has no
     record — only when at least that many enhanced calls with DISTINCT
     signatures (prompt + image_ops) returned the same answer; otherwise the
     case is reverted to the anchor (``guarded_ids``). A case with neither a
@@ -328,7 +329,7 @@ def run_coded_pipeline(
                 # the paired test compares against, so replaying it keeps
                 # anchor and baseline identical (a resample could drift from
                 # both). _replayable_direct is False for a missing case.
-                replies.append({"output": str(cast("FailureCase", case).observed)})
+                replies.append({"output": recorded_draw(case)})
                 replayed.add(index)
                 continue
             prepared = _prepare_call(request, case, model, enable_attend, reply_fn,
@@ -497,14 +498,14 @@ def run_coded_pipeline(
             # Anchor: the recorded baseline when the case has one (the same
             # text a plain direct call is answered with, and what the paired
             # test's baseline arm holds); else the pipeline's own direct call.
-            observed = getattr(case_by_id[case_id], "observed", None)
+            observed = recorded_draw(case_by_id[case_id])
             direct = next(
                 (output for is_direct, _signature, output in records if is_direct), None
             )
             if observed is not None:
                 if direct is None:
                     res.n_anchored_from_recorded += 1
-                anchor = str(observed)
+                anchor = observed
             elif direct is not None:
                 anchor = direct
             else:
@@ -556,7 +557,7 @@ def _replayable_direct(request: "dict[str, Any]", case: "Any") -> bool:
     under the per-case cap (nothing to select from in re-reading the
     baseline). Decoding overrides (``generation_kwargs``) ask for a genuinely
     new generation, which still hits the model and counts."""
-    if case is None or getattr(case, "observed", None) is None:
+    if case is None or recorded_draw(case) is None:
         return False
     if request.get("generation_kwargs"):
         return False
@@ -695,7 +696,7 @@ def frozen_model_control(
     max_calls_per_case: int = 0,
 ) -> CodedPipelineResult:
     """Re-run *code* with the model frozen: every bridged call is answered with
-    the case's recorded baseline output (``case.observed``; ``""`` when a case
+    the case's recorded baseline output (:func:`recorded_draw`; ``""`` when a case
     has none).
 
     A coded pipeline is only ever asked to repair the MODEL, but nothing in the
@@ -719,8 +720,7 @@ def frozen_model_control(
     the control.
     """
     def _replay(case: "Any", prompt: str) -> str:
-        observed = getattr(case, "observed", None)
-        return "" if observed is None else str(observed)
+        return recorded_draw(case) or ""
 
     return run_coded_pipeline(
         code, None, cases, workdir=workdir, timeout_sec=timeout_sec,

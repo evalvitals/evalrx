@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from evalrx.core.analyzer import Ask, run_probes
 from evalrx.core.model import Model
+from evalrx.eval_agent.stages.case_discovery import recorded_draw
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Sequence
@@ -971,7 +972,7 @@ def _winner(case: "FailureCase", spec: PipelineSpec, outputs: "list[str]") -> st
     min_support = max(0, int(spec.baseline_override_min_support))
     if not min_support:
         return max(grouped.values(), key=len)[0]
-    baseline = str(getattr(case, "observed", "") or "")
+    baseline = recorded_draw(case) or ""
     baseline_key = answer_key(baseline, pattern)
     alternatives = [group for key, group in grouped.items() if key != baseline_key]
     best_alternative = max(alternatives, key=len) if alternatives else []

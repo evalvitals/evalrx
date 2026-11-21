@@ -181,3 +181,26 @@ def test_fewer_than_one_sample_is_refused():
 
     with pytest.raises(ValueError, match="n_samples"):
         CaseDiscoveryAgent(n_samples=0)
+
+
+def test_the_first_answer_drawn_is_kept_beside_one_picked_for_the_label():
+    """``observed`` agrees with the majority label, so it is not a fair sample
+    of the model; the first answer drawn is, and the fix stage compares with it."""
+    from evalrx.eval_agent.stages.case_discovery import recorded_draw
+
+    model = _scripted({"q0": ["no", "yes 1", "yes 2"], "q1": ["no 0", "yes", "no 2"]})
+
+    c0, c1 = _discover(model, ["q0", "q1"], n_samples=3).cases
+
+    assert (c0.observed, recorded_draw(c0)) == ("yes 1", "no")
+    # The first answer already earned the label: nothing extra is stored.
+    assert (c1.observed, recorded_draw(c1)) == ("no 0", "no 0")
+    assert "discovery_first_answer" not in c1.metadata
+
+
+def test_a_case_with_one_answer_or_none_draws_from_observed():
+    from evalrx.core.case import FailureCase, Inputs
+    from evalrx.eval_agent.stages.case_discovery import recorded_draw
+
+    assert recorded_draw(FailureCase(inputs=Inputs(prompt="q"), observed="yes")) == "yes"
+    assert recorded_draw(FailureCase(inputs=Inputs(prompt="q"))) is None

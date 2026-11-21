@@ -145,8 +145,15 @@ by chance. `CaseDiscoveryAgent(n_samples=k)` draws `k` answers per case in one
 batch and labels the case by their majority; `case.observed` is an answer that
 earned that label and `case.metadata["discovery_votes"]` holds the count. The
 benchmark runner uses five when the task samples and one when it decodes
-greedily (`--label-samples`). The fix stage's repeated baseline does not count
-`case.observed` among its samples, because that answer was chosen by the label.
+greedily (`--label-samples`).
+
+An answer picked to agree with the label is not a fair sample of the model, so
+discovery also keeps the first answer it drew, and `recorded_draw(case)` returns
+it (or `case.observed` when the case has one answer). The fix stage reads
+`recorded_draw` wherever it compares against the unmodified model: the baseline
+rate, the answer a coded pipeline's plain call is replayed from, and the answer
+a guarded candidate falls back to. `case.observed` is what the label describes;
+`recorded_draw(case)` is what the model says when asked once.
 
 `forward` returns a `Trace`, which is the common carrier for captured internals
 such as tokens, token ids, attentions, hidden states, logits, and backend-specific

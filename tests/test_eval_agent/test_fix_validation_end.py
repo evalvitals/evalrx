@@ -502,15 +502,15 @@ class _CoinModel(CountingModel):
         return "Chain.\nAnswer: (B)" if ok else "Chain.\nAnswer: (C)"
 
 
-def test_paired_rates_draws_fresh_samples_and_weighs_unstable():
-    """baseline_repeats=k: k fresh samples per case, the frozen observed output
-    not among them; each case's baseline is a rate; unstable cases stay in."""
+def test_paired_rates_uses_frozen_sample_plus_fresh_and_weighs_unstable():
+    """baseline_repeats=k: the frozen observed output is sample 1, k-1 are
+    generated; each case's baseline is a rate; unstable cases stay in."""
     batch = _mc_batch(4, 4)  # 4 FAIL (observed wrong) + 4 PASS (observed right)
     # fresh baseline samples: alternate right/wrong -> every case ends unstable
     model = _CoinModel([True, False])
     agent = FixAgent(judge=None, max_tier="L1", baseline_repeats=3, floor_candidates=())
     baseline = agent._baseline(model, batch)
-    assert len(model.calls) == 3 * len(batch)  # the frozen output is not counted
+    assert len(model.calls) == 2 * len(batch)  # k-1 fresh per case; frozen counted
     assert all(0.0 < agent._baseline_rates[c.id] < 1.0 for c in batch)
     assert len(baseline.unstable) == len(batch)
     cand = FixCandidate(tier=FixTier.L1_PROMPT, name="careful", kind="template",
