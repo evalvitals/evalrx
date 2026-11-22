@@ -223,6 +223,23 @@ def test_directional_claims_can_hold_or_be_contradicted():
     assert out["big"]["details"]["p_value_method"] == "percentile bootstrap"
 
 
+def test_header_lists_the_tests_the_p_values_came_from():
+    rows = _cell(100, 60, flag=1) + _cell(100, 20, flag=0)
+    exact_only = _confirm([_signal("up", "flag == 1")], rows)["adjudication"]
+    assert exact_only["p_values"] == ["exact (Fisher)"]
+    both = _confirm([
+        _signal("up", "flag == 1"),
+        _signal("bounded", "flag == 1", expect={"relation": "abs<", "value": 0.9}),
+    ], rows)["adjudication"]
+    assert both["p_values"] == ["exact (Fisher)", "percentile bootstrap"]
+    grouped = _confirm([_signal("up", "flag == 1")],
+                       [{**r, "g": i // 4} for i, r in enumerate(rows)],
+                       group_col="g")["adjudication"]
+    assert grouped["p_values"] == ["percentile bootstrap"]
+    empty = _confirm([{"name": "prose"}], rows)["adjudication"]
+    assert empty["p_values"] is None and empty["method"] == "none"
+
+
 def test_all_claims_share_one_correction_family():
     # One strong flag, one borderline flag (p about 0.03 on its own) and
     # twenty flags that are exactly balanced against the outcome.

@@ -142,11 +142,12 @@ def explore(
     for caveat in caveats:
         if caveat and caveat not in report.caveats:
             report.caveats.append(caveat)
-    if report.ok:
-        taken = {c.name for c in report.candidate_signals}
-        report.candidate_signals.extend(
-            c for c in extra_candidates if c.name not in taken
-        )
+    # Host-derived candidates do not depend on the agent, so they are kept even
+    # when its exploration failed: the run can still test them on held-out rows.
+    taken = {c.name for c in report.candidate_signals}
+    report.candidate_signals.extend(
+        c for c in extra_candidates if c.name not in taken
+    )
 
     # Host adjudication: any candidate that attached host-checkable `sufficient`
     # stats gets a verdict recomputed by the validated core (the explorer never

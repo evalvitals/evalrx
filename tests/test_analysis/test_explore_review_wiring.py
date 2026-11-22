@@ -168,6 +168,30 @@ def test_text_column_keywords_are_frozen_on_explore_and_tested_on_holdout(fake_r
     assert confirm["adjudication"]["n_in_family"] == len(verdicts) + 1   # + the prediction
 
 
+def test_keyword_recipes_are_still_tested_when_the_agent_fails(monkeypatch, tmp_path):
+    # The keyword candidates come from the host, not the agent, so a run whose
+    # exploration failed still has something to confirm.
+    rows = _grouped_rows()
+
+    class _Broken(_FakeAgent):
+        def explore_records(self, records, *, question, outcome_col=None, **roles):
+            return ExploratoryAnalysisReport(question=question, ok=False,
+                                             error="no agent", workdir=str(tmp_path / "x"))
+
+    monkeypatch.setattr(explore_api, "ExploratoryAnalysisAgent", _Broken)
+    monkeypatch.setattr(er, "load_records_from_path", lambda path, **kw: rows)
+    monkeypatch.setattr(er, "_build_judge", lambda model: _Judge())
+    out = tmp_path / "out"
+    rc = er.run_explore(tmp_path / "data", out=out, coder_provider="claude_code",
+                        outcome_col="label", propose_hypotheses=False, holdout_frac=0.4,
+                        holdout_confirm=True, group_col="clip", text_col="note")
+    assert rc == 1                                     # the exploration did fail
+    confirm = json.loads((out / "confirm_report.json").read_text())
+    assert "kw_timeout" in confirm["adjudication"]["rejected"]
+    assert confirm["adjudication"]["n_in_family"] == len(confirm["signal_verdicts"]) > 1
+    assert confirm["adjudication"]["p_values"] == ["percentile bootstrap"]
+
+
 def test_hypothesis_prediction_gets_a_host_verdict_in_the_run(fake_run):
     confirm, _, _ = fake_run(group_col="clip")
     (hv,) = confirm["hypothesis_verdicts"]

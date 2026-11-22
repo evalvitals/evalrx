@@ -373,6 +373,13 @@ def holdout_confirm(
         item["status"] = claim_status(holds, item.pop("_p_contrary"), alpha)
 
     n_claims = len(p_values)
+    # Which tests the p-values in the family came from; each signal records
+    # its own under details.p_value_method. A hypothesis prediction is always
+    # read off the bootstrap replicates.
+    p_value_methods = sorted(
+        {str(estimates[i].details.get("p_value_method")) for i in signal_claims}
+        | ({"percentile bootstrap"} if hypothesis_claims else set())
+    )
     rejected = [str(e.get("name")) for e in signal_verdicts if e.get("reject")]
     meta: "dict[str, Any]" = {
         "method": "BH" if n_claims else "none",
@@ -385,7 +392,7 @@ def holdout_confirm(
         "n_hypothesis_claims": len(hypothesis_claims),
         "n_rejected": len(rejected),
         "rejected": rejected,
-        "p_values": "percentile bootstrap" if n_claims else None,
+        "p_values": p_value_methods or None,
         "clustered_by": group_col,
     }
     if not n_claims:
