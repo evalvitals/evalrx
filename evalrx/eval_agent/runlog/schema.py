@@ -1,0 +1,460 @@
+"""Published, machine-consumable schema for a run's logged events.
+
+A run's events (``run_start``, ``probe``, ``diagnosis``, ...) are the
+contract between a diagnosis run and everything downstream (dashboards,
+parsers, the agent's own memory) — RunLogger stores them bucketed into
+``run.json`` + per-stage ``M<n>/log.json`` rather than a flat JSONL file, but
+each individual event has this same shape wherever it lives. Until this
+module existed that contract lived only in docstrings + a table in
+``docs/extending.md`` and an opaque ``schema_version`` int — a consumer had
+nothing to *validate* against.
+
+This module is that contract, as code:
+
+* :func:`build_schema` returns a JSON Schema (Draft 2020-12) describing every
+  event type, built purely from the stdlib so importing it adds **no runtime
+  dependency** (the package's light-install promise is preserved — see
+  pyproject ``dependencies``).
+* The rendered schema is committed next to this file as
+  ``run_log.schema.json`` (shipped as package data) so non-Python consumers can
+  validate too; :func:`load_schema` reads it and a drift test keeps the two in
+  lock-step.
+* :func:`validate_event` validates one logged event.
+  It needs the ``jsonschema`` package (a *dev*/optional dep, not core) and
+  raise a clear, actionable error if it is missing rather than failing obscurely.
+
+Design note — the schema is intentionally **permissive**: it pins the common
+envelope, the event discriminator, required fields and core types, but does
+*not* forbid extra properties.  That matches ``RUN_LOG_SCHEMA_VERSION``'s rule
+that *additive* fields don't bump the version, so a newer producer emitting an
+extra field still validates against an older schema.  What it catches is the
+breakage that actually matters: a missing required field, a wrong type, a
+malformed timestamp, or an unknown event name.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+# Bump when an existing event's fields are renamed, removed, or change meaning,
+# or when a new event TYPE is added (additive fields on an existing event don't
+# need a bump). A downstream parser can branch on this instead of guessing
+# from `evalrx_version`.
+# v2: `analysis`'s stats_tool_results/stats_results/stats_plan/
+#     corrected_rejections are now conditionally externalized (see
+#     _externalize_if_large) — a {path, n_items, bytes} summary instead of
+#     the raw value once it exceeds _INLINE_MAX_BYTES.
+# v3: two new event types for AgenticDiagnoseLoop — `agent_decision` (one judge
+#     decision turn: chosen tool + rationale, keyed by `step` not `cycle`) and
+#     `agent_tool` (the dispatch layer's accept/reject outcome for that tool
+#     call). VLDiagnoseLoop's events are unchanged.
+# v5: the EvalVitals → EvalRX rename renamed the `evalvitals_version` field to
+#     `evalrx_version` on every event and moved the published schema's `$id`
+#     to https://evalrx.dev/schemas/run_log.schema.json. Old logs still parse
+#     (the schema is permissive on unknown fields) but a strict
+#     `evalrx_version`-keyed reader needs this bump to tell them apart from
+#     pre-rename logs.
+# v6: folded in the bucketed-storage events (`model_call`, `diagnose_report`,
+#     `unrouted`) and the `stage`/`event_seq`/`span_id` envelope fields that
+#     were previously a separate, RunLogger-only schema layered on top of
+#     this one — there is now one event schema, not a base plus an overlay.
+# v7: `run_end`, written when the logger closes: the run-level completion
+#     signal. `loop_end` ends M1-M4 only; M5 and the fix step log after it.
+# v8: `analysis` no longer carries `stats_tool_results` / `visualizations`
+#     (summaries from a retired tool layer); `stats_results` and `figures`
+#     hold the same information.
+# v9: `model_call.batch_size`, on a call that was one input of a
+#     `generate_batch`; its `duration_sec` is then that input's share of the
+#     batch's wall time.
+RUN_LOG_SCHEMA_VERSION = 9
+
+#: The event types a run logs.
+EVENT_TYPES: tuple[str, ...] = (
+    "run_start",
+    "probe",
+    "explore",
+    "analysis",
+    "diagnosis",
+    "surgery",
+    "experiment",
+    "fix",
+    "loop_end",
+    "run_end",
+    "tool_codegen",
+    "tool_registry",
+    "agent_decision",
+    "agent_tool",
+    "case_record",
+    "report_published",
+    "stage_skipped",
+    "model_call",
+    "diagnose_report",
+    "unrouted",
+)
+
+#: Path to the committed, rendered schema shipped as package data.
+SCHEMA_PATH = Path(__file__).with_name("run_log.schema.json")
+
+# Reusable sub-schemas -------------------------------------------------------
+
+_HYPOTHESIS = {
+    "type": "object",
+    "properties": {
+        "statement": {"type": "string"},
+        "plain_statement": {"type": ["string", "null"]},
+        "failure_mode": {"type": ["string", "null"]},
+        "status": {"type": ["string", "null"]},
+        "test_design": {"type": ["string", "null"]},
+    },
+}
+
+# An M2 stats field: a list of rows, or one object.
+_ROWS_OR_OBJECT = {"type": ["object", "array"]}
+
+# Per-event field schemas + the fields each event always carries -------------
+# (event, schema_version, ts, trace_id come from the shared envelope.)
+
+_EVENTS: dict[str, dict[str, Any]] = {
+    "run_start": {
+        "required": [],
+        "properties": {
+            "evalrx_version": {"type": "string"},
+            "python_version": {"type": "string"},
+            "git_commit": {"type": ["string", "null"]},
+            "data_fingerprint": {"type": "string"},
+            "label_distribution": {"type": "object"},
+            "n_cases": {"type": "integer"},
+            "model": {"type": "string"},
+            # JudgePolicy runs only: the decision judge (distinct from the M3
+            # stage judge already covered by "judge") and its action-turn budget.
+            "decision_judge": {"type": "string"},
+            "max_actions": {"type": "integer"},
+            # In-cycle explore step configured (provider:model of its coder).
+            "explorer": {"type": "string"},
+        },
+    },
+    "probe": {
+        "required": ["cycle", "analyzers", "findings", "artifact_paths"],
+        "properties": {
+            "analyzers": {"type": "array", "items": {"type": "string"}},
+            "findings": {"type": "object"},
+            "artifact_paths": {"type": "object"},
+            # Additive M1 fields (permissive schema): result_paths (per-analyzer
+            # complete result json), failed_analyzers (selected-but-errored),
+            # selected_analyzers — see RunLogger.log_probe.
+            "selection_rationale": {"type": "string"},
+            "duration_sec": {"type": "number"},
+            # How many generate/forward/logprobs/chat calls the analyzers made
+            # against the target model this cycle (see model_instrumentation.py);
+            # each call is its own ``model_call`` event.
+            "n_model_calls": {"type": "integer"},
+        },
+    },
+    "analysis": {
+        "required": ["cycle", "severity", "n_findings", "findings", "narrative"],
+        "properties": {
+            "severity": {"type": "string"},
+            "n_findings": {"type": "integer"},
+            "findings": {"type": "array", "items": {"type": "string"}},
+            "narrative": {"type": "string"},
+            "conclusion": {"type": "string"},
+            "evidence_chain": {"type": "array"},
+            "stats_plan": _ROWS_OR_OBJECT,
+            "stats_results": _ROWS_OR_OBJECT,
+            "corrected_rejections": _ROWS_OR_OBJECT,
+            "figures": {"type": "array"},
+            "duration_sec": {"type": "number"},
+        },
+    },
+    "explore": {
+        # Optional in-cycle explore step (VLDiagnoseLoop(explorer=...)): a
+        # free-form EDA pass over M1's per-case table between M1 and M2.
+        # DESCRIPTIVE ONLY — counts, observations, rendered figure paths and
+        # where the report/tables/figures were persisted; the explorer's
+        # in-sample candidate verdicts appear only as counts under
+        # `adjudication` and never enter the confirmatory M2 family.
+        "required": ["cycle", "ok", "n_observations", "n_charts", "n_tables"],
+        "properties": {
+            "ok": {"type": "boolean"},
+            "n_observations": {"type": "integer"},
+            "n_charts": {"type": "integer"},
+            "n_charts_rendered": {"type": "integer"},
+            "n_tables": {"type": "integer"},
+            "n_candidate_signals": {"type": "integer"},
+            "n_hypotheses": {"type": "integer"},
+            "adjudication": {"type": "object"},
+            "observations": {"type": "array", "items": {"type": "string"}},
+            "caveats": {"type": "array", "items": {"type": "string"}},
+            "figures": {"type": "array", "items": {"type": "string"}},
+            "attempts": {"type": "integer"},
+            "error": {"type": "string"},
+            "out_dir": {"type": "string"},
+            "report_path": {"type": "string"},
+            "duration_sec": {"type": "number"},
+        },
+    },
+    "diagnosis": {
+        "required": ["cycle", "model_name", "n_hypotheses", "hypotheses", "raw_judge_output"],
+        "properties": {
+            "model_name": {"type": ["string", "null"]},
+            "n_hypotheses": {"type": "integer"},
+            "hypotheses": {"type": "array", "items": _HYPOTHESIS},
+            "raw_judge_output": {"type": ["string", "null"]},
+            # Provenance of the (UNCONFIRMED) explorer mechanism notes M3 was shown.
+            # Descriptive/display-only — never enters M2/M4/fix.
+            "referenced_charts": {"type": "array", "items": {"type": "string"}},
+            "explore_context_used": {"type": "boolean"},
+            "explore_figures": {"type": "array", "items": {"type": "string"}},
+            # Whether a (clustered, descriptive-only) FailureModeReport was
+            # shown to M3 — additive field, no schema version bump needed.
+            "failure_modes_used": {"type": "boolean"},
+            "duration_sec": {"type": "number"},
+        },
+    },
+    "surgery": {
+        "required": ["cycle", "module", "hypothesis", "failure_mode", "status", "fixed"],
+        "properties": {
+            "module": {"type": "string"},
+            "hypothesis": {"type": "string"},
+            "failure_mode": {"type": ["string", "null"]},
+            "status": {"type": "string"},
+            "fixed": {"type": "boolean"},
+            "confidence_score": {"type": ["number", "null"]},
+            "evidence": {"type": ["object", "null"]},
+            "n_refocused_cases": {"type": ["integer", "null"]},
+            "duration_sec": {"type": "number"},
+            # Additive: M4 protocol-consistency judge prompt/response, persisted
+            # under prompts/ (same pattern as probe/analysis/diagnosis).
+        },
+    },
+    "experiment": {
+        "required": ["cycle", "module", "hypothesis", "failure_mode", "status", "fixed"],
+        "properties": {
+            "module": {"type": "string"},
+            "hypothesis": {"type": "string"},
+            "failure_mode": {"type": ["string", "null"]},
+            "status": {"type": ["string", "null"]},
+            "fixed": {"type": "boolean"},
+            "provider": {"type": ["string", "null"]},
+            "metrics": {"type": ["object", "null"]},
+            "returncode": {"type": ["integer", "null"]},
+            "timed_out": {"type": ["boolean", "null"]},
+            "llm_calls": {"type": ["integer", "null"]},
+            "workspace_snapshot": {"type": ["object", "null"]},
+        },
+    },
+    "fix": {
+        "required": ["cycle", "module"],
+        "properties": {
+            "module": {"type": "string"},
+        },
+    },
+    "loop_end": {
+        "required": ["cycles"],
+        "properties": {
+            "cycles": {"type": "integer"},
+            "tokens_used": {"type": ["integer", "null"]},
+            "timings_sec": {"type": "object"},
+            "total_duration_sec": {"type": "number"},
+            "resolved": {"type": "boolean"},
+            "n_hypotheses": {"type": "integer"},
+            "final_hypotheses": {"type": "array", "items": _HYPOTHESIS},
+            "stopped_by": {"type": ["string", "null"]},
+            "n_verified": {"type": "integer"},
+            "verified_hypotheses": {"type": "array"},
+        },
+    },
+    "run_end": {"required": [], "properties": {}},
+    "tool_codegen": {
+        "required": ["cycle", "module", "tool_name", "need", "source", "ok"],
+        "properties": {
+            "module": {"type": "string"},
+            "tool_name": {"type": "string"},
+            "need": {"type": "string"},
+            "source": {"type": "string"},
+            "ok": {"type": "boolean"},
+            "error": {"type": ["string", "null"]},
+        },
+    },
+    "tool_registry": {
+        "required": ["cycle", "module", "n_tools", "tools"],
+        "properties": {
+            "module": {"type": "string"},
+            "n_tools": {"type": "integer"},
+            "tools": {"type": "array"},
+        },
+    },
+    "agent_decision": {
+        "required": ["step", "action", "valid"],
+        "properties": {
+            "step": {"type": "integer"},
+            "action": {"type": "string"},
+            "params": {"type": "object"},
+            "rationale": {"type": "string"},
+            "valid": {"type": "boolean"},
+            "repair_attempts": {"type": "integer"},
+            "fallback_used": {"type": "boolean"},
+            "duration_sec": {"type": "number"},
+        },
+    },
+    "agent_tool": {
+        "required": ["step", "tool", "ok"],
+        "properties": {
+            "step": {"type": "integer"},
+            "tool": {"type": "string"},
+            "ok": {"type": "boolean"},
+            "summary": {"type": "string"},
+            "error": {"type": ["string", "null"]},
+            "duration_sec": {"type": "number"},
+        },
+    },
+    "case_record": {
+        "required": ["case_id", "case", "media_paths"],
+        "properties": {
+            "case_id": {"type": "string"},
+            "case": {"type": "object"},
+            "media_paths": {"type": "array", "items": {"type": "string"}},
+        },
+    },
+    "report_published": {
+        "required": ["report_schema_version", "catalog_version", "sha256", "generated_by"],
+        "properties": {
+            "report_schema_version": {"type": "integer"},
+            "catalog_version": {"type": "string"},
+            "json_render_version": {"type": "string"},
+            "source_event_seq": {"type": "integer"},
+            "sha256": {"type": "string"},
+            "generated_by": {"type": "object"},
+            "report_paths": {"type": "array", "items": {"type": "string"}},
+        },
+    },
+    "stage_skipped": {
+        "required": ["stage", "cycle", "reason_code"],
+        "properties": {
+            "stage": {"type": "string"},
+            "reason_code": {"type": "string"},
+            "detail": {"type": "string"},
+        },
+    },
+    "model_call": {
+        # A single generate/forward/logprobs/chat call against the target
+        # model, recorded immediately (see model_instrumentation.py). Either
+        # an analyzer's direct call (analyzer/method/call_index) or a
+        # judge/coder exchange (role/operation).
+        "required": ["cycle", "inputs", "output"],
+        "properties": {
+            "duration_sec": {"type": "number"},
+            "error": {"type": ["string", "null"]},
+            "batch_size": {"type": "integer", "minimum": 2},
+        },
+        "anyOf": [{"required": ["analyzer", "method", "call_index"]},
+                  {"required": ["role", "operation"]}],
+    },
+    "diagnose_report": {
+        "required": ["cycles", "hypotheses", "m4_results", "discovery"],
+        "properties": {key: {"type": "array"} for key in
+                       ("hypotheses", "m4_results", "discovery")},
+    },
+    "unrouted": {
+        # A caller passed a tag _resolve_stage couldn't map to M1-M5 — filed
+        # here instead of being lost.
+        "required": ["key", "tag"],
+        "properties": {
+            "key": {"type": "string"},
+            "tag": {"type": ["string", "null"]},
+        },
+    },
+}
+
+
+def build_schema() -> dict[str, Any]:
+    """Return the JSON Schema (Draft 2020-12) for a run's logged events.
+
+    Built from the stdlib only — no third-party import — so this stays callable
+    in the light install.  The single source of truth for the version pin is
+    :data:`RUN_LOG_SCHEMA_VERSION`. Validates one event at a time regardless of
+    where it's stored — a line in a flat log, or a record inside a bucketed
+    ``run.json``/``M<n>/log.json`` array.
+    """
+    envelope = {
+        "type": "object",
+        "required": ["event", "schema_version", "ts", "trace_id", "event_seq", "stage", "span_id"],
+        "properties": {
+            "event": {"type": "string", "enum": list(EVENT_TYPES)},
+            "schema_version": {"const": RUN_LOG_SCHEMA_VERSION},
+            # `format` is for documentation/interop; jsonschema only enforces it
+            # when the optional rfc3339-validator is installed, so a `pattern`
+            # pins the ISO-8601 shape unconditionally (it matches the producer's
+            # datetime.now(UTC).isoformat(timespec="microseconds")).
+            "ts": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$",
+            },
+            "trace_id": {"type": "string"},
+            "event_seq": {"type": "integer", "minimum": 1},
+            "span_id": {"type": "string"},
+            "stage": {"enum": ["RUN", "M1", "M2", "M3", "M4", "M5"]},
+            "cycle": {"type": "integer"},
+        },
+    }
+
+    defs: dict[str, Any] = {"envelope": envelope}
+    branches: list[dict[str, Any]] = []
+    for name, spec in _EVENTS.items():
+        variant: dict[str, Any] = {
+            "type": "object",
+            "properties": {"event": {"const": name}, **spec["properties"]},
+            "required": ["event", *spec["required"]],
+        }
+        if "anyOf" in spec:
+            variant["anyOf"] = spec["anyOf"]
+        branch = {"allOf": [{"$ref": "#/$defs/envelope"}, variant]}
+        defs[name] = branch
+        branches.append({"$ref": f"#/$defs/{name}"})
+
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://evalrx.dev/schemas/run_log.schema.json",
+        "title": "EvalRX run event",
+        "description": (
+            "One logged event, wherever a run stores it (run.json / "
+            "M<n>/log.json). Discriminated on `event`; matches schema_version "
+            f"{RUN_LOG_SCHEMA_VERSION}. Permissive: extra (additive) fields "
+            "are allowed."
+        ),
+        "$defs": defs,
+        "oneOf": branches,
+    }
+
+
+def load_schema() -> dict[str, Any]:
+    """Load the committed, rendered :data:`SCHEMA_PATH` (the shipped artifact)."""
+    return json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+
+
+def _validator(schema: dict[str, Any] | None = None):
+    """Build a ``jsonschema`` validator with the date-time format checker on.
+
+    Raises a clear :class:`ImportError` if ``jsonschema`` (an optional dep) is
+    not installed, so the failure points at the fix instead of an obscure
+    ``ModuleNotFoundError`` deep in a call stack.
+    """
+    try:
+        import jsonschema
+    except ImportError as exc:  # pragma: no cover - exercised via message only
+        raise ImportError(
+            "validating a run log needs the 'jsonschema' package — "
+            "install it with `pip install jsonschema` or `pip install evalrx[dev]`."
+        ) from exc
+    schema = schema if schema is not None else build_schema()
+    cls = jsonschema.validators.validator_for(schema)
+    cls.check_schema(schema)
+    return cls(schema, format_checker=cls.FORMAT_CHECKER)
+
+
+def validate_event(event: dict[str, Any], *, schema: dict[str, Any] | None = None) -> None:
+    """Validate a single decoded event; raise ``jsonschema.ValidationError`` if bad."""
+    _validator(schema).validate(event)

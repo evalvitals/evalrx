@@ -306,12 +306,13 @@ class GemmaJaxAdapter:
         )
         if kw:
             logger.warning("GemmaJaxAdapter: ignoring engine_kwargs %s", sorted(kw))
-        self._model = None
-        self._params = None
-        self._tok = None
+        # untyped gemma/flax handles, set by load()
+        self._model: Any = None
+        self._params: Any = None
+        self._tok: Any = None
         self._pieces: list[str] = []
         self._special_ids: set[int] = set()
-        self._raw_call = None
+        self._raw_call: Any = None
         self._n_layers: int | None = None
         self._forward_cache: dict = {}
         # fresh sampler seeds for calls without SamplingParams.seed (hf_local's
@@ -568,7 +569,7 @@ class GemmaJaxAdapter:
             positions_xy=jnp.reshape(positions_xy, (1, n_images * max_patches, positions_xy.shape[2])),
             soft_token_counts=tuple(int(c) for c in counts),
         )
-        grids = []
+        grids: list[tuple[int, int, int]] = []
         for a, c in zip(arrays, counts):
             rows, cols = image_grid(a.shape[0], a.shape[1], **settings)
             if rows * cols != int(c):  # the encoder changed its pooling rule: fall back to "unknown"
@@ -722,12 +723,12 @@ class GemmaJaxAdapter:
 
             fn = jax.jit(fwd, static_argnames=("audio_soft_token_counts",))
         else:
-            def fwd(params, tokens):
+            def fwd_text(params, tokens):
                 out = model.apply({"params": params}, tokens, return_last_only=False, method=raw, **capture)
                 out, state = out if capture else (out, {})
                 return out.logits, None, state.get("intermediates", {}) if state else {}
 
-            fn = jax.jit(fwd)
+            fn = jax.jit(fwd_text)
         self._forward_cache[key] = fn
         return fn
 

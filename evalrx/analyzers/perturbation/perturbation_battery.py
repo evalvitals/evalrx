@@ -31,7 +31,7 @@ import re
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from evalrx.analyzers.reasoning._text import extract_answer, normalize_answer
-from evalrx.core.analyzer import Analyzer
+from evalrx.core.analyzer import Analyzer, Ask, Probe, run_probes
 from evalrx.core.capability import Capability
 from evalrx.core.registry import register_analyzer
 from evalrx.core.result import Result
@@ -150,6 +150,9 @@ class PerturbationBattery(Analyzer):
         'sensitivity_rate': ('Responds to real changes', 'For this case: share of meaning-ALTERING edits that did change the answer. Low is bad — the model ignored a change that should matter.'),
     }
 
+    max_cases: int
+    gen_kwargs: dict[str, Any]
+
     def __init__(
         self,
         perturbations: tuple = DEFAULT_PERTURBATIONS,
@@ -162,9 +165,9 @@ class PerturbationBattery(Analyzer):
         self.answer_fn = answer_fn or extract_answer
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
-        per_case: list[dict[str, Any]] = []
-        for case in cases.stratified_head(self.max_cases):
-            per_case.append(self._probe_case(model, case))
+        per_case = run_probes(
+            model, [self._probe_case(case) for case in cases.stratified_head(self.max_cases)],
+            tolerant=True)
 
         scored = [c for c in per_case if "invariance_break_rate" in c]
         applied = {name for c in scored for name in c.get("applied", [])}
@@ -201,50 +204,46 @@ class PerturbationBattery(Analyzer):
         return Result(analyzer=self.name, model=repr(model), cases=cases, findings=findings)
 
     # ------------------------------------------------------------------
-    def _probe_case(self, model: "Model", case: "FailureCase") -> dict[str, Any]:
+    def _probe_case(self, case: "FailureCase") -> Probe[dict[str, Any]]:
         prompt = str(case.inputs.prompt or "")
         entry: dict[str, Any] = {"sample_id": case.id}
         if not prompt.strip():
             entry["skipped"] = "empty prompt"
             return entry
 
-        # Treat a transient backend failure as missing evidence for this case.
-        # Letting it escape aborts the whole battery, which makes the most
-        # relevant M1 evidence disappear after just one timed-out audio clip.
-        try:
-            baseline = normalize_answer(
-                self.answer_fn(model.generate(case.inputs, **self.gen_kwargs))
-            )
-        except Exception as exc:
-            entry["skipped"] = f"baseline request failed: {type(exc).__name__}: {str(exc)[:160]}"
-            return entry
-        entry["baseline_answer"] = baseline[:80]
-
-        applied: list[str] = []
-        preserving_flips: list[int] = []
-        altering_flips: list[int] = []
+        variants: list[tuple[str, str, str]] = []
         for name, kind, fn in self.perturbations:
             try:
                 variant = fn(prompt)
             except Exception:  # pragma: no cover - user-supplied perturbation
                 variant = None
-            if not variant or variant == prompt:
-                continue
-            applied.append(name)
-            try:
-                answer = normalize_answer(
-                    self.answer_fn(
-                        model.generate(
-                            dataclasses.replace(case.inputs, prompt=variant), **self.gen_kwargs
-                        )
-                    )
-                )
-            except Exception as exc:
+            if variant and variant != prompt:
+                variants.append((name, kind, variant))
+        # The baseline is asked again with the variants rather than read from
+        # ``case.observed``: it is the control each variant's answer is compared to.
+        baseline_out, *variant_outs = yield Ask(
+            [case.inputs, *(dataclasses.replace(case.inputs, prompt=v) for _, _, v in variants)],
+            self.gen_kwargs)
+        # A failed request is missing evidence for this case. Letting it escape
+        # aborts the whole battery, which makes the most relevant M1 evidence
+        # disappear after just one timed-out audio clip.
+        if isinstance(baseline_out, Exception):
+            entry["skipped"] = (f"baseline request failed: {type(baseline_out).__name__}: "
+                                f"{str(baseline_out)[:160]}")
+            return entry
+        baseline = normalize_answer(self.answer_fn(baseline_out))
+        entry["baseline_answer"] = baseline[:80]
+
+        applied = [name for name, _, _ in variants]
+        preserving_flips: list[int] = []
+        altering_flips: list[int] = []
+        for (name, kind, _), out in zip(variants, variant_outs):
+            if isinstance(out, Exception):
                 entry.setdefault("request_errors", {})[name] = (
-                    f"{type(exc).__name__}: {str(exc)[:160]}"
+                    f"{type(out).__name__}: {str(out)[:160]}"
                 )
                 continue
-            flipped = int(answer != baseline)
+            flipped = int(normalize_answer(self.answer_fn(out)) != baseline)
             entry[f"{name}_flipped"] = flipped
             (preserving_flips if kind == PRESERVING else altering_flips).append(flipped)
 

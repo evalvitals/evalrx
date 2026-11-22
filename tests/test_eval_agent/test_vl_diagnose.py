@@ -11,6 +11,7 @@ Covers:
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from evalrx.core.capability import Capability
@@ -18,6 +19,7 @@ from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.core.result import Result
 from evalrx.eval_agent import (
     AnalysisModule,
+    AutoDiagnoseReport,
     CaseDiscoveryAgent,
     DiagnosisAgent,
     HypothesisTester,
@@ -25,13 +27,12 @@ from evalrx.eval_agent import (
     ProbeAgent,
     StatsAnalysisAgent,
     StatsAnalysisReport,
-    StatsToolAgent,
     VLDiagnoseLoop,
-    VLDiagnoseReport,
 )
 from evalrx.eval_agent.hypothesis import Hypothesis, HypothesisStatus
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol, ProbingSchema
 from tests.conftest import FakeModel
+from tests.judge_replies import hypothesis, keep_all, proposal
 
 # ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -94,6 +95,21 @@ class ScriptedModel(FakeModel):
         answer = self._answers[self._i % len(self._answers)]
         self._i += 1
         return answer
+
+
+class M3Judge(FakeModel):
+    """An M3 judge: gives *reply* to the proposer and keeps every hypothesis
+    when asked as the adversarial critic."""
+
+    def __init__(self, reply: str, n_keep: int = 1, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.reply, self.n_keep = reply, n_keep
+        self.prompts: list[str] = []
+
+    def generate(self, inputs, **kwargs) -> str:
+        prompt = str(inputs)
+        self.prompts.append(prompt)
+        return keep_all(self.n_keep) if "adversarial ML reviewer" in prompt else self.reply
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -225,6 +241,35 @@ class TestCaseDiscoveryAgent:
         assert report.cases[0].metadata["discovery_reason"] == (
             "The observed answer names blue."
         )
+
+    def test_judge_without_a_valid_label_falls_back_to_the_rubric_and_says_so(self):
+        model = ScriptedModel(["The answer is red."], capabilities={Capability.GENERATE})
+
+        class Rambling(FakeModel):
+            def __init__(self):
+                super().__init__(capabilities={Capability.GENERATE})
+                self.calls = 0
+
+            def generate(self, inputs, **kwargs):
+                self.calls += 1
+                return "It's probably fine, I guess."
+
+        judge = Rambling()
+        candidates = CaseBatch([FailureCase(
+            id="colour", inputs=Inputs(prompt="Which color is lowest?"),
+            expected={"all_of": ["blue"]},
+        )])
+        report = CaseDiscoveryAgent(judge=judge).discover(model, candidates)
+        assert judge.calls == 2  # sent back once with the validation errors
+        assert report.n_fail == 1  # the rubric decides: "red" lacks "blue"
+        assert "heuristic fallback" in report.cases[0].metadata["discovery_reason"]
+
+    def test_a_lowercase_label_is_read(self):
+        model = ScriptedModel(["blue"], capabilities={Capability.GENERATE})
+        judge = ScriptedModel(['{"label": "fail", "reason": "wrong colour"}'],
+                              capabilities={Capability.GENERATE})
+        candidates = CaseBatch([FailureCase(id="c", inputs=Inputs(prompt="q"), expected="blue")])
+        assert CaseDiscoveryAgent(judge=judge).discover(model, candidates).n_fail == 1
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -379,7 +424,7 @@ class TestStatsAnalysisAgent:
             success_criteria="Reply with only the option letter.",
             output_contract={"kind": "multiple_choice_letter", "choices": ["A", "B", "C", "D"]},
         )
-        judge = ScriptedModel(["CONCLUSION: No issue.\nEVIDENCE_CHAIN:\n- none\nQUALITATIVE:\n- none"])
+        judge = ScriptedModel(['{"conclusion": "No issue.", "evidence_chain": ["none"]}'])
         report = StatsAnalysisAgent(judge=judge).analyze({}, protocol=protocol)
         assert "Reply with only the option letter" in report.llm_prompt
         assert '"kind": "multiple_choice_letter"' in report.llm_prompt
@@ -394,43 +439,6 @@ class TestStatsAnalysisAgent:
         report = StatsAnalysisAgent().analyze({})
         assert report.stats_tool == "threshold_rules"
 
-    def test_stats_tools_collect_scalar_metrics(self):
-        results = {"self_consistency": Result(
-            analyzer="self_consistency", model="m",
-            cases=CaseBatch([]),
-            findings={"consistency": 0.25, "n_samples": 4},
-        )}
-        report = StatsAnalysisAgent().analyze(results)
-
-        names = [tool["name"] for tool in report.stats_tool_results]
-        assert "scalar_summary" in names
-        assert report.visualizations
-        assert report.to_dict()["stats_tool_results"]
-
-    def test_stats_tools_compute_per_case_label_association(self):
-        cases = [
-            FailureCase(id="fail_1", inputs=Inputs(prompt="q1"), label=Label.FAIL),
-            FailureCase(id="pass_1", inputs=Inputs(prompt="q2"), label=Label.PASS),
-        ]
-        data = CaseBatch(cases)
-        results = {"attention": Result(
-            analyzer="attention",
-            model="m",
-            cases=data,
-            findings={"per_case": [{"sample_id": "fail_1", "has_issue": True}]},
-        )}
-
-        report = StatsAnalysisAgent().analyze(results)
-        tool = next(
-            t for t in report.stats_tool_results
-            if t["name"] == "per_case_signal_label_association"
-        )
-
-        assert tool["metrics"]["n_signal"] == 1
-        assert tool["metrics"]["n_no_signal"] == 1
-        assert tool["metrics"]["fail_rate_signal"] == 1.0
-        assert tool["metrics"]["fail_rate_control"] == 0.0
-
     def test_stats_tool_agent_can_be_disabled(self):
         results = {"self_consistency": Result(
             analyzer="self_consistency", model="m",
@@ -438,21 +446,8 @@ class TestStatsAnalysisAgent:
             findings={"consistency": 0.25},
         )}
         report = StatsAnalysisAgent(enable_stats_tools=False).analyze(results)
-        assert report.stats_tool_results == []
-        assert report.visualizations == []
-
-    def test_stats_tool_agent_selects_expected_tools(self):
-        results = {"attention": Result(
-            analyzer="attention",
-            model="m",
-            cases=CaseBatch([]),
-            findings={
-                "mean_entropy": 0.5,
-                "per_case": [{"sample_id": "x", "has_issue": True}],
-            },
-        )}
-        selected = StatsToolAgent().select(results)
-        assert selected == ["scalar_summary", "per_case_signal_label_association"]
+        assert report.stats_results == []
+        assert report.figures == []
 
     def test_llm_guided_path_falls_back_on_failure(self):
         # A judge that raises should fall back to basic path silently
@@ -468,12 +463,12 @@ class TestStatsAnalysisAgent:
         assert report.stats_tool == "threshold_rules"
 
     def test_llm_guided_path_uses_judge(self):
-        expected = (
-            "CONCLUSION: Spatial attention is broken.\n"
-            "EVIDENCE_CHAIN:\n- Analyzer attention flagged anomaly\n"
-            "- Protocol expects spatial tasks\n- No corroborating signals\n"
-            "QUALITATIVE:\n- Entropy is unusually high\n"
-        )
+        expected = json.dumps({
+            "conclusion": "Spatial attention is broken.",
+            "evidence_chain": ["Analyzer attention flagged anomaly", "Protocol expects spatial tasks",
+                               "No corroborating signals"],
+            "qualitative": ["Entropy is unusually high"],
+        })
         judge = ScriptedModel([expected])
         protocol = _spatial_protocol()
         agent = StatsAnalysisAgent(judge=judge)
@@ -483,7 +478,8 @@ class TestStatsAnalysisAgent:
         )}
         report = agent.analyze(results, protocol=protocol)
         assert report.stats_tool == "llm_guided"
-        assert "broken" in report.conclusion.lower() or len(report.conclusion) > 0
+        assert report.conclusion == "Spatial attention is broken."
+        assert report.qualitative_findings == ["Entropy is unusually high"]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -714,12 +710,9 @@ class TestHypothesisTester:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _scripted_diagnosis_agent(mode: str = "attention") -> DiagnosisAgent:
-    hyp_json = (
-        f'[{{"hypothesis": "Model fails due to {mode} issue.", '
-        f'"failure_mode": "{mode}"}}]'
-    )
-    judge = ScriptedModel([hyp_json])
-    return DiagnosisAgent(judge=judge)
+    return DiagnosisAgent(judge=M3Judge(proposal(
+        hypothesis(f"Model fails due to {mode} issue.", mode),
+    )))
 
 
 class TestVLDiagnoseLoop:
@@ -733,7 +726,7 @@ class TestVLDiagnoseLoop:
             max_cycles=1,
         )
         report = loop.run(_labeled_batch())
-        assert isinstance(report, VLDiagnoseReport)
+        assert isinstance(report, AutoDiagnoseReport)
 
     def test_report_has_cycles(self):
         loop = VLDiagnoseLoop(
@@ -745,7 +738,7 @@ class TestVLDiagnoseLoop:
         report = loop.run(_labeled_batch())
         assert report.cycles >= 1
 
-    def test_report_has_all_hypotheses(self):
+    def test_report_has_final_hypotheses(self):
         loop = VLDiagnoseLoop(
             model=_vlm(),
             protocol=_spatial_protocol(),
@@ -753,7 +746,7 @@ class TestVLDiagnoseLoop:
             max_cycles=1,
         )
         report = loop.run(_labeled_batch())
-        assert len(report.all_hypotheses) >= 1
+        assert len(report.final_hypotheses) >= 1
 
     def test_report_has_test_results(self):
         loop = VLDiagnoseLoop(
@@ -833,7 +826,7 @@ class TestVLDiagnoseLoop:
             diagnosis_agent=_scripted_diagnosis_agent(),
             max_cycles=1,
         )
-        report = VLDiagnoseReport(cycles=1, stopped_by="max_cycles")
+        report = AutoDiagnoseReport(cycles=1, stopped_by="max_cycles")
         result = loop.run_m5(report, _labeled_batch())
         assert result is None
 
@@ -855,7 +848,7 @@ class TestVLDiagnoseLoop:
             confidence=0.7,
             verdict="supported",
         )
-        report = VLDiagnoseReport(
+        report = AutoDiagnoseReport(
             cycles=1,
             stopped_by="criteria_met",
             verified_hypotheses=[tr],
@@ -903,16 +896,18 @@ class TestVLDiagnoseLoop:
         report = loop.run(_labeled_batch())
         assert report.cycles == 1
         assert report.final_stats_report is not None
-        assert report.all_hypotheses == []
+        assert report.final_hypotheses == []
         assert report.all_test_results == []
 
     def test_no_diagnosis_agent_stops_early(self, monkeypatch):
         loop = VLDiagnoseLoop(model=_vlm(), protocol=_spatial_protocol(), max_cycles=3)
 
-        def unavailable():
+        from evalrx.eval_agent.loop.stages import Stages
+
+        def unavailable(self):
             raise RuntimeError("judge unavailable")
 
-        monkeypatch.setattr(loop, "_get_diagnosis_agent", unavailable)
+        monkeypatch.setattr(Stages, "diagnosis_agent_or_default", unavailable)
         report = loop.run(_labeled_batch())
         assert report.stopped_by == "diagnosis_error"
         assert report.cycles == 1
@@ -961,7 +956,7 @@ class TestVLDiagnoseTwoPhase:
         report = loop.run_analysis(data)
         assert report.stopped_by == "analysis_complete"
         assert report.cycles == 1
-        assert len(report.all_hypotheses) >= 1
+        assert len(report.final_hypotheses) >= 1
         # M4 did not run: no test results, nothing verified.
         assert report.all_test_results == []
         assert report.verified_hypotheses == []
@@ -972,9 +967,9 @@ class TestVLDiagnoseTwoPhase:
         # An M3 that yields nothing still leaves a valid analysis (stats) report.
         loop, data = self._signal_setup()
         # Swap in a diagnosis agent whose judge returns no hypotheses.
-        loop.diagnosis_agent = DiagnosisAgent(judge=ScriptedModel(["[]"]))
+        loop.diagnosis_agent = DiagnosisAgent(judge=ScriptedModel([proposal()]))
         report = loop.run_analysis(data)
-        assert report.all_hypotheses == []
+        assert report.final_hypotheses == []
         assert report.stopped_by == "no_hypotheses"
         assert report.final_stats_report is not None
 
@@ -989,7 +984,7 @@ class TestVLDiagnoseTwoPhase:
         loop, data = self._signal_setup()
         analysis = loop.run_analysis(data)
         reloaded = [hypothesis_from_dict(hypothesis_to_dict(h))
-                    for h in analysis.all_hypotheses]
+                    for h in analysis.final_hypotheses]
 
         confirmed = loop.run_confirm(
             data, reloaded, stats_report=analysis.final_stats_report
@@ -1008,7 +1003,7 @@ class TestVLDiagnoseTwoPhase:
         loop, data = self._signal_setup()
         analysis = loop.run_analysis(data)
         reloaded = [hypothesis_from_dict(hypothesis_to_dict(h))
-                    for h in analysis.all_hypotheses]
+                    for h in analysis.final_hypotheses]
         # No stats_report supplied → run_confirm re-runs M1→M2 silently.
         confirmed = loop.run_confirm(data, reloaded)
         assert len(confirmed.all_test_results) == len(reloaded)
@@ -1023,7 +1018,7 @@ class TestVLDiagnoseTwoPhase:
         loop, data = self._signal_setup()
         analysis = loop.run_analysis(data)
         reloaded = [hypothesis_from_dict(hypothesis_to_dict(h))
-                    for h in analysis.all_hypotheses]
+                    for h in analysis.final_hypotheses]
         confirmed = loop.run_confirm(
             data, reloaded, stats_report=analysis.final_stats_report
         )
@@ -1056,7 +1051,7 @@ class TestVLDiagnoseTwoPhase:
         loop, data = self._signal_setup()
         analysis = loop.run_analysis(data)
         confirmed = loop.run_confirm(
-            data, list(analysis.all_hypotheses),
+            data, list(analysis.final_hypotheses),
             stats_report=analysis.final_stats_report,
         )
         sr = confirmed.final_stats_report
@@ -1075,45 +1070,6 @@ class TestVLDiagnoseTwoPhase:
         assert report.final_stats_report.descriptive_only is False
 
 
-class TestDescriptivePhaseCompiler:
-    """The compiler hides validity in analysis-phase (descriptive) mode."""
-
-    _EXPLORE = {
-        "candidate_signals": [
-            {"name": "focus_share", "reject": True, "effect": 0.4, "ci": [0.1, 0.7]}
-        ]
-    }
-
-    def test_descriptive_mode_demotes_claims(self):
-        from evalrx.reporting.compiler import compile_diagnostic_report
-
-        story = {"analyses": [{"cycle": 0, "descriptive_only": True}], "surgeries": []}
-        rep = compile_diagnostic_report(story, self._EXPLORE).to_dict()
-        assert rep["claims"], "expected at least one claim"
-        assert all(c["status"] == "descriptive" for c in rep["claims"])
-        assert any("ANALYSIS PHASE" in c for c in rep["caveats"])
-
-    def test_confirmatory_mode_shows_validity(self):
-        from evalrx.reporting.compiler import compile_diagnostic_report
-
-        # A confirmatory M2 (descriptive_only False) restores the supported verdict.
-        story = {"analyses": [{"cycle": 0, "descriptive_only": False}], "surgeries": []}
-        rep = compile_diagnostic_report(story, self._EXPLORE).to_dict()
-        assert any(c["status"] == "supported" for c in rep["claims"])
-
-    def test_surgery_presence_restores_validity(self):
-        from evalrx.reporting.compiler import compile_diagnostic_report
-
-        # Even a descriptive analysis flips to validity once a confirm-phase
-        # surgery (M4) is recorded in the merged story.
-        story = {
-            "analyses": [{"cycle": 0, "descriptive_only": True}],
-            "surgeries": [{"cycle": 0, "module": "m4"}],
-        }
-        rep = compile_diagnostic_report(story, self._EXPLORE).to_dict()
-        assert any(c["status"] == "supported" for c in rep["claims"])
-
-
 class TestM3FaultTolerance:
     def test_judge_exception_in_m3_does_not_kill_loop(self, tmp_path):
         """A judge timeout/quota error in M3 must end the loop gracefully
@@ -1126,9 +1082,9 @@ class TestM3FaultTolerance:
 
         import json
 
-        from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+        from evalrx.eval_agent.runlog.logger import RunLogger
 
-        run_logger = RunLoggerV2(tmp_path / "logs")
+        run_logger = RunLogger(tmp_path / "logs")
         loop = VLDiagnoseLoop(
             model=_vlm(),
             protocol=_spatial_protocol(),
@@ -1136,14 +1092,14 @@ class TestM3FaultTolerance:
             max_cycles=2, run_logger=run_logger,
         )
         report = loop.run(_labeled_batch())
-        assert isinstance(report, VLDiagnoseReport)
+        assert isinstance(report, AutoDiagnoseReport)
         assert report.stopped_by == "diagnosis_error"
         errors = json.loads((tmp_path / "logs/M3/log.json").read_text())["model_calls"]
         assert len(errors) == 2
         assert errors[0]["metadata"]["retrying"] is True
         assert errors[1]["metadata"]["retrying"] is False
         assert all("timed out" in e["error"] for e in errors)
-        assert report.all_hypotheses == []
+        assert report.final_hypotheses == []
 
 
 def test_default_is_a_single_diagnosis_cycle():
@@ -1288,7 +1244,7 @@ class TestM4Holdout:
 def test_m3_transient_error_retries_without_reprobing(tmp_path):
     from types import SimpleNamespace
 
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.runlog.logger import RunLogger
 
     class Transient:
         calls = 0
@@ -1297,14 +1253,14 @@ def test_m3_transient_error_retries_without_reprobing(tmp_path):
             self.calls += 1
             if self.calls == 1:
                 raise TimeoutError("transient timeout")
-            return SimpleNamespace(hypotheses=[], raw_judge_output="NO_ISSUE", tokens_used=1)
+            return SimpleNamespace(hypotheses=[], raw_judge_output=proposal(), tokens_used=1)
 
     agent = Transient()
     loop = VLDiagnoseLoop(model=_vlm(), protocol=_spatial_protocol(), diagnosis_agent=agent,
-                          run_logger=RunLoggerV2(tmp_path / "logs"))
-    result = loop._do_m3(0, None, [], {}, log=False)
+                          run_logger=RunLogger(tmp_path / "logs"))
+    result = loop.stages().diagnose(0, None, [], {}, log=False)
     assert result is not None and result.hypotheses == []
     assert agent.calls == 2
     # A valid empty answer is not retried.
-    loop._do_m3(0, None, [], {}, log=False)
+    loop.stages().diagnose(0, None, [], {}, log=False)
     assert agent.calls == 3

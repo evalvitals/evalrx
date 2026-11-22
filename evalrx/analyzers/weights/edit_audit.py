@@ -103,6 +103,14 @@ class WeightEditAudit(Analyzer):
         ),
     }
 
+    edit: Any
+    target: str
+    controls: tuple[str, ...]
+    n_seeds: int
+    steering: bool
+    seed: int
+    max_cases: int
+
     def __init__(self, edit: "Any", target: str = "prediction",
                  controls: "tuple[str, ...]" = ("random_direction", "random_columns"),
                  n_seeds: int = 3, steering: bool = True, seed: int = 0,

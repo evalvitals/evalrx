@@ -644,7 +644,6 @@ def _run_smoke_test(args, scenario: str) -> None:
         HypothesisTester,
         RunContext,
         StatsAnalysisAgent,
-        StatsToolAgent,
         SurgeryAgent,
         VLDiagnoseLoop,
     )
@@ -679,7 +678,7 @@ def _run_smoke_test(args, scenario: str) -> None:
         model=model,
         protocol=protocol,
         probe_agent=_SmokeProbe(),
-        stats_agent=StatsAnalysisAgent(stats_tool_agent=StatsToolAgent(max_tools=3)),
+        stats_agent=StatsAnalysisAgent(),
         diagnosis_agent=_SmokeDiagnosis(scenario),
         hypothesis_tester=HypothesisTester(min_effect=0.05),
         surgery_agent=SurgeryAgent(),
@@ -903,7 +902,7 @@ def main() -> None:
 
     print(f"\n{'='*64}")
     print(f"LOOP RESULT  stopped_by={report.stopped_by}  cycles={report.cycles}")
-    print(f"  total hypotheses   : {len(getattr(report, 'all_hypotheses', []))}")
+    print(f"  total hypotheses   : {len(getattr(report, 'final_hypotheses', []))}")
     print(f"  verified hypotheses: {len(getattr(report, 'verified_hypotheses', []))}")
     for vr in getattr(report, "verified_hypotheses", []):
         print(f"    [{vr.status.value}] {vr.hypothesis.statement}")

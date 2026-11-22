@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Replay a finished benchmark run's console narration from its V2 logs.
+"""Replay a finished benchmark run's console narration from its run log.
 
 Usage:
     python replay_narrate.py <run-output-dir> [--color]
 
 <run-output-dir> is an outputs/<model>/<dataset>[.<tag>]/ directory holding
-logs/run.json + logs/M*/log.json (RunLoggerV2 layout) and, optionally,
+logs/run.json + logs/M*/log.json (RunLogger layout) and, optionally,
 summary.json + baseline.json for the runner's own context lines.
 
 Nothing is simulated: every narrated line is rendered by the same
@@ -33,11 +33,11 @@ def main() -> int:
     if args.color:
         os.environ["EVALRX_FORCE_COLOR"] = "1"
 
-    from evalrx.eval_agent.narration import LoopNarrator
+    from evalrx.eval_agent.runlog.narration import LoopNarrator
 
     logs = args.run_dir / "logs"
     if not (logs / "run.json").exists():
-        sys.exit(f"{logs}/run.json not found — not a RunLoggerV2 run (V1 layouts can't be replayed)")
+        sys.exit(f"{logs}/run.json not found — not a run log")
     run = load(logs / "run.json")
 
     summary = load(args.run_dir / "summary.json") if (args.run_dir / "summary.json").exists() else {}

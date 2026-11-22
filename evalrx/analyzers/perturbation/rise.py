@@ -44,7 +44,15 @@ class RISEAnalyzer(Analyzer):
 
     name = "rise"
     requires = frozenset({Capability.GENERATE})
+    single_case = True
     applies_to_modalities = frozenset({"text"})
+
+    score_fn: Optional[Callable[[str], float]]
+    n_masks: int
+    keep_prob: float
+    mask_token: str
+    top_k: int
+    seed: int
 
     def __init__(
         self,
@@ -69,14 +77,13 @@ class RISEAnalyzer(Analyzer):
         n = len(words)
         sal = [0.0] * n
         cnt = [0] * n
-        n_calls = 0
-        for _ in range(self.n_masks):
-            mask = [rng.random() < self.keep_prob for _ in range(n)]
-            if not any(mask):
-                continue
-            masked = " ".join(w if m else self.mask_token for w, m in zip(words, mask))
-            score = float(self.score_fn(model.generate(masked)))
-            n_calls += 1
+        masks = [mask for mask in ([rng.random() < self.keep_prob for _ in range(n)]
+                                   for _ in range(self.n_masks)) if any(mask)]
+        outputs = model.generate_batch([
+            " ".join(w if m else self.mask_token for w, m in zip(words, mask)) for mask in masks])
+        n_calls = len(masks)
+        for mask, output in zip(masks, outputs):
+            score = float(self.score_fn(output))
             for j, keep in enumerate(mask):
                 if keep:
                     sal[j] += score

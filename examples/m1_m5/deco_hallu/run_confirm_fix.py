@@ -40,7 +40,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default=run.CFG["model"])
     ap.add_argument("--skip-m5", action="store_true")
-    ap.add_argument("--judge-model", default=run.CFG.get("judge_model", "claude-opus-4-8"))
+    ap.add_argument("--judge-model", default=run.JUDGE_MODEL)
     ap.add_argument("--judge-effort", default=run.CFG.get("judge_effort", "low"))
     ap.add_argument("--backend", default="claude", choices=["claude", "codex", "agy"],
                     help="coder backend for M5/fix codegen (default claude)")
@@ -86,7 +86,7 @@ def main() -> None:
         CliAgentConfig,
         ExperimentWriterConfig,
         FixAgent,
-        RunLoggerV2,
+        RunLogger,
         SurgeryAgent,
         VLDiagnoseLoop,
     )
@@ -99,7 +99,7 @@ def main() -> None:
                           Capability.ATTENTION})
     codegen: CliAgentConfig = run.build_codegen(args.backend)
 
-    run_logger = RunLoggerV2(run_dir=OUT / "logs_confirm_fix", narrate=True)
+    run_logger = RunLogger(run_dir=OUT / "logs_confirm_fix", narrate=True)
     loop = VLDiagnoseLoop(
         model=model,
         protocol=run.build_protocol(),

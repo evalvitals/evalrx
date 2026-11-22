@@ -40,7 +40,7 @@ import logging
 import sys
 from typing import IO, Optional
 
-# Every module's `logging.getLogger(__name__)` (e.g. "evalrx.eval_agent.loop")
+# Every module's `logging.getLogger(__name__)` (e.g. "evalrx.eval_agent.loop.diagnose")
 # is a child of this in the dot-hierarchy, so one handler here reaches all of
 # them via normal propagation -- except RunLogger's own "evalrx.run.<dir>"
 # tree, which sets propagate=False by design to keep its structured JSONL

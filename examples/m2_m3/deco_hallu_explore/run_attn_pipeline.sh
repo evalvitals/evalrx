@@ -18,7 +18,7 @@ cd "$(dirname "$0")"
 
 CODER_PROVIDER="${CODER_PROVIDER:-claude_code}"
 CODER_MODEL="${CODER_MODEL:-}"
-JUDGE_MODEL="${JUDGE_MODEL:-claude-opus-4-8}"
+JUDGE_MODEL="${JUDGE_MODEL:-}"   # empty = the package's default Claude model
 OUT_ROOT="${OUT_ROOT:-outputs_pipeline}"
 DEVICE="${DEVICE:-cuda}"
 PY="${PY:-python3}"
@@ -40,7 +40,9 @@ if [[ -n "$CODER_MODEL" ]]; then cmd+=(--model "$CODER_MODEL"); fi
 "${cmd[@]}"
 
 echo "=== phase 2: held-out hypothesis testing (validate half) ==="
-"$PY" test_hypotheses.py --pipeline-root "$OUT_ROOT" --judge-model "$JUDGE_MODEL"
+judge=()
+if [[ -n "$JUDGE_MODEL" ]]; then judge+=(--judge-model "$JUDGE_MODEL"); fi
+"$PY" test_hypotheses.py --pipeline-root "$OUT_ROOT" "${judge[@]}"
 
 if [[ "${SKIP_FIX:-0}" == "1" ]]; then
   echo "SKIP_FIX=1 — stopping after phase 2."

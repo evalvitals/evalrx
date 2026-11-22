@@ -51,18 +51,13 @@ export type {
   StageDetail,
   StatView,
   StatsReportWire,
-  UnparsedProposal,
   ValidationEventView,
   ValidationEvidence,
   ValidationExample,
   ValidationResultView,
 } from "./contract/contract";
 
-/**
- * What a hypothesis card reads. M3 shows its accepted hypotheses, or -- when
- * the parser rejected them all -- the proposals recovered from the judge's
- * reply, and the card reads the same fields from either.
- */
+/** What a hypothesis card reads. */
 export type Proposal = {
   statement?: string | null;
   plain_statement?: string | null;
@@ -120,7 +115,7 @@ export type Case = {
   trajectory?: unknown;
   /** The partition the loop put this case in: "explore" (M1-M3), "confirm"
    *  (withheld for M4 / M5), "test" (the frozen final gate in train/val/test
-   *  mode). Null when the run recorded none and none could be inferred. */
+   *  mode). Null when the run held nothing back. */
   split?: string | null;
   /** What M5's confirmed repair answered on this case, when it was one of the
    *  held-out cases the repair was validated on. */
@@ -312,8 +307,6 @@ export type Partition = {
   n: number;
   /** What the run used this partition for, one sentence. */
   role: string;
-  /** True when read off the record order rather than a recorded tag. */
-  inferred?: boolean;
 };
 
 export type ReportData = {
@@ -326,6 +319,14 @@ export type ReportData = {
     question: string;
     protocol: string;
     n_cases: number;
+    /** `explore` when an explore step wrote the run on its own: no model was
+     *  evaluated, only M2/M3 ran. */
+    kind: "loop" | "explore";
+    /** Whether the run logged its end (`run_end`); false while it is still
+     *  being written. */
+    finished: boolean;
+    /** When the run last logged anything (ISO time), or null. */
+    last_event_at?: string | null;
     diagnosed_by?: string;
     /** The cover figure the run shipped (`evalrx_main.*` at its root), as a data URI. */
     hero_image?: string;
@@ -347,9 +348,9 @@ export type ReportData = {
     broken_cases: number;
   }>;
   /** The full record behind each stage, compiled from the run's logs. Read it
-   *  through `stageDetail()`: older payloads can lack any block or key. */
+   *  through `stageDetail()`: a run that stopped early lacks the later blocks. */
   stage_detail?: StageDetail;
-  /** Contract-validated stage payloads. Absent on runs from before emission existed. */
+  /** Contract-validated stage payloads. Absent on a run that emitted none. */
   contract?: ContractPayloads;
   /** The run as one sheet. Null when it produced no probe or stats artifacts. */
   case_study?: CaseStudy | null;

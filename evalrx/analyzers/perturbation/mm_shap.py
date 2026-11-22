@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Callable, Optional
 
-from evalrx.analyzers.perturbation._shapley import shapley_values
+from evalrx.analyzers.perturbation._shapley import coalitions, shapley_values
 from evalrx.core.analyzer import Analyzer
 from evalrx.core.capability import Capability
 from evalrx.core.case import MEDIA_SLOTS, Inputs
@@ -45,16 +45,13 @@ def _slot_player(slot: str) -> str:
     return f"__{slot}__"
 
 
-#: Kept for backwards compatibility with callers that imported the old constant.
-_IMAGE = _slot_player("image")
-
-
 @register_analyzer("mm_shap")
 class MMShapAnalyzer(Analyzer):
     """Per-modality Shapley contribution + the MM-SHAP media-reliance scores."""
 
     name = "mm_shap"
     requires = frozenset({Capability.LOGPROBS})
+    single_case = True
     applies_to_modalities = frozenset({"text", "image", "audio", "video"})
     signal_docs = {
         'audio_contribution': 'How much the audio drove the answer.',
@@ -75,6 +72,12 @@ class MMShapAnalyzer(Analyzer):
     #: and the "modality contribution" it reports is a text-only tautology.
     requires_modalities = frozenset(MEDIA_SLOTS)
 
+    score_fn: Optional[Callable[[Inputs], float]]
+    n_samples: int
+    mask_token: str
+    top_k: int
+    seed: int
+
     def __init__(
         self,
         score_fn: Optional[Callable[[Inputs], float]] = None,
@@ -85,30 +88,34 @@ class MMShapAnalyzer(Analyzer):
     ) -> None:
         super().__init__(score_fn=score_fn, n_samples=n_samples, mask_token=mask_token, top_k=top_k, seed=seed)
 
-    def _default_scorer(self, model: "Model") -> Callable[[Inputs], float]:
-        def score(inputs: Inputs) -> float:
-            lps = model.logprobs(inputs)
-            return sum(t.logprob for t in lps) / len(lps) if lps else 0.0
-        return score
-
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
         case = cases[0]
         words = str(case.inputs.prompt).split()
         filled = [s for s in MEDIA_SLOTS if getattr(case.inputs, s, None) is not None]
-        score = self.score_fn or self._default_scorer(model)
-
         players: list = list(range(len(words)))
         players += [_slot_player(s) for s in filled]
 
-        def value(kept: set) -> float:
-            masked = " ".join(w if i in kept else self.mask_token for i, w in enumerate(words))
+        def masked(kept: "set | frozenset") -> Inputs:
+            prompt = " ".join(w if i in kept else self.mask_token for i, w in enumerate(words))
             slots = {
                 s: (getattr(case.inputs, s) if _slot_player(s) in kept else None)
                 for s in filled
             }
-            return score(Inputs(prompt=masked, **slots))
+            return Inputs(prompt=prompt, **slots)
 
-        shap = shapley_values(players, value, n_samples=self.n_samples, seed=self.seed)
+        if self.score_fn is not None:
+            score_fn = self.score_fn
+            shap = shapley_values(players, lambda kept: score_fn(masked(kept)),
+                                  n_samples=self.n_samples, seed=self.seed)
+        else:
+            # The model's mean answer logprob: every masked input the estimate
+            # needs is scored in one batch, then looked up.
+            kept_sets = coalitions(players, n_samples=self.n_samples, seed=self.seed)
+            rows = model.logprobs_batch([masked(kept) for kept in kept_sets])
+            values = {kept: (sum(t.logprob for t in lps) / len(lps) if lps else 0.0)
+                      for kept, lps in zip(kept_sets, rows)}
+            shap = shapley_values(players, lambda kept: values[frozenset(kept)],
+                                  n_samples=self.n_samples, seed=self.seed)
         text_contrib = sum(abs(shap[i]) for i in range(len(words)))
         media_contrib = {s: abs(shap.get(_slot_player(s), 0.0)) for s in filled}
         total = text_contrib + sum(media_contrib.values()) or 1.0

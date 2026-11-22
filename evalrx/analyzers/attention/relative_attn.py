@@ -64,7 +64,8 @@ def _blend_heatmap_on_image(
 
     def _upsample(mat: np.ndarray) -> np.ndarray:
         img = Image.fromarray((np.clip(mat, 0.0, 1.0) * 255).astype(np.uint8), mode="L")
-        return np.asarray(img.resize(base.size, Image.BILINEAR), dtype=np.float64) / 255.0
+        # Pillow sets the module-level filter aliases dynamically, so its type hints miss them
+        return np.asarray(img.resize(base.size, Image.BILINEAR), dtype=np.float64) / 255.0  # type: ignore[attr-defined]
 
     norm_up = _upsample(norm)
     intensity_up = _upsample(intensity)
@@ -138,7 +139,7 @@ def image_token_attention(attn_layer, mask):
 
 
 def attention_heatmap(
-    model: "Model", case: "FailureCase", layer: "int | float" = 0.75
+    model: "Model | None", case: "FailureCase", layer: "int | float" = 0.75
 ) -> "np.ndarray | None":
     """One ATTENTION forward → (H, W) image-patch heatmap, or ``None``.
 
@@ -152,7 +153,7 @@ def attention_heatmap(
     """
     from evalrx.core.capability import Capability
 
-    if Capability.ATTENTION not in getattr(model, "capabilities", frozenset()):
+    if model is None or Capability.ATTENTION not in getattr(model, "capabilities", frozenset()):
         return None
     try:
         trace = model.forward(case.inputs, capture={Capability.ATTENTION})
@@ -260,7 +261,7 @@ class RelativeAttentionResult(Result):
     def image_overlays(self, fig_dir: "Any", stem_prefix: str) -> "list[Any]":
         """Save every available overlay under ``fig_dir``; return the paths.
 
-        Hook called by :class:`~evalrx.eval_agent.run_logger_v2.RunLoggerV2`
+        Hook called by :class:`~evalrx.eval_agent.runlog.logger.RunLogger`
         (duck-typed — any :class:`Result` subclass may define this) so the
         overlay PNGs land alongside the bare heatmaps and get forwarded to a
         multimodal judge the same way.
@@ -357,6 +358,11 @@ class RelativeAttentionAnalyzer(Analyzer):
     # Needs pixels present, not merely declared: an omni model on an audio
     # batch matches on "image" and would map attention over nothing.
     requires_modalities = frozenset({"image", "video"})
+
+    general_prompt: str
+    layer: 'int | float'
+    top_k: int
+    max_cases: int
 
     def __init__(
         self,

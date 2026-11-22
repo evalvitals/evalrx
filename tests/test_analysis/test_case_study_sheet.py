@@ -34,7 +34,7 @@ def _write(path: Path, payload) -> None:
 
 
 def make_run(root: Path, *, n_broken: int = 1, verdict_status: str = "supported") -> Path:
-    """A run directory in the RunLoggerV2 shape RunContext + the benchmark
+    """A run directory in the RunLogger shape RunContext + the benchmark
     runner produce: run.json (run-wide events + manifest) plus one JSON
     document per stage under M1..M5."""
     logs = root / "logs"
@@ -81,7 +81,7 @@ def make_run(root: Path, *, n_broken: int = 1, verdict_status: str = "supported"
         {"cycle": 0,
          "selected_analyzers": ["coverage_verification_gap", "logprob_entropy"],
          # entry["findings"][analyzer] and entry["results"][analyzer]["findings"]
-         # are the SAME object in a real RunLoggerV2 probe entry (both derive
+         # are the SAME object in a real RunLogger probe entry (both derive
          # from Result.findings) — populate both so every real reader finds it.
          "findings": {"coverage_verification_gap": {"per_case": per_case}},
          "results": {"coverage_verification_gap": {"findings": {"per_case": per_case}}}},
@@ -119,13 +119,27 @@ def make_run(root: Path, *, n_broken: int = 1, verdict_status: str = "supported"
                   "payload": {"name": "self_consistency_5", "strategy": "direct", "n_samples": 5,
                               "generation_kwargs": {"temperature": 0.7}, "prompt_template": "{prompt}"}}},
     ]})
+    _number_events(logs)
     return root
 
 
-def _events(root: Path) -> list[dict]:
-    from evalrx.reporting.run_events import read_v2_events
+def _number_events(logs: Path) -> None:
+    """Give every record the global sequence number the logger stamps."""
+    seq = 0
+    for path in [logs / "run.json", *(logs / f"M{n}" / "log.json" for n in range(1, 6))]:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        for bucket in doc.values():
+            for row in bucket if isinstance(bucket, list) else [bucket]:
+                if isinstance(row, dict) and "config" not in row:  # not the manifest
+                    seq += 1
+                    row["event_seq"] = seq
+        _write(path, doc)
 
-    return read_v2_events(root)
+
+def _events(root: Path) -> list[dict]:
+    from evalrx.reporting.run_events import read_run_events
+
+    return read_run_events(root)
 
 
 @pytest.fixture

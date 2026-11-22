@@ -58,7 +58,15 @@ def compare(
     n_boot: int = 2000,
     seed: int = 0,
 ) -> StatResult:
-    """Compare two per-example success vectors. Returns a :class:`StatResult`."""
+    """Compare two per-example success vectors. Returns a :class:`StatResult`.
+
+    ``cluster_by`` is one cluster id per example when ``paired`` (the examples
+    are aligned), and a pair ``(clusters_a, clusters_b)`` when not: rows that
+    share a cluster are then resampled together, which widens the interval when
+    rows of one cluster resemble each other. The unpaired result carries the
+    bootstrap p-value in ``details["p_value"]`` and the number of clusters in
+    ``details["n_clusters"]`` when clusters were used.
+    """
     # The bootstrap CI level must track alpha: on the unpaired path `reject` is
     # "CI excludes 0", so a smaller alpha (e.g. a Bonferroni alpha/m) has to
     # WIDEN the CI. For the default alpha=0.05 this is 1-0.05=0.95 — identical to
@@ -84,8 +92,12 @@ def compare(
                    "n_discordant": mc["n_discordant"]}
     else:
         reject = not ci_includes_zero                  # unpaired: CI excludes 0
-        method = "clustered bootstrap (unpaired)"
-        details = {}
+        clustered = "n_clusters" in boot
+        method = ("clustered bootstrap (unpaired)" if clustered
+                  else "two-sample bootstrap (unpaired)")
+        details = {"p_value": boot.get("p_value")}
+        if clustered:
+            details["n_clusters"] = boot["n_clusters"]
 
     # underpowered: not significant AND the CI is too wide to rule out a min_effect-sized effect
     width = ci[1] - ci[0]
@@ -143,11 +155,6 @@ def compare_paired_rates(
                  "mean_a": (sum(a) / len(a)) if a else 0.0,
                  "mean_b": (sum(b) / len(b)) if b else 0.0},
     )
-
-
-def ab_test(success_a: Sequence, success_b: Sequence, **kwargs) -> StatResult:
-    """Back-compat alias: pass per-example success vectors (bools/0-1)."""
-    return compare(success_a, success_b, **kwargs)
 
 
 @dataclass

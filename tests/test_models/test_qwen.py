@@ -1,15 +1,12 @@
-"""Back-compat tests for the deprecated ``QwenLLM`` shim.
+"""hf_local generation paths driven through a fake model.
 
-The concrete Qwen class is gone — identity lives in ``evalrx.specs`` and
-construction goes through ``compose``.  ``QwenLLM(...)`` is kept only as a
-deprecated alias that builds an ``hf_local`` model.  (HF-local forward/capture
-mechanics are covered by ``test_models/test_discover.py`` and the analyzer tests;
-spec×backend composition by ``test_models/test_compose.py``.)
+(HF-local forward/capture mechanics are covered by
+``test_models/test_discover.py`` and the analyzer tests; spec×backend
+composition by ``test_models/test_compose.py``.)
 """
 
 from __future__ import annotations
 
-import warnings
 from types import SimpleNamespace
 
 import pytest
@@ -21,33 +18,6 @@ from evalrx.core.model import Trace
 from evalrx.core.spec import AudioSpec, ModelSpec, VisionSpec
 from evalrx.models.backends.base import RuntimeConfig
 from evalrx.models.backends.hf.model import HFLocalModel
-from evalrx.models.whitebox.qwen import QwenLLM
-
-
-def test_qwenllm_warns_deprecation():
-    with pytest.warns(DeprecationWarning, match="evalrx.load"):
-        QwenLLM()
-
-
-def test_qwenllm_returns_hf_local_model_with_caps():
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        model = QwenLLM()
-    assert isinstance(model, HFLocalModel)
-    assert model.spec.key == "qwen2.5-7b-instruct"
-    # capabilities come from the hf_local backend + spec (no weights loaded)
-    assert Capability.ATTENTION in model.capabilities
-    assert Capability.HIDDEN_STATES in model.capabilities
-    assert Capability.GENERATE in model.capabilities
-    assert Capability.GRADIENTS in model.capabilities  # forward(with_grad=True)
-    assert Capability.EMBEDDINGS not in model.capabilities
-
-
-def test_qwenllm_checkpoint_override():
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        model = QwenLLM(checkpoint="some/other-qwen")
-    assert model.spec.hf_repo == "some/other-qwen"
 
 
 def test_hf_vcd_processor_contrasts_clean_and_noisy_scores_each_step():

@@ -16,17 +16,15 @@ top_p: 0.9
 min_effect: 0.05              # pre-registered minimum effect for the fix
 explore_frac: 0.6
 
-# Judge for M1 selection / M2 / M3 / M4 (claude -p CLI). fable-5 is currently
-# unavailable via the CLI ("Claude Fable 5 is currently unavailable"), so both
-# claude -p roles (judge + codegen coder) use opus-4-8 low effort.
-judge_model: claude-opus-4-8
+# Judge for M1 selection / M2 / M3 / M4 (claude -p CLI), at low effort. With no
+# model named here it follows the package default (ClaudeModel.DEFAULT_MODEL,
+# currently sonnet); set judge_model to pin one.
 judge_effort: low
 
 # Pipeline-autonomy codegen (tier-(b) probe generator, stats tools, M5
 # experiment writer, fix module) — the loop writes its own code via this CLI
-# agent (claude -p). Opus 4.8 low-effort: stronger coder than the fable-low
-# judge, so probe/fix code is more likely to satisfy the sandbox contract.
-codegen_model: claude-opus-4-8
+# agent (claude -p). It follows the package default too; set codegen_model to
+# pin one.
 codegen_effort: low
 codegen_budget_usd: 2.0
 codegen_timeout_sec: 240

@@ -1,0 +1,1055 @@
+"""RunLogger — the run log every diagnosis loop writes through.
+
+One JSON document per pipeline stage (``M1/log.json`` .. ``M5/log.json``) plus
+``run.json`` for what is not stage content; every event of one kind is one
+array in one file; everything text-shaped is a string value in the JSON, and
+only binary media (figures, tensors, audio) is a separate file. See
+``README.md`` beside this file for the layout and the reasoning.
+
+This module is the class and what only it can do: route an event to its
+document, stamp it, and write the document atomically. What an event records
+is built in :mod:`run_log_entries`, what lands on disk beside the JSON is in
+:mod:`run_log_files`, and the Langfuse mirror of each event is in
+:mod:`run_log_tracing`.
+"""
+
+from __future__ import annotations
+
+import getpass
+import json
+import os
+import re
+import tempfile
+import threading
+import uuid
+import warnings
+from collections.abc import Sized
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from evalrx.eval_agent.runlog.entries import (
+    analysis_entry,
+    diagnose_report_entry,
+    diagnosis_entry,
+    experiment_entry,
+    explore_entry,
+    json_safe,
+    loop_end_entry,
+    probe_entry,
+    surgery_entry,
+)
+from evalrx.eval_agent.runlog.files import (
+    artifact_to_numpy,
+    atomic_write_json,
+    inline_workspace,
+    save_artifact_figure,
+)
+from evalrx.eval_agent.runlog.schema import RUN_LOG_SCHEMA_VERSION
+from evalrx.eval_agent.runlog.tracing import (
+    trace_agent_decision,
+    trace_analysis,
+    trace_diagnosis,
+    trace_experiment,
+    trace_explore,
+    trace_fix,
+    trace_probe,
+    trace_run_start,
+    trace_stage_skipped,
+    trace_surgery,
+    trace_tool_codegen,
+)
+
+if TYPE_CHECKING:
+    from evalrx.analysis.analysis_module import AnalysisReport
+    from evalrx.core.result import Result
+    from evalrx.eval_agent.hypothesis import Hypothesis
+    from evalrx.eval_agent.loop.report import AutoDiagnoseReport
+    from evalrx.eval_agent.stages.diagnosis import DiagnosisResult
+    from evalrx.eval_agent.stages.surgery import InterventionResult
+
+_STAGES = ("M1", "M2", "M3", "M4", "M5")
+
+#: A tag string not matching this falls back to _STAGE_ALIASES, then to the
+#: run-level "unrouted" bucket (never silently dropped — see _resolve_stage).
+_STAGE_RE = re.compile(r"m([1-5])", re.IGNORECASE)
+
+#: Tags used somewhere in the codebase that carry no "m<N>" substring at all
+#: (checked against every literal `module=`/`stage=` value passed to a
+#: log_* method as of this writing — see README.md's "routing" table).
+_STAGE_ALIASES: dict[str, str] = {
+    "fix_pipeline": "M5",
+    "fix": "M5",
+    "explore": "M2",
+}
+
+def _resolve_stage(tag: "str | None") -> "str | None":
+    """"m1_probe" / "M4_SURGERY" / "codegen_m2_stats" / "fix_pipeline" -> "M1".."M5".
+
+    Returns ``None`` when *tag* matches nothing — the caller must not drop
+    the event in that case; route it to the run-level "unrouted" bucket
+    instead (see ``RunLogger._route``). A tag is never assumed unroutable
+    without trying both the regex AND the alias table.
+    """
+    if not tag:
+        return None
+    m = _STAGE_RE.search(tag)
+    if m:
+        return f"M{m.group(1)}"
+    return _STAGE_ALIASES.get(tag.strip().lower())
+
+
+def _outbox_dir() -> Path:
+    """Per-user temp directory for the Langfuse delivery queue.
+
+    A single shared ``/tmp/evalrx-outbox`` breaks on multi-user hosts: the
+    first user to create it owns it, and everyone else gets "unable to open
+    database file".
+    """
+    try:
+        user = getpass.getuser()
+    except Exception:  # noqa: BLE001 - no login name (e.g. bare containers)
+        user = str(os.getuid()) if hasattr(os, "getuid") else "default"
+    return Path(tempfile.gettempdir()) / f"evalrx-outbox-{user}"
+
+
+class _EventLine:
+    """Renders one plain one-line console summary per event, for ``verbose=True``.
+
+    Intentionally simple — file layout was this module's ask, not console UX;
+    see the design doc.
+    """
+
+    @staticmethod
+    def line(stage: "str | None", event: str, payload: "dict[str, Any]") -> str:
+        where = f"[{stage}]" if stage else "[run]"
+        cycle = payload.get("cycle")
+        tail = f" cycle={cycle}" if cycle is not None else ""
+        return f"{where} {event}{tail}"
+
+
+class RunLogger:
+    """A tidy, from-scratch M1..M5 logger. See the module docstring + design doc.
+
+    Args:
+        run_dir:  Directory to write into. Created if missing. Defaults to
+                  ``runs_v2/<YYYYMMDD_HHMMSS>/`` relative to cwd.
+        verbose:  Print a one-line raw summary of every event to stdout
+                  (``[M1] probe cycle=0``). Ignored when *narrate* is set.
+        narrate:  Print live, aligned M1-M5 narration instead — the same
+                  visual style as ``evalrx explore``'s terminal output (see
+                  :mod:`evalrx.eval_agent.runlog.narration.LoopNarrator`), built
+                  from real per-stage counts instead of a raw event dump.
+        trace_id: Ties every event to one Langfuse trace; auto-generated if
+                  omitted.
+        observability_mode: Forwarded to :class:`DiagnosticTracer` unchanged.
+
+    Layout written under *run_dir*::
+
+        run.json          run-wide: run_start, cases, report_published,
+                           loop_end, agent_decisions, agent_tool_calls,
+                           unrouted (see _resolve_stage)
+        M1/log.json       probe, model_calls, tool_codegen, tool_registry,
+                           stage_skipped — all M1-tagged events
+        M2/log.json       analysis, explore, ...
+        M3/log.json       diagnosis, ...
+        M4/log.json       surgery (hypothesis-verification kind), ...
+        M5/log.json       surgery (intervention kind), experiment, fix, ...
+        M*/artifacts/     binary media for that stage only (rule 4's exception)
+        media/            case-level baseline media (images/audio referenced
+                           by FailureCase.inputs)
+        artifacts/         run-global named JSON (save_artifact_json)
+    """
+
+    def __init__(
+        self,
+        run_dir: "str | Path | None" = None,
+        *,
+        verbose: bool = False,
+        narrate: bool = False,
+        trace_id: "str | None" = None,
+        observability_mode: "str | None" = None,
+        context: "Any | None" = None,
+    ) -> None:
+        if run_dir is None:
+            run_dir = Path("runs_v2") / datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.run_dir = Path(run_dir)
+        self.run_dir.mkdir(parents=True, exist_ok=True)
+        self.run_json_path = self.run_dir / "run.json"
+
+        self.trace_id: str = trace_id or str(uuid.uuid4())
+        self.current_cycle: int = -1
+        # Live M1-M5 terminal narration (see evalrx.eval_agent.runlog.narration) --
+        # opt-in, takes over from the plain `verbose` one-liner below rather
+        # than stacking with it, so a run never prints each event twice.
+        self._narrator = None
+        if narrate:
+            from evalrx.eval_agent.runlog.narration import LoopNarrator
+
+            self._narrator = LoopNarrator()
+        self.verbose = verbose
+        self._context = context
+        self._closed = False
+
+        # One in-memory doc per stage + one run-level doc. Every log_* method
+        # appends to the relevant bucket(s), then atomically rewrites exactly
+        # the doc(s) it touched — see atomic_write_json.
+        self._lock = threading.RLock()
+        self._event_seq = 0
+        self._validate_events = bool(os.environ.get("EVALRX_VALIDATE_LOG"))
+        self._event_validator: Any = None
+        self._run_doc: dict[str, Any] = {
+            "trace_id": self.trace_id,
+            "run_start": None,
+            "cases": [],
+            "report_published": [],
+            "diagnose_reports": [],
+            "manifest": None,
+            "loop_end": [],
+            "run_end": [],
+            "agent_decisions": [],
+            "agent_tool_calls": [],
+            "unrouted": [],
+        }
+        self._stage_docs: dict[str, dict[str, Any]] = {s: {} for s in _STAGES}
+        self._logged_case_ids: set[str] = set()
+        self._model_call_seq = 0
+        self._codegen_seq = 0
+        # See log_model_call / log_probe: calls are recorded immediately into
+        # M1's doc AND buffered here so log_probe can replay them into
+        # Langfuse nested under the right probe span once it exists.
+        self._pending_model_calls: "dict[int, list[dict[str, Any]]]" = {}
+
+        from evalrx.observability.tracer import DiagnosticTracer
+        # The SQLite delivery queue is runtime state, not part of the tidy run
+        # artifact.  Keep it outside the run tree; langfuse_trace.json remains
+        # the durable, portable JSON trace bundled with the run.
+        self._outbox_path = _outbox_dir() / f"{self.trace_id}.sqlite3"
+        self.tracer = DiagnosticTracer(
+            run_dir=self.run_dir, mode=observability_mode, auto_sync=True,
+            outbox_path=self._outbox_path,
+        )
+        self.tracer.trace_id = self.trace_id
+
+        self._flush_run()
+
+    # ------------------------------------------------------------------
+    # Internal: doc access, routing, durability
+    # ------------------------------------------------------------------
+
+    def _stage_dir(self, stage: str) -> Path:
+        d = self.run_dir / stage
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _stage_artifacts_dir(self, stage: str) -> Path:
+        d = self._stage_dir(stage) / "artifacts"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _flush_run(self) -> None:
+        atomic_write_json(self.run_json_path, self._run_doc)
+
+    def _flush_stage(self, stage: str) -> None:
+        atomic_write_json(self._stage_dir(stage) / "log.json", self._stage_docs[stage])
+
+    def _bucket(self, stage: str, key: str) -> list:
+        return self._stage_docs[stage].setdefault(key, [])
+
+    def _stamp_event(self, key: str, record: dict[str, Any], stage: str) -> None:
+        """Assign durable event identity under ``_lock``; no telemetry side effects."""
+        event = {
+            "cases": "case_record", "model_calls": "model_call",
+            "diagnose_reports": "diagnose_report", "agent_decisions": "agent_decision",
+            "agent_tool_calls": "agent_tool",
+        }.get(key, key)
+        self._event_seq += 1
+        cycle = record.get("cycle", -1)
+        span = {
+            "run_start": "run_start", "probe": f"c{cycle}.m1",
+            "analysis": f"c{cycle}.m2", "diagnosis": f"c{cycle}.m3",
+            "explore": f"c{cycle}.explore", "surgery": f"c{cycle}.{stage.lower()}",
+            "fix": "fix", "agent_decision": f"s{record.get('step')}.decision",
+            "agent_tool": f"s{record.get('step')}.tool",
+            "stage_skipped": f"{stage.lower()}.skipped",
+        }.get(event, f"{stage.lower()}.{event}.{self._event_seq}")
+        record.update(event=event, schema_version=RUN_LOG_SCHEMA_VERSION,
+                      trace_id=self.trace_id, event_seq=self._event_seq,
+                      stage=stage, span_id=span)
+        record.setdefault("ts", self._ts())
+        if self._validate_events:
+            try:
+                from evalrx.eval_agent.runlog.schema import _validator, build_schema
+
+                if self._event_validator is None:
+                    self._event_validator = _validator(build_schema())
+                self._event_validator.validate(record)
+            except ImportError:
+                pass
+            except Exception as exc:  # warn-only
+                warnings.warn(f"RunLogger: event {event!r} violates log schema: {exc}")
+
+    def _append_stage(self, tag: "str | None", key: str, record: "dict[str, Any]") -> str:
+        """Route *record* by *tag* into the right stage bucket; flush; return the stage."""
+        stage = _resolve_stage(tag)
+        with self._lock:
+            if stage is None:
+                warnings.warn(
+                    f"RunLogger: could not route event {key!r} (tag={tag!r}) to a "
+                    "stage — filed under run.json['unrouted'] instead of being lost.",
+                    stacklevel=3,
+                )
+                record = {"key": key, "tag": tag, **record}
+                self._stamp_event("unrouted", record, "RUN")
+                self._run_doc["unrouted"].append(record)
+                self._flush_run()
+                return "unrouted"
+            self._stamp_event(key, record, stage)
+            self._bucket(stage, key).append(record)
+            self._flush_stage(stage)
+        if self._narrator is not None:
+            self._narrator.on_event(stage, key, record)
+        elif self.verbose:
+            print(_EventLine.line(stage, key, record))
+        return stage
+
+    def progress(self, stage: str, text: str) -> None:
+        """Print one line about work still running inside *stage*.
+
+        Console only: a stage that takes minutes says what it is on, and the
+        event log keeps its one record per finished step.
+        """
+        if self._narrator is not None:
+            self._narrator.progress(stage, text)
+        elif self.verbose:
+            print(f"[{stage}] {text}")
+
+    def _append_run(self, key: str, record: "dict[str, Any]") -> None:
+        """Append *record* to the (always list-valued) run.json bucket *key*.
+
+        ``run_start`` is the one run.json field that isn't a list — it's set
+        directly by ``log_run_start``, never through here.
+        """
+        with self._lock:
+            self._stamp_event(key, record, "RUN")
+            self._run_doc[key].append(record)
+            self._flush_run()
+        if self._narrator is not None:
+            self._narrator.on_run_event(key, record)
+        elif self.verbose:
+            print(_EventLine.line(None, key, record))
+
+    @property
+    def managed_json_paths(self) -> "tuple[Path, ...]":
+        """Atomic JSON documents that may be rewritten while quarantine runs."""
+        return (self.run_json_path, *(self.run_dir / s / "log.json" for s in _STAGES))
+
+    @staticmethod
+    def _ts() -> str:
+        return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+    def _save_media(self, stage: str, stem: str, artifact: Any) -> "str | None":
+        """Save a numeric artifact (tensor/array) + a rendered figure, if any.
+
+        Writes under this stage's ``artifacts/`` dir. Returns the ``.npy``
+        path (run-relative) or ``None`` when *artifact* isn't a recognised
+        numeric type.
+        """
+        try:
+            import numpy as np
+
+            arr = artifact_to_numpy(artifact)
+            if arr is not None:
+                art_dir = self._stage_artifacts_dir(stage)
+                path = art_dir / f"{stem}.npy"
+                np.save(path, arr)
+                save_artifact_figure(art_dir, stem, arr)
+                return str(path.relative_to(self.run_dir))
+            return None
+        except Exception as exc:  # noqa: BLE001
+            warnings.warn(f"RunLogger: could not save artifact {stem!r}: {exc}")
+            return None
+
+    def _save_case_media(self, path: Path) -> "str | None":
+        """Copy external case media into ``media/`` (content-hash-deduped); return rel path."""
+        import hashlib
+        import shutil
+
+        media_dir = self.run_dir / "media"
+        media_dir.mkdir(parents=True, exist_ok=True)
+        digest = hashlib.sha256()
+        try:
+            with path.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+        except OSError:
+            return None
+        copied = media_dir / f"{digest.hexdigest()[:16]}_{path.name}"
+        if not copied.exists():
+            shutil.copy2(path, copied)
+        return str(copied.relative_to(self.run_dir))
+
+    def _portable_path(self, value: "str | Path") -> str:
+        path = Path(value)
+        try:
+            return str(path.resolve().relative_to(self.run_dir.resolve()))
+        except (OSError, ValueError):
+            return str(value)
+
+    # ------------------------------------------------------------------
+    # Run provenance
+    # ------------------------------------------------------------------
+
+    def log_run_start(self, config: "dict[str, Any] | None" = None) -> None:
+        import platform
+
+        entry: dict[str, Any] = {"ts": self._ts(), "trace_id": self.trace_id}
+        if config:
+            entry.update(config)
+        entry.setdefault("python_version", platform.python_version())
+        try:
+            from evalrx import __version__ as _ver  # type: ignore
+            entry.setdefault("evalrx_version", _ver)
+        except Exception:  # noqa: BLE001
+            pass
+        commit = self._git_commit()
+        if commit:
+            entry.setdefault("git_commit", commit)
+        with self._lock:
+            self._stamp_event("run_start", entry, "RUN")
+            self._run_doc["run_start"] = entry
+            self._flush_run()
+        if self._narrator is not None:
+            self._narrator.on_run_start(entry)
+        elif self.verbose:
+            print(_EventLine.line(None, "run_start", entry))
+
+        trace_run_start(self.tracer, entry)
+
+    @staticmethod
+    def _git_commit() -> "str | None":
+        import subprocess
+
+        try:
+            out = subprocess.run(
+                ["git", "rev-parse", "--short", "HEAD"],
+                capture_output=True, text=True, timeout=3, check=False,
+            )
+            commit = out.stdout.strip()
+            if commit:
+                return commit
+        except Exception:  # noqa: BLE001
+            pass
+        return os.environ.get("EVALRX_GIT_COMMIT") or None
+
+    def log_cases(self, cases: "Any", *, split: "str | None" = None) -> None:
+        """Persist complete case I/O; media is copied into ``media/`` (rule 4's exception).
+
+        ``split`` is the partition the loop assigned (``explore`` / ``confirm`` /
+        ``test``), recorded on the row so a report can group the cases the way
+        the run actually used them.
+        """
+        for case in cases:
+            case_id = str(getattr(case, "id", "") or "")
+            if not case_id or case_id in self._logged_case_ids:
+                continue
+            if hasattr(case, "to_dict"):
+                payload = case.to_dict()
+            elif isinstance(case, dict):
+                payload = dict(case)
+            else:
+                payload = {"id": case_id, "value": str(case)}
+            payload = json.loads(json.dumps(payload, ensure_ascii=False, default=str))
+            media_paths: list[str] = []
+            inputs = getattr(case, "inputs", None)
+            for kind in ("image", "audio", "video"):
+                value = getattr(inputs, kind, None)
+                if not isinstance(value, (str, Path)):
+                    continue
+                path = Path(value)
+                if not path.is_absolute():
+                    run_relative = self.run_dir / path
+                    path = run_relative if run_relative.is_file() else path.resolve()
+                if not path.is_file():
+                    continue
+                saved = self._save_case_media(path)
+                if saved:
+                    media_paths.append(saved)
+            record: dict[str, Any] = {
+                "ts": self._ts(), "case_id": case_id, "case": payload, "media_paths": media_paths,
+            }
+            if split:
+                record["split"] = str(split)
+            self._append_run("cases", record)
+            self._logged_case_ids.add(case_id)
+
+    def log_report_published(self, envelope: "dict[str, Any]") -> None:
+        generated = envelope.get("generated_by") or {}
+        self._append_run("report_published", {
+            "ts": self._ts(),
+            "report_schema_version": int(envelope.get("schema_version") or 1),
+            "catalog_version": str(envelope.get("catalog_version") or ""),
+            "json_render_version": str(envelope.get("json_render_version") or ""),
+            "source_event_seq": int(envelope.get("source_event_seq") or 0),
+            "sha256": str(envelope.get("sha256") or ""),
+            "generated_by": generated,
+            "report_paths": ["report/report_data.json", "report/report_spec.json"],
+        })
+
+    def log_diagnose_report(
+        self,
+        report: Any,
+        cases: "Sized",
+        *,
+        discovery: "list[dict[str, Any]] | None" = None,
+    ) -> None:
+        """Inline the standard post-diagnosis report into ``run.json`` as one
+        detailed machine-readable record; a UI renders prose from this data
+        rather than reading separate JSON/Markdown siblings."""
+        self._append_run("diagnose_reports", {
+            "ts": self._ts(), **diagnose_report_entry(report, cases, discovery),
+        })
+
+    def log_manifest(self, *, run_id: str, config: "dict[str, Any]") -> None:
+        """Record final run provenance and a compact file index in ``run.json``."""
+        files = [
+            str(path.relative_to(self.run_dir))
+            for path in sorted(self.run_dir.rglob("*"))
+            if path.is_file() and not path.name.startswith(".")
+        ]
+        with self._lock:
+            self._run_doc["manifest"] = {
+                "ts": self._ts(), "run_id": run_id, "config": dict(config), "files": files,
+            }
+            self._flush_run()
+
+    def log_runtime_snapshot(self, root: Path) -> None:
+        """Preserve execution files, including discarded trials, before cleanup."""
+        snapshot = inline_workspace(
+            root, self._stage_artifacts_dir("M5"), run_dir=self.run_dir,
+            max_bytes=None, preserve_all=True,
+        )
+        with self._lock:
+            self._run_doc["runtime_snapshot"] = snapshot
+            self._flush_run()
+
+    def log_model_exchange(
+        self,
+        stage: str,
+        *,
+        role: str,
+        operation: str,
+        inputs: Any,
+        output: Any = None,
+        error: "str | None" = None,
+        duration_sec: "float | None" = None,
+        metadata: "dict[str, Any] | None" = None,
+        cycle: "int | None" = None,
+    ) -> None:
+        """Persist one exact model/agent input-output exchange in its stage."""
+        entry: dict[str, Any] = {
+            "ts": self._ts(),
+            "cycle": self.current_cycle if cycle is None else cycle,
+            "role": role,
+            "operation": operation, "inputs": json_safe(inputs), "output": json_safe(output),
+            "error": error, "metadata": json_safe(dict(metadata or {})),
+        }
+        if duration_sec is not None:
+            entry["duration_sec"] = round(duration_sec, 4)
+        self._append_stage(stage, "model_calls", entry)
+
+    def save_artifact_json(self, stem: str, obj: Any) -> "str | None":
+        """Write *obj* as JSON under the run-global ``artifacts/`` dir; return rel path."""
+        try:
+            d = self.run_dir / "artifacts"
+            d.mkdir(parents=True, exist_ok=True)
+            path = d / stem
+            path.write_text(json.dumps(obj, indent=2, default=str), encoding="utf-8")
+            return str(path.relative_to(self.run_dir))
+        except Exception as exc:  # noqa: BLE001
+            warnings.warn(f"RunLogger: could not save artifact {stem!r}: {exc}")
+            return None
+
+    # ------------------------------------------------------------------
+    # M1 — target-model calls (see model_instrumentation.InstrumentedModel)
+    # ------------------------------------------------------------------
+
+    def log_model_call(
+        self,
+        *,
+        cycle: int,
+        analyzer: str,
+        call_index: int,
+        method: str,
+        inputs: Any,
+        kwargs: "dict[str, Any]",
+        output: Any,
+        duration_sec: float,
+        error: "str | None",
+        case_id: "str | None" = None,
+        batch_case_ids: "list[str] | None" = None,
+        n_batch_cases: "int | None" = None,
+        batch_size: int = 1,
+    ) -> None:
+        record: dict[str, Any] = {
+            "ts": self._ts(), "cycle": cycle, "analyzer": analyzer,
+            "call_index": call_index, "method": method,
+            "case_id": case_id, "batch_case_ids": batch_case_ids or [],
+            "n_batch_cases": n_batch_cases if n_batch_cases is not None else len(batch_case_ids or []),
+            "inputs": inputs, "kwargs": kwargs, "output": output,
+            "duration_sec": round(duration_sec, 4),
+        }
+        if batch_size > 1:
+            record["batch_size"] = batch_size
+        if error is not None:
+            record["error"] = error
+        with self._lock:
+            self._model_call_seq += 1
+            record["seq"] = self._model_call_seq
+            self._stamp_event("model_calls", record, "M1")
+            self._bucket("M1", "model_calls").append(record)
+            self._flush_stage("M1")
+            self._pending_model_calls.setdefault(cycle, []).append(record)
+        if self.verbose:
+            print(_EventLine.line("M1", "model_call", record))
+
+    # ------------------------------------------------------------------
+    # M1 — probe
+    # ------------------------------------------------------------------
+
+    def log_probe(
+        self,
+        cycle: int,
+        results: "dict[str, Result]",
+        schema: "Any | None" = None,
+        *,
+        cases: "Any | None" = None,
+        judge_prompt: "str | None" = None,
+        judge_raw: "str | None" = None,
+        duration_sec: "float | None" = None,
+        failed_analyzers: "dict[str, str] | None" = None,
+    ) -> "list[Path]":
+        """M1: one entry in M1/log.json's "probe" list. ``artifact_paths``/
+        results are inlined here instead of living in separate
+        ``.result.json`` files."""
+        artifact_paths: dict[str, str] = {}
+        overlay_pngs: list[Path] = []
+        result_docs: dict[str, Any] = {}
+        inline_artifacts: dict[str, Any] = {}
+        for name, result in results.items():
+            for art_name, artifact in getattr(result, "artifacts", {}).items():
+                stem = f"c{cycle}_{name}_{art_name}"
+                rel = self._save_media("M1", stem, artifact)
+                if rel is not None:
+                    artifact_paths[f"{name}/{art_name}"] = rel
+                elif isinstance(artifact, (dict, list)):
+                    inline_artifacts[f"{name}/{art_name}"] = json.loads(
+                        json.dumps(artifact, ensure_ascii=False, default=str)
+                    )
+            image_overlays = getattr(result, "image_overlays", None)
+            if image_overlays is not None:
+                try:
+                    overlay_pngs.extend(
+                        image_overlays(self._stage_artifacts_dir("M1"), f"c{cycle}_{name}")
+                    )
+                except Exception as exc:  # noqa: BLE001 - viz must never break the probe
+                    warnings.warn(f"RunLogger: image_overlays failed for {name}: {exc}")
+            to_dict = getattr(result, "to_dict", None)
+            if callable(to_dict):
+                try:
+                    doc = to_dict()
+                    summary = getattr(result, "summary", None)
+                    if callable(summary):
+                        doc["summary"] = summary()
+                    result_docs[name] = doc
+                except Exception as exc:  # noqa: BLE001
+                    warnings.warn(f"RunLogger: could not serialise result {name!r}: {exc}")
+
+        with self._lock:
+            pending_calls = [c for bucket in self._pending_model_calls.values() for c in bucket]
+            self._pending_model_calls.clear()
+
+        entry = {"ts": self._ts(), **probe_entry(
+            cycle, results, result_docs=result_docs, artifact_paths=artifact_paths,
+            inline_artifacts=inline_artifacts, n_model_calls=len(pending_calls), cases=cases, schema=schema,
+            failed_analyzers=failed_analyzers, judge_prompt=judge_prompt, judge_raw=judge_raw,
+            duration_sec=duration_sec,
+        )}
+        self._append_stage("M1", "probe", entry)
+        if judge_prompt or judge_raw:
+            self.log_model_exchange(
+                "M1", role="analyzer_selection_judge", operation="generate",
+                inputs=judge_prompt or "", output=judge_raw or "", cycle=cycle,
+                duration_sec=duration_sec,
+            )
+
+        png_figures: list[Path] = list(overlay_pngs)
+        for rel_npy in artifact_paths.values():
+            if not rel_npy.endswith(".npy"):
+                continue
+            png = self.run_dir / (rel_npy[: -len(".npy")] + ".png")
+            if png.exists():
+                png_figures.append(png)
+
+        trace_probe(
+            self.tracer, cycle, results, entry, artifact_paths=artifact_paths, figures=png_figures,
+            judge_prompt=judge_prompt, judge_raw=judge_raw, duration_sec=duration_sec,
+            model_calls=pending_calls,
+        )
+        return png_figures
+
+    # ------------------------------------------------------------------
+    # M2 — analysis + explore
+    # ------------------------------------------------------------------
+
+    def log_analysis(
+        self, cycle: int, report: "AnalysisReport", *, duration_sec: "float | None" = None,
+    ) -> None:
+        entry = {"ts": self._ts(), **analysis_entry(
+            cycle, report, portable_path=self._portable_path, duration_sec=duration_sec,
+        )}
+        self._append_stage("M2", "analysis", entry)
+        llm_prompt, llm_raw = entry.get("judge_prompt"), entry.get("judge_response")
+        if llm_prompt or llm_raw:
+            self.log_model_exchange(
+                "M2", role="statistics_judge", operation="generate",
+                inputs=llm_prompt or "", output=llm_raw or "", cycle=cycle,
+                duration_sec=duration_sec,
+            )
+
+        trace_analysis(self.tracer, cycle, report, duration_sec=duration_sec)
+
+    def log_explore(
+        self, cycle: int, report: "Any | None", *,
+        out_dir: "Path | str | None" = None, duration_sec: "float | None" = None,
+    ) -> None:
+        ok = bool(getattr(report, "ok", False)) if report is not None else False
+        charts = list(getattr(report, "charts", None) or []) if report is not None else []
+        rendered = [
+            str(c.get("figure_path")) for c in charts
+            if isinstance(c, dict) and c.get("figure_path")
+        ]
+        workspace = None
+        if out_dir is not None:
+            workspace = inline_workspace(
+                out_dir, self._stage_artifacts_dir("M2"), run_dir=self.run_dir,
+            )
+            if workspace and workspace.get("media"):
+                rendered = [
+                    path for path in workspace["media"]
+                    if Path(path).suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+                ]
+        entry = {"ts": self._ts(), **explore_entry(
+            cycle, report, ok=ok, charts=charts, rendered=rendered, workspace=workspace, out_dir=out_dir,
+            duration_sec=duration_sec,
+        )}
+        self._append_stage("M2", "explore", entry)
+        for call in list(getattr(report, "model_calls", None) or []):
+            self.log_model_exchange(
+                "M2",
+                role=str(call.get("role") or "explore_coder"),
+                operation=str(call.get("operation") or "generate"),
+                inputs=call.get("inputs"), output=call.get("output"),
+                error=call.get("error"), duration_sec=call.get("duration_sec"),
+                metadata=dict(call.get("metadata") or {}), cycle=cycle,
+            )
+
+        trace_explore(
+            self.tracer, cycle, report, entry, ok=ok, out_dir=out_dir, rendered=rendered,
+            duration_sec=duration_sec,
+        )
+
+    # ------------------------------------------------------------------
+    # M3 — diagnosis
+    # ------------------------------------------------------------------
+
+    def log_diagnosis(
+        self, cycle: int, diag: "DiagnosisResult", *,
+        duration_sec: "float | None" = None, explore_figures: "list[str] | None" = None,
+    ) -> None:
+        entry = {"ts": self._ts(), **diagnosis_entry(
+            cycle, diag, duration_sec=duration_sec, explore_figures=explore_figures,
+        )}
+        self._append_stage("M3", "diagnosis", entry)
+        m3_prompt = entry.get("judge_prompt", "")
+        critic_raw = entry.get("critic_raw_output", "")
+        review_prompt, review_raw = entry.get("review_prompt", ""), entry.get("review_response", "")
+        detailed_calls = list(getattr(diag, "model_calls", None) or [])
+        if detailed_calls:
+            for call in detailed_calls:
+                self.log_model_exchange(
+                    "M3",
+                    role=str(call.get("role") or "diagnosis_judge"),
+                    operation=str(call.get("operation") or "generate"),
+                    inputs=call.get("inputs"), output=call.get("output"),
+                    error=call.get("error"), duration_sec=call.get("duration_sec"),
+                    metadata=dict(call.get("metadata") or {}), cycle=cycle,
+                )
+        else:
+            # Compatibility for DiagnosisResult values created by older callers.
+            if m3_prompt or diag.raw_judge_output:
+                self.log_model_exchange(
+                    "M3", role="diagnosis_judge", operation="generate",
+                    inputs=m3_prompt, output=diag.raw_judge_output or "", cycle=cycle,
+                    duration_sec=duration_sec,
+                )
+            if critic_raw or review_prompt or review_raw:
+                self.log_model_exchange(
+                    "M3", role="hypothesis_critic", operation="generate",
+                    inputs=entry.get("critic_prompt") or review_prompt,
+                    output=critic_raw or review_raw, cycle=cycle,
+                )
+
+        trace_diagnosis(self.tracer, cycle, diag, entry, duration_sec=duration_sec)
+
+    # ------------------------------------------------------------------
+    # M4/M5 — hypothesis verification & intervention
+    # ------------------------------------------------------------------
+
+    def log_surgery(
+        self, cycle: int, hypothesis: "Hypothesis", iv: "InterventionResult", *,
+        validation_cases: "Any | None" = None, duration_sec: "float | None" = None,
+        judge_prompt: "str | None" = None, judge_raw: "str | None" = None,
+    ) -> None:
+        """M4 (hypothesis verification) or M5 (intervention) — split on
+        whether "m4_test_name" is present in ``iv.evidence``."""
+        is_m4 = "m4_test_name" in (iv.evidence or {})
+        stage = "M4" if is_m4 else "M5"
+        entry = {"ts": self._ts(), **surgery_entry(
+            cycle, hypothesis, iv, stage=stage, validation_cases=validation_cases,
+            judge_prompt=judge_prompt, judge_raw=judge_raw, duration_sec=duration_sec,
+        )}
+        self._append_stage(stage, "surgery", entry)
+        if judge_prompt or judge_raw:
+            self.log_model_exchange(
+                stage, role="protocol_consistency_judge", operation="generate",
+                inputs=judge_prompt or "", output=judge_raw or "", cycle=cycle,
+                duration_sec=duration_sec,
+            )
+
+        trace_surgery(self.tracer, hypothesis, iv, is_m4=is_m4, judge_prompt=judge_prompt, judge_raw=judge_raw)
+
+    def log_experiment(
+        self, cycle: int, hypothesis: "Hypothesis", iv: "InterventionResult", *,
+        module: str = "m5",
+    ) -> None:
+        """The experiment the agent wrote and ran to test *hypothesis*.
+
+        No separate ``experiments/``/``workspace/`` files: the generated
+        source (``exp["files"]``/``exp["code"]``), stdout/stderr, the coder
+        agent's raw narration, and the validation log are already plain
+        strings in *iv.experiment* and go straight into the entry as JSON
+        string values.
+        """
+        exp = getattr(iv, "experiment", None) or {}
+        files = exp.get("files") or {}
+        if not files and exp.get("code"):
+            files = {"main.py": exp["code"]}
+
+        # An "experiment" is always M4/M5-shaped content by definition, so it
+        # gets the same resolve-with-M5-floor treatment as its workspace
+        # media, rather than trusting `_append_stage`'s generic unroutable
+        # fallback (which would file a genuinely M5-ish record under
+        # run.json["unrouted"] if *module* is ever something the M1-M5 regex
+        # and alias table don't recognize).
+        stage = _resolve_stage(module) or "M5"
+
+        workspace = None
+        workdir = exp.get("workdir")
+        if workdir:
+            workspace = inline_workspace(
+                workdir, self._stage_artifacts_dir(stage), run_dir=self.run_dir,
+            )
+
+        entry = {"ts": self._ts(), **experiment_entry(
+            cycle, hypothesis, iv, module=module, exp=exp, files=files, workspace=workspace,
+        )}
+        self._append_stage(stage, "experiment", entry)
+        for call in exp.get("model_calls") or []:
+            if isinstance(call, dict):
+                self.log_model_exchange(
+                    stage,
+                    role=str(call.get("role") or "experiment_writer"),
+                    operation=str(call.get("operation") or "generate"),
+                    inputs=call.get("inputs"), output=call.get("output"),
+                    error=call.get("error"), duration_sec=call.get("duration_sec"),
+                    metadata=call.get("metadata"),
+                )
+
+        trace_experiment(self.tracer, hypothesis, exp, entry, stage=stage, module=module)
+
+    def log_fix(self, outcome: "Any") -> None:
+        """Post-loop fix module: the tiered repair attempt + recommendation.
+
+        Per-case outputs are NOT popped out to a sibling ``outputs.jsonl`` —
+        they stay inline in ``M5/log.json`` under each candidate's own
+        ``"outputs"`` key. Fewer files was the whole point; a bulkier single
+        JSON is the intended trade for that.
+        """
+        d = json.loads(json.dumps(outcome.to_dict(), ensure_ascii=False, default=str))
+        for attempt in [*(d.get("attempted") or []), *(d.get("selection_attempted") or [])]:
+            trial_root = attempt.get("trial_root")
+            if trial_root:
+                attempt["workspace_snapshot"] = inline_workspace(
+                    trial_root, self._stage_artifacts_dir("M5"),
+                    run_dir=self.run_dir, max_bytes=None, preserve_all=True,
+                )
+        best_ref = d.get("best")
+        if isinstance(best_ref, dict):
+            best = best_ref
+        elif isinstance(best_ref, str):
+            best = next((a for a in d.get("attempted") or [] if a.get("name") == best_ref), {})
+        else:
+            best = {}
+        entry: dict[str, Any] = {"ts": self._ts(), "cycle": -1, "module": "fix"}
+        entry.update(d)
+        entry["best"] = best
+        self._append_stage("M5", "fix", entry)
+
+        trace_fix(self.tracer, d, best)
+
+    # ------------------------------------------------------------------
+    # JudgePolicy dispatch layer — run-level, not stage content
+    # ------------------------------------------------------------------
+
+    def log_agent_decision(
+        self, step: int, *, action: str, params: "dict[str, Any] | None" = None,
+        rationale: str = "", valid: bool = True, repair_attempts: int = 0,
+        fallback_used: bool = False, judge_prompt: "str | None" = None,
+        judge_raw: "str | None" = None, duration_sec: "float | None" = None,
+        judge_calls: "list[dict[str, Any]] | None" = None,
+    ) -> None:
+        entry: dict[str, Any] = {
+            "ts": self._ts(), "step": step, "action": action, "params": params or {},
+            "rationale": rationale, "valid": valid, "repair_attempts": repair_attempts,
+            "fallback_used": fallback_used,
+        }
+        if judge_prompt:
+            entry["judge_prompt"] = judge_prompt
+        if judge_raw:
+            entry["judge_response"] = judge_raw
+        if judge_calls:
+            entry["model_calls"] = json.loads(json.dumps(judge_calls, default=str))
+        if duration_sec is not None:
+            entry["duration_sec"] = round(duration_sec, 3)
+        self._append_run("agent_decisions", entry)
+
+        trace_agent_decision(
+            self.tracer, step, action=action, params=params, rationale=rationale, valid=valid,
+            repair_attempts=repair_attempts, fallback_used=fallback_used,
+            judge_prompt=judge_prompt, judge_raw=judge_raw,
+        )
+
+    def log_agent_tool(
+        self, step: int, *, tool: str, ok: bool, summary: str = "",
+        error: "str | None" = None, duration_sec: "float | None" = None,
+    ) -> None:
+        entry: dict[str, Any] = {
+            "ts": self._ts(), "step": step, "tool": tool, "ok": ok, "summary": summary,
+        }
+        if error is not None:
+            entry["error"] = error
+        if duration_sec is not None:
+            entry["duration_sec"] = round(duration_sec, 3)
+        self._append_run("agent_tool_calls", entry)
+
+    def log_stage_skipped(self, stage: str, reason_code: str, *, cycle: int = -1, detail: str = "") -> None:
+        entry = {"ts": self._ts(), "stage": stage, "cycle": cycle, "reason_code": reason_code, "detail": detail}
+        self._append_stage(stage, "stage_skipped", entry)
+        trace_stage_skipped(self.tracer, stage, reason_code, detail)
+
+    def log_loop_end(
+        self, report: "AutoDiagnoseReport", *,
+        tokens_used: "int | None" = None, timings: "dict[str, float] | None" = None,
+    ) -> None:
+        entry = {"ts": self._ts(), **loop_end_entry(report, tokens_used=tokens_used, timings=timings)}
+        self._append_run("loop_end", entry)
+
+    # ------------------------------------------------------------------
+    # Tool synthesis (M1/M2 probes+stats tools, generated on demand)
+    # ------------------------------------------------------------------
+
+    def log_tool_codegen(
+        self, *, module: str, name: str, need: str, source: str, ok: bool,
+        code: str = "", prompt: str = "", raw_output: str = "", raw_stream: str = "",
+        error: str = "", stdout: str = "", cycle: "int | None" = None,
+        extra: "dict[str, Any] | None" = None,
+    ) -> None:
+        cyc = self.current_cycle if cycle is None else cycle
+        entry: dict[str, Any] = {
+            "ts": self._ts(), "cycle": cyc, "module": module, "tool_name": name,
+            "need": need, "source": source, "ok": ok, "error": error or None,
+            "code": code or None, "prompt": prompt or None,
+            "raw_output": raw_output or None, "raw_stream": raw_stream or None,
+            "stdout": stdout or None,
+        }
+        if extra:
+            entry.update(extra)
+        self._append_stage(module, "tool_codegen", entry)
+        if prompt or raw_stream or raw_output:
+            self.log_model_exchange(
+                _resolve_stage(module) or "M5", role="tool_codegen",
+                operation=source, inputs=prompt or "",
+                output=raw_stream or raw_output or code,
+                error=error or None, cycle=cyc,
+                metadata={"tool_name": name, "ok": ok},
+            )
+
+        trace_tool_codegen(
+            self.tracer, module=module, name=name, need=need, source=source, ok=ok, error=error,
+            prompt=prompt, raw_output=raw_output, raw_stream=raw_stream, code=code,
+        )
+
+    def log_tool_registry(self, cycle: int, module: str, generated: "list[Any]") -> None:
+        if not generated:
+            return
+        tools = [
+            {
+                "name": getattr(g, "name", "tool"), "need": getattr(g, "need", ""),
+                "source": getattr(g, "source", ""), "code": getattr(g, "code", "") or None,
+            }
+            for g in generated
+        ]
+        self._append_stage(module, "tool_registry", {
+            "ts": self._ts(), "cycle": cycle, "module": module, "n_tools": len(tools), "tools": tools,
+        })
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def close(self) -> None:
+        """Flush every doc one last time and persist the Langfuse trace bundle."""
+        if self._closed:
+            return
+        # The run-level completion signal: everything this run logs is above it.
+        self._append_run("run_end", {})
+        with self._lock:
+            self._flush_run()
+            for stage in _STAGES:
+                self._flush_stage(stage)
+        self.tracer.end_trace({
+            "spans": len(self.tracer.spans),
+            "generations": len(self.tracer.generations),
+            "scores": len(self.tracer.scores),
+        })
+        self.tracer.flush()
+        try:
+            self.tracer.export_bundle(self.run_dir / "langfuse_trace.json")
+        except Exception:  # noqa: BLE001
+            pass
+        # Offline runs need no retry queue once the complete JSON trace bundle
+        # has been exported.  A live run keeps a non-empty queue for retry.
+        if self.tracer.mode == "offline" or self.tracer.outbox.pending_count() == 0:
+            try:
+                self._outbox_path.unlink(missing_ok=True)
+                self._outbox_path.parent.rmdir()
+            except OSError:
+                pass
+        self._closed = True
+
+    def __enter__(self) -> "RunLogger":
+        return self
+
+    def __exit__(self, *exc_info: Any) -> None:
+        self.close()

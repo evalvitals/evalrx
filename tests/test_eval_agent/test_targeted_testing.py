@@ -29,6 +29,7 @@ from evalrx.eval_agent.stages.hypothesis_tester import (
 )
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 from tests.conftest import FakeModel
+from tests.judge_replies import hypothesis, keep_all, proposal, review
 
 # ── fixtures ────────────────────────────────────────────────────────────────
 
@@ -212,7 +213,7 @@ def test_best_hypotheses_prefers_intervention_grade():
     assert best[0].evidence_grade == "intervention"
 
 
-# ── P3 diagnosis: TEST line + available evidence ────────────────────────────
+# ── P3 diagnosis: test field + available evidence ────────────────────────────
 
 
 class ScriptedJudge(FakeModel):
@@ -235,13 +236,13 @@ class TwoAnswerJudge(FakeModel):
         return next(self._answers)
 
 
-def test_diagnosis_parses_test_line_into_design():
-    judge = ScriptedJudge(
-        "HYPOTHESIS: the model ignores the image\n"
-        "FAILURE_MODE: visual_blindness\n"
-        "TEST: relative_attention.max_relative_weight association\n"
-        "EXPECTED_ASSOCIATION: lower_on_failures\n"
-    )
+def test_diagnosis_maps_the_test_field_into_design():
+    judge = TwoAnswerJudge([
+        proposal(hypothesis("the model ignores the image", "visual_blindness",
+                            test="relative_attention.max_relative_weight association",
+                            expected="lower_on_failures")),
+        keep_all(1),
+    ])
     diag = DiagnosisAgent(judge=judge).diagnose(_report())
     assert len(diag.hypotheses) == 1
     assert diag.hypotheses[0].test_design == "relative_attention.max_relative_weight association"
@@ -254,13 +255,11 @@ def test_critic_rejection_annotates_instead_of_deleting():
     M4/M5/fix. The verdict is provenance now: the hypothesis stays, flagged,
     and the held-out M4 decides."""
     judge = TwoAnswerJudge([
-        "HYPOTHESIS: the model ignores visual evidence entirely\n"
-        "PLAIN_STATEMENT: The model answers without looking at the picture.\n"
-        "FAILURE_MODE: visual_blindness\n"
-        "TEST: relative_attention.max_relative_weight\n"
-        "EXPECTED_ASSOCIATION: lower_on_failures\n",
-        "REJECT: the model ignores visual evidence entirely\n"
-        "REASON: the cited evidence does not test that mechanism\n",
+        proposal(hypothesis("the model ignores visual evidence entirely", "visual_blindness",
+                            plain="The model answers without looking at the picture.",
+                            test="relative_attention.max_relative_weight",
+                            expected="lower_on_failures")),
+        review((1, "reject", "the cited evidence does not test that mechanism")),
     ])
     diag = DiagnosisAgent(judge=judge).diagnose(_report())
     assert len(diag.hypotheses) == 1
@@ -268,7 +267,7 @@ def test_critic_rejection_annotates_instead_of_deleting():
     assert h.metadata["critic"] == "reject"
     assert h.metadata["critic_reason"] == "the cited evidence does not test that mechanism"
     assert diag.n_critic_rejected == 1 and diag.n_critic_kept == 0
-    assert "REJECT:" in diag.critic_raw_output
+    assert '"reject"' in diag.critic_raw_output
 
 
 def test_critic_record_carries_the_proposer_reviewer_shape_too():
@@ -277,16 +276,14 @@ def test_critic_record_carries_the_proposer_reviewer_shape_too():
     annotations — the reviewer records, it never removes (2026-08-21 merge of
     the two M3-critic designs)."""
     judge = TwoAnswerJudge([
-        "HYPOTHESIS: the model ignores visual evidence entirely\n"
-        "PLAIN_STATEMENT: The model answers without looking at the picture.\n"
-        "FAILURE_MODE: visual_blindness\n"
-        "HYPOTHESIS: the model truncates long answers\n"
-        "PLAIN_STATEMENT: The model stops writing before it reaches the answer.\n"
-        "FAILURE_MODE: termination\n",
-        "KEEP: the model truncates long answers\n"
-        "REASON: termination_audit shows it\n"
-        "REJECT: the model ignores visual evidence entirely\n"
-        "REASON: the cited evidence does not test that mechanism\n",
+        proposal(
+            hypothesis("the model ignores visual evidence entirely", "visual_blindness",
+                       plain="The model answers without looking at the picture."),
+            hypothesis("the model truncates long answers", "termination",
+                       plain="The model stops writing before it reaches the answer."),
+        ),
+        review((2, "keep", "termination_audit shows it"),
+               (1, "reject", "the cited evidence does not test that mechanism")),
     ])
     diag = DiagnosisAgent(judge=judge).diagnose(_report())
     assert [h.statement for h in diag.proposed_hypotheses] == [
@@ -304,7 +301,7 @@ def test_critic_record_carries_the_proposer_reviewer_shape_too():
 
 
 def test_diagnosis_prompt_lists_available_evidence():
-    judge = ScriptedJudge("NO_ISSUE")
+    judge = ScriptedJudge(proposal())
     DiagnosisAgent(judge=judge).diagnose(_report())
     p = judge.prompts[0]
     assert "AVAILABLE EVIDENCE" in p

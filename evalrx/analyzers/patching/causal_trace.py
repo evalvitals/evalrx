@@ -60,7 +60,7 @@ def _gray(image: Any) -> Any:
 
     from evalrx.analyzers.attention.relative_attn import _resolve_image
 
-    img = _resolve_image(image)
+    img: Any = _resolve_image(image)
     if not hasattr(img, "convert"):
         return None
     rgb = img.convert("RGB")
@@ -153,7 +153,7 @@ def corrupted_variants(
     variants = []
     for _ in range(max(1, n_noise)):
         noise = torch.randn(embeddings.shape, generator=gen).to(embeddings.device, embeddings.dtype) * std
-        store = {} if deepstack and slot == "image" else None
+        store: dict | None = {} if deepstack and slot == "image" else None
         variants.append((inputs, {0: (media, embeddings + noise)}, (store, gen)))
     return variants, ""
 
@@ -217,6 +217,15 @@ class CausalTraceAnalyzer(Analyzer):
         "ct_last_rise_frac": ("Answer read-out depth", "Relative depth where restoring the final prompt position first recovers half the margin."),
         "ct_last_recovery_max": ("Best recovery at answer pos.", "Largest share of the lost margin recovered by restoring the final prompt position at any probed layer."),
     }
+
+    corruption: str
+    noise_scale: float
+    n_noise: int
+    n_points: int
+    min_effect: float
+    target: str
+    seed: int
+    max_cases: int
 
     def __init__(self, corruption: str = "noise", noise_scale: float = 3.0, n_noise: int = 1,
                  n_points: int = 8, min_effect: float = 1.0, target: str = "prediction",

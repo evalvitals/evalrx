@@ -26,7 +26,7 @@ from evalrx.eval_agent.stages.probe_candidate_generator import VLMProbeCandidate
 
 if TYPE_CHECKING:
     from evalrx.core.case import CaseBatch, FailureCase
-    from evalrx.core.model import Model
+    from evalrx.core.model import Judge, Model
     from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
 logger = logging.getLogger(__name__)
@@ -50,7 +50,7 @@ class ProbeSearchAgent:
                   widening forces a deeper descent instead of a new sibling.
     """
 
-    judge: "Model"
+    judge: "Judge"
     protocol: "ExperimentProtocol | None" = None
     budget: int = 20
     beta: float = 1.0
@@ -67,18 +67,19 @@ class ProbeSearchAgent:
 
     def run(self, model: "Model", seed_pool: "CaseBatch") -> ProbeSearchResult:
         judge = self.judge
-        if getattr(self.run_logger, "preserve_full_model_io", False):
-            from evalrx.eval_agent.model_instrumentation import InstrumentedModel
+        if self.run_logger is not None:
+            from evalrx.eval_agent.runlog.instrumentation import InstrumentedModel
 
-            cycle = int(getattr(self.run_logger, "current_cycle", -1))
+            run_logger = self.run_logger
+            cycle = int(getattr(run_logger, "current_cycle", -1))
             ids = [case.id for case in seed_pool]
             prompts = {case.inputs.prompt: case.id for case in seed_pool}
             judge = InstrumentedModel(
-                judge, self.run_logger, cycle=cycle, analyzer="probe_search_judge",
+                judge, run_logger, cycle=cycle, analyzer="probe_search_judge",
                 batch_case_ids=ids,
             )
             model = InstrumentedModel(
-                model, self.run_logger, cycle=cycle, analyzer="probe_search_target",
+                model, run_logger, cycle=cycle, analyzer="probe_search_target",
                 case_prompts=prompts, batch_case_ids=ids,
             )
         discovery = CaseDiscoveryAgent(judge=judge)

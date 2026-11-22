@@ -69,7 +69,7 @@ from evalrx.specs import get_spec, list_specs
 # logging_utils.py's module docstring for the full rationale.
 _logging.getLogger("evalrx").addHandler(_logging.NullHandler())
 
-__version__ = "0.1.2"
+__version__ = "0.2.0"
 __all__ = [
     "load",
     "load_config",
@@ -129,12 +129,7 @@ def run(config: AnalysisConfig, data, **kwargs):
     Returns:
         A :class:`~evalrx.core.result.Result` subclass.
     """
-    # Back-compat: tolerate a leading "call_" in the config (old style).
-    name = config.analysis
-    if name.startswith("call_"):
-        name = name[len("call_"):]
-
-    analyzer_cls = registry.analyzers.get(name)
+    analyzer_cls = registry.analyzers.get(config.analysis)
     analyzer = analyzer_cls(**{**config.analysis_kwargs, **kwargs})
     model = load_model(config.model)
     return analyzer.run(model, data)

@@ -9,6 +9,7 @@ any model internals.
 
 from __future__ import annotations
 
+from collections.abc import Set as AbstractSet
 from enum import Enum
 
 
@@ -40,7 +41,7 @@ class CapabilityError(RuntimeError):
         self,
         analyzer: str,
         model: str,
-        missing: set[Capability],
+        missing: AbstractSet[Capability],
     ) -> None:
         self.analyzer = analyzer
         self.model = model

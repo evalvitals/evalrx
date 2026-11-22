@@ -38,7 +38,7 @@ from evalrx.eval_agent.stages.fix.tools import (
     MAX_TOKENS_CAP,
     PipelineSpec,
     answer_key,
-    run_pipeline,
+    run_pipelines,
 )
 
 
@@ -76,6 +76,30 @@ def _mc_score(case, output):
     return m[-1] == str(case.metadata["gold"]).strip("()").lower()
 
 
+class _StubFixAgent:
+    """The fix-agent interface the loop calls, recording what it was handed."""
+
+    run_logger = None
+    max_tier = FixTier.L2_SCAFFOLD
+    alpha = 0.05
+
+    def __init__(self):
+        self.hypotheses = None
+        self.context = None
+
+    def propose_and_validate(self, model, data, hypotheses, prior_attempts=None,
+                             context=None, proposal_data=None, *,
+                             max_tier=None, min_tier=None, record=True):
+        from evalrx.eval_agent.stages.fix.types import FixOutcome
+
+        self.hypotheses = list(hypotheses)
+        self.context = context
+        return FixOutcome(max_tier=self.max_tier)
+
+    def recommend(self, routed, *, model=None, data=None, reason_prefix="", max_tier=None):
+        return {"recommend_tier": (max_tier or self.max_tier).label, "reason": reason_prefix}
+
+
 class CountingModel(Model):
     """Answers (B) and records every kwargs it was called with."""
 
@@ -111,7 +135,7 @@ class ScriptedJudge(Model):
         raise NotImplementedError
 
 
-# ── run_pipeline: n_samples for every strategy + label-free vote key ──────────
+# ── run_pipelines: n_samples for every strategy + label-free vote key ──────────
 
 
 def test_n_samples_applies_to_multi_call_strategies():
@@ -120,11 +144,11 @@ def test_n_samples_applies_to_multi_call_strategies():
     model = CountingModel()
     case = list(_mc_batch(1, 0))[0]
     spec = PipelineSpec(name="l2m", strategy="least_to_most", n_samples=3)
-    capture: dict = {}
-    assert run_pipeline(model, case, spec, _mc_score, capture=capture) is True
+    (run,) = run_pipelines(model, [case], spec)
+    assert _mc_score(case, run.winner) is True
     assert len(model.calls) == 6
-    assert capture["n_calls"] == 6 and len(capture["outputs"]) == 3
-    assert capture["winner"].endswith("Answer: (B)")
+    assert len(run.calls) == 6 and len(run.outputs) == 3
+    assert run.winner.endswith("Answer: (B)")
 
 
 def test_vote_uses_extracted_final_answer_not_whole_text():
@@ -142,9 +166,9 @@ def test_vote_uses_extracted_final_answer_not_whole_text():
 
     case = list(_mc_batch(1, 0))[0]
     spec = PipelineSpec(name="sc", n_samples=3)
-    capture: dict = {}
-    assert run_pipeline(Sampler(), case, spec, _mc_score, capture=capture) is True
-    assert capture["winner"].endswith("Answer: (B)")
+    (run,) = run_pipelines(Sampler(), [case], spec)
+    assert _mc_score(case, run.winner) is True
+    assert run.winner.endswith("Answer: (B)")
     # the key itself is label-free and format-normalised
     assert answer_key("blah\nAnswer: (B)") == answer_key("other\nAnswer: B")
     assert answer_key("FINAL: 4 and more", r"FINAL:\s*(\d+)") == "4"
@@ -169,13 +193,13 @@ def test_label_free_consensus_override_preserves_baseline_on_any_countervote():
     spec = PipelineSpec(
         name="guarded", n_samples=3, baseline_override_min_support=2
     )
-    capture: dict = {}
     mixed = ["Answer: (B)", "Answer: (B)", "Answer: (C)"]
-    assert run_pipeline(Sampler(mixed), case, spec, _mc_score, capture=capture) is False
-    assert capture["winner"] == case.observed
+    (run,) = run_pipelines(Sampler(mixed), [case], spec)
+    assert _mc_score(case, run.winner) is False
+    assert run.winner == case.observed
 
     unanimous = ["Answer: (B)", "Answer: (B)", "Answer: (B)"]
-    assert run_pipeline(Sampler(unanimous), case, spec, _mc_score) is True
+    assert _mc_score(case, run_pipelines(Sampler(unanimous), [case], spec)[0].winner) is True
     roundtrip = PipelineSpec.from_dict(spec.to_dict())
     assert roundtrip is not None and roundtrip.baseline_override_min_support == 2
 
@@ -249,7 +273,7 @@ print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
 
 
 def test_candidate_outputs_and_truncation_are_recorded(tmp_path):
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.runlog.logger import RunLogger
 
     class Truncating(CountingModel):
         def generate(self, inputs, **kwargs):
@@ -259,7 +283,7 @@ def test_candidate_outputs_and_truncation_are_recorded(tmp_path):
     judge = ScriptedJudge(json.dumps([
         {"name": "rewrite", "prompt_template": "Think step by step. {prompt}"},
     ]))
-    logger = RunLoggerV2(run_dir=tmp_path / "logs", observability_mode="offline")
+    logger = RunLogger(run_dir=tmp_path / "logs", observability_mode="offline")
     agent = FixAgent(judge=judge, max_tier="L1", run_logger=logger)
     batch = _mc_batch(2, 2)
     out = agent.propose_and_validate(Truncating(), batch, [_hyp("h")])
@@ -268,7 +292,7 @@ def test_candidate_outputs_and_truncation_are_recorded(tmp_path):
     assert all(o.endswith("Answer: (B)") for o in v.outputs.values())
     assert v.n_truncated == len(batch)
     assert "hit the decode cap" in v.summary
-    # RunLoggerV2 keeps per-case outputs inline under the candidate's own
+    # RunLogger keeps per-case outputs inline under the candidate's own
     # "outputs" key in M5/log.json — no sibling outputs.jsonl file.
     logger.close()
     m5 = json.loads((tmp_path / "logs" / "M5" / "log.json").read_text())
@@ -358,7 +382,7 @@ def test_floor_skipped_for_image_yes_no_batches():
 
 
 def test_run_fix_drops_m5_refuted_hypothesis_and_tells_the_proposer():
-    from evalrx.eval_agent import VLDiagnoseLoop, VLDiagnoseReport
+    from evalrx.eval_agent import AutoDiagnoseReport, VLDiagnoseLoop
     from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTestResult
     from evalrx.eval_agent.stages.protocol import ExperimentProtocol
     from evalrx.eval_agent.stages.surgery import InterventionResult
@@ -374,7 +398,7 @@ def test_run_fix_drops_m5_refuted_hypothesis_and_tells_the_proposer():
                                     is_consistent_with_protocol=True, confidence=0.9,
                                     verdict="signal vs FAIL effect=+0.9")
 
-    report = VLDiagnoseReport(cycles=1, stopped_by="criteria_met",
+    report = AutoDiagnoseReport(cycles=1, stopped_by="criteria_met",
                               verified_hypotheses=[_tr(h_bad), _tr(h_ok)],
                               final_hypotheses=[h_bad, h_ok])
     report.fix_proposal = InterventionResult(
@@ -382,19 +406,7 @@ def test_run_fix_drops_m5_refuted_hypothesis_and_tells_the_proposer():
         evidence={"verdict": 0.0, "alt_ordering_rescue_rate": 0.09},
     )
 
-    class Recorder:
-        run_logger = None
-
-        def __init__(self):
-            self.hypotheses = None
-            self.context = None
-
-        def propose_and_validate(self, model, data, hypotheses, prior_attempts=None, context=None):
-            self.hypotheses = list(hypotheses)
-            self.context = context
-            return object()
-
-    stub = Recorder()
+    stub = _StubFixAgent()
     loop = VLDiagnoseLoop(model=CountingModel(), protocol=ExperimentProtocol(description="BBH"),
                           fix_agent=stub, confirm_split=0.5)
     loop.run_fix(report, _mc_batch(4, 4))
@@ -410,25 +422,17 @@ def test_run_fix_drops_m5_refuted_hypothesis_and_tells_the_proposer():
     assert {c.id for c in ctx.example_cases}.isdisjoint({c.id for c in confirm})
 
 
-def test_run_fix_with_no_verified_hypothesis_does_not_call_minimal_agent():
-    """Even a legacy minimal proposer cannot bypass the M4 evidence gate."""
-    from evalrx.eval_agent import VLDiagnoseLoop, VLDiagnoseReport
+def test_run_fix_with_no_verified_hypothesis_does_not_call_the_fix_agent():
+    """The M4 evidence gate is the loop's: the fix agent is not asked."""
+    from evalrx.eval_agent import AutoDiagnoseReport, VLDiagnoseLoop
     from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
-    class Minimal:
-        run_logger = None
-        seen = None
-
-        def propose_and_validate(self, model, data, hypotheses):
-            self.seen = list(hypotheses)
-            return object()
-
-    stub = Minimal()
+    stub = _StubFixAgent()
     loop = VLDiagnoseLoop(model=CountingModel(), protocol=ExperimentProtocol(description="d"),
                           fix_agent=stub)
-    report = VLDiagnoseReport(cycles=1, stopped_by="max_cycles", final_hypotheses=[_hyp("x")])
+    report = AutoDiagnoseReport(cycles=1, stopped_by="max_cycles", final_hypotheses=[_hyp("x")])
     outcome = loop.run_fix(report, _mc_batch())
-    assert stub.seen is None
+    assert stub.hypotheses is None
     assert outcome.stage_status == "skipped"
 
 
@@ -498,15 +502,15 @@ class _CoinModel(CountingModel):
         return "Chain.\nAnswer: (B)" if ok else "Chain.\nAnswer: (C)"
 
 
-def test_paired_rates_uses_frozen_sample_plus_fresh_and_weighs_unstable():
-    """baseline_repeats=k: the frozen observed output is sample 1, k-1 are
-    generated; each case's baseline is a rate; unstable cases stay in."""
+def test_paired_rates_draws_fresh_samples_and_weighs_unstable():
+    """baseline_repeats=k: k fresh samples per case, the frozen observed output
+    not among them; each case's baseline is a rate; unstable cases stay in."""
     batch = _mc_batch(4, 4)  # 4 FAIL (observed wrong) + 4 PASS (observed right)
     # fresh baseline samples: alternate right/wrong -> every case ends unstable
     model = _CoinModel([True, False])
     agent = FixAgent(judge=None, max_tier="L1", baseline_repeats=3, floor_candidates=())
     baseline = agent._baseline(model, batch)
-    assert len(model.calls) == 2 * len(batch)  # k-1 fresh per case; frozen counted
+    assert len(model.calls) == 3 * len(batch)  # the frozen output is not counted
     assert all(0.0 < agent._baseline_rates[c.id] < 1.0 for c in batch)
     assert len(baseline.unstable) == len(batch)
     cand = FixCandidate(tier=FixTier.L1_PROMPT, name="careful", kind="template",
@@ -602,9 +606,9 @@ def test_spec_template_with_literal_braces_renders_and_never_aborts_the_stage():
                         prompt_template="{prompt}\nUse the set {1,2,3,4,5,6,7} and \\frac{a}{b}.")
     model = CountingModel()
     case = list(_mc_batch(1, 0))[0]
-    capture: dict = {}
-    assert run_pipeline(model, case, spec, _mc_score, capture=capture) is True
-    assert "{1,2,3,4,5,6,7}" in capture["prompt"] and "\\frac{a}{b}" in capture["prompt"]
+    (run,) = run_pipelines(model, [case], spec)
+    assert _mc_score(case, run.winner) is True
+    assert "{1,2,3,4,5,6,7}" in run.prompt and "\\frac{a}{b}" in run.prompt
 
     class Exploding(CountingModel):
         def generate(self, inputs, **kwargs):
@@ -612,25 +616,22 @@ def test_spec_template_with_literal_braces_renders_and_never_aborts_the_stage():
                 raise RuntimeError("adapter hiccup")
             return super().generate(inputs, **kwargs)
 
-    agent = FixAgent(judge=None, max_tier="L1", concurrency=3, floor_candidates=())
-
-    def raising_strategy(model, case):
-        if case.id == "q1":
-            raise KeyError("boom")
-        return True
-
-    agent.validator.strategy = lambda candidate: raising_strategy  # type: ignore[assignment]
-    cand = FixCandidate(tier=FixTier.L1_PROMPT, name="t", kind="template",
-                        payload={"prompt_template": "x {prompt}"})
-    scores = agent.validator.scores(cand, Exploding(), _mc_batch(2, 1))
-    assert scores["q1"] is None and scores["q0"] is True and scores["q2"] is True
+    agent = FixAgent(judge=None, max_tier="L1", floor_candidates=())
+    batch = _mc_batch(2, 1)
+    batch[1].inputs.prompt += " q1"
+    for payload in ({"prompt_template": "x {prompt}"},
+                    {"name": "s", "prompt_template": "x {prompt}", "n_samples": 2}):
+        kind = "spec" if "name" in payload else "template"
+        cand = FixCandidate(tier=FixTier.L1_PROMPT, name="t", kind=kind, payload=payload)
+        scores = agent.validator.scores(cand, Exploding(), batch)
+        assert scores == {batch[0].id: True, batch[1].id: None, batch[2].id: True}, kind
 
 
 # ── no verified hypothesis: M5 + fix on the best unverified lead (opt-in) ────
 
 
 def _inconclusive_report():
-    from evalrx.eval_agent import VLDiagnoseReport
+    from evalrx.eval_agent import AutoDiagnoseReport
     from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTestResult
 
     hs = [_hyp("lead A (weak)"), _hyp("lead B (best)"), _hyp("lead C (refuted)")]
@@ -647,7 +648,7 @@ def _inconclusive_report():
                              effect_size=-0.3, is_consistent_with_protocol=True, confidence=0.5,
                              verdict="refuted"),
     ]
-    return VLDiagnoseReport(cycles=1, stopped_by="max_cycles", verified_hypotheses=[],
+    return AutoDiagnoseReport(cycles=1, stopped_by="max_cycles", verified_hypotheses=[],
                             all_test_results=trs, final_hypotheses=hs), hs
 
 
@@ -670,17 +671,7 @@ def test_run_fix_without_verified_skips_repair_authoring():
 
     report, hs = _inconclusive_report()
 
-    class Recorder:
-        run_logger = None
-        hypotheses = None
-        context = None
-
-        def propose_and_validate(self, model, data, hypotheses, prior_attempts=None, context=None):
-            self.hypotheses = list(hypotheses)
-            self.context = context
-            return object()
-
-    stub = Recorder()
+    stub = _StubFixAgent()
     loop = VLDiagnoseLoop(model=CountingModel(), protocol=ExperimentProtocol(description="d"),
                           fix_agent=stub)
     outcome = loop.run_fix(report, _mc_batch())
@@ -689,7 +680,7 @@ def test_run_fix_without_verified_skips_repair_authoring():
     assert outcome.skip_reason == "no_accepted_hypothesis"
 
 
-# ── coded-pipeline bridge: concurrent, request-id tagged ─────────────────────
+# ── coded-pipeline bridge: request-id tagged, answered a batch at a time ─────
 
 
 class EchoPromptModel(Model):
@@ -699,8 +690,9 @@ class EchoPromptModel(Model):
     capabilities = frozenset({Capability.GENERATE})
     modalities = frozenset({"text"})
 
-    def __init__(self, delay: float = 0.15) -> None:
+    def __init__(self, delay: float = 0.15, concurrency: int = 1) -> None:
         self.delay = delay
+        self.concurrency = concurrency
         self.n_truncated = 0
         self._lock = __import__("threading").Lock()
         self.max_in_flight = 0
@@ -737,16 +729,16 @@ print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": res}))
 def test_threaded_coded_pipeline_gets_its_own_replies(tmp_path, concurrency):
     """Eight sandbox threads in flight: every reply must land in the thread
     that asked for it (old bridge: whichever thread read stdin next got it),
-    and with concurrency>1 the host really services calls in parallel."""
+    and a model that takes several requests at once really gets them."""
     import time as _t
 
     from evalrx.eval_agent.stages.fix.pipeline import run_coded_pipeline
 
-    model = EchoPromptModel(delay=0.15)
+    model = EchoPromptModel(delay=0.15, concurrency=concurrency)
     batch = _mc_batch(n_fail=6, n_pass=6)
     t0 = _t.monotonic()
     result = run_coded_pipeline(_THREADED_PIPELINE, model, batch, workdir=tmp_path,
-                                timeout_sec=60, concurrency=concurrency)
+                                timeout_sec=60)
     elapsed = _t.monotonic() - t0
     assert result.ok, result.error
     assert result.n_calls == 36
@@ -757,7 +749,7 @@ def test_threaded_coded_pipeline_gets_its_own_replies(tmp_path, concurrency):
         assert model.max_in_flight > 1
         assert elapsed < 36 * 0.15            # parallel: well under the serial sum
     else:
-        assert model.max_in_flight == 1       # serial host: arrival order
+        assert model.max_in_flight == 1       # one request at a time
 
 
 def test_bridge_reply_carries_rid_and_errors_route_to_the_caller(tmp_path):
@@ -785,28 +777,11 @@ print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": [
 """
     batch = _mc_batch(n_fail=1, n_pass=0)
     result = run_coded_pipeline(code, EchoPromptModel(delay=0.05), batch,
-                                workdir=tmp_path, timeout_sec=30, concurrency=4)
+                                workdir=tmp_path, timeout_sec=30)
     assert result.ok, result.error
     out = result.outputs[batch[0].id]
     assert out.startswith(f"echo:ok-{batch[0].id}//err:")
     assert "unknown case_id" in out
-
-
-def test_fix_agent_passes_concurrency_to_the_coded_bridge(monkeypatch):
-    from evalrx.eval_agent.stages.fix import codegen as fix_codegen
-    from evalrx.eval_agent.stages.fix.pipeline import CodedPipelineResult
-
-    seen = {}
-
-    def fake_run(code, model, data, **kw):
-        seen.update(kw)
-        return CodedPipelineResult(outputs={c.id: "Answer: (B)" for c in data}, ok=True)
-
-    monkeypatch.setattr(fix_codegen, "run_coded_pipeline", fake_run)
-    agent = FixAgent(judge=ScriptedJudge("[]"), max_tier="L2", concurrency=5)
-    cand = FixCandidate(tier=FixTier.L2_SCAFFOLD, name="coded", payload={"code": "x"})
-    agent.coder.run(cand, CountingModel(), _mc_batch())
-    assert seen["concurrency"] == 5
 
 
 # ── allow_unverified=True: the exploratory fix path, opt-in ──────────────────
@@ -816,26 +791,17 @@ def test_fix_agent_passes_concurrency_to_the_coded_bridge(monkeypatch):
 # the best unverified leads — the candidate validation on CONFIRM is the gate.
 
 
-def test_run_fix_allow_unverified_keeps_a_minimal_fix_agent_working():
-    """A stub that only accepts (model, data, hypotheses) keeps working and
-    receives the final proposals when nothing was verified."""
-    from evalrx.eval_agent import VLDiagnoseLoop, VLDiagnoseReport
+def test_run_fix_allow_unverified_passes_the_final_proposals():
+    """With nothing M4-tested, the fix agent receives the last cycle's proposals."""
+    from evalrx.eval_agent import AutoDiagnoseReport, VLDiagnoseLoop
     from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
-    class Minimal:
-        run_logger = None
-        seen = None
-
-        def propose_and_validate(self, model, data, hypotheses):
-            self.seen = list(hypotheses)
-            return object()
-
-    stub = Minimal()
+    stub = _StubFixAgent()
     loop = VLDiagnoseLoop(model=CountingModel(), protocol=ExperimentProtocol(description="d"),
                           fix_agent=stub)
-    report = VLDiagnoseReport(cycles=1, stopped_by="max_cycles", final_hypotheses=[_hyp("x")])
+    report = AutoDiagnoseReport(cycles=1, stopped_by="max_cycles", final_hypotheses=[_hyp("x")])
     loop.run_fix(report, _mc_batch(), allow_unverified=True)
-    assert stub.seen and stub.seen[0].statement == "x"
+    assert stub.hypotheses and stub.hypotheses[0].statement == "x"
 
 
 def test_run_fix_allow_unverified_uses_unverified_leads_and_says_so():
@@ -844,21 +810,11 @@ def test_run_fix_allow_unverified_uses_unverified_leads_and_says_so():
 
     report, hs = _inconclusive_report()
 
-    class Recorder:
-        run_logger = None
-        hypotheses = None
-        context = None
-
-        def propose_and_validate(self, model, data, hypotheses, prior_attempts=None, context=None):
-            self.hypotheses = list(hypotheses)
-            self.context = context
-            return object()
-
-    stub = Recorder()
+    stub = _StubFixAgent()
     loop = VLDiagnoseLoop(model=CountingModel(), protocol=ExperimentProtocol(description="d"),
                           fix_agent=stub)
     outcome = loop.run_fix(report, _mc_batch(), allow_unverified=True)
-    assert getattr(outcome, "stage_status", "completed") != "skipped"
+    assert outcome.stage_status != "skipped"
     assert [h.id for h in stub.hypotheses] == ["h1", "h0"]               # best first, refuted dropped
     assert stub.context.hypotheses_note.startswith("UNVERIFIED")
     # the proposer sees the caveat right under the hypotheses heading
@@ -889,15 +845,7 @@ def test_run_fix_allow_unverified_keeps_leads_beside_verified_symptom():
     report.all_test_results.append(supported)
     report.final_hypotheses.append(symptom)
 
-    class Recorder:
-        run_logger = None
-
-        def propose_and_validate(self, model, data, hypotheses, context=None):
-            self.hypotheses = list(hypotheses)
-            self.context = context
-            return object()
-
-    stub = Recorder()
+    stub = _StubFixAgent()
     loop = VLDiagnoseLoop(
         model=CountingModel(),
         protocol=ExperimentProtocol(description="d"),

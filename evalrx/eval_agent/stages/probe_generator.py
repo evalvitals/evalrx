@@ -31,7 +31,7 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from evalrx.agent_runtime.sandbox import ExperimentSandbox
 from evalrx.core.result import Result
@@ -45,7 +45,7 @@ from evalrx.eval_agent.prompts.probe_generator import (
 if TYPE_CHECKING:
     from evalrx.agent_runtime.cli_types import CliAgentConfig
     from evalrx.core.case import CaseBatch
-    from evalrx.core.model import Model
+    from evalrx.core.model import Judge, Model
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +82,7 @@ class ProbeGenerator:
 
     def __init__(
         self,
-        judge: "Model | None" = None,
+        judge: "Judge | None" = None,
         cli_config: "CliAgentConfig | None" = None,
         sandbox: "ExperimentSandbox | None" = None,
         timeout_sec: int = 60,
@@ -140,11 +140,8 @@ class ProbeGenerator:
             self._emit_codegen(name, need, source, "", ok=False, error="empty code produced")
             return None, None
 
-        result = self._run_code(code, name, model, cases)
-        self._emit_codegen(
-            name, need, source, code, ok=result is not None,
-            error="" if result is not None else "sandbox produced no parseable result",
-        )
+        result, error = self._run_code(code, name, model, cases)
+        self._emit_codegen(name, need, source, code, ok=result is not None, error=error)
         if result is None:
             return None, None
         probe = GeneratedProbe(name=name, code=code, need=need, source=source)
@@ -176,7 +173,7 @@ class ProbeGenerator:
     ) -> "Result | None":
         """Re-run an already-generated probe on fresh cases (no LLM call)."""
         self._collect_outputs(model, cases)
-        return self._run_code(probe.code, probe.name, model, cases)
+        return self._run_code(probe.code, probe.name, model, cases)[0]
 
     # ------------------------------------------------------------------
     # Internals
@@ -188,8 +185,8 @@ class ProbeGenerator:
         selected = list(cases)
         if self._max_cases > 0:  # 0 = every case
             selected = selected[: self._max_cases]
-        if getattr(self.run_logger, "preserve_full_model_io", False):
-            from evalrx.eval_agent.model_instrumentation import InstrumentedModel
+        if self.run_logger is not None:
+            from evalrx.eval_agent.runlog.instrumentation import InstrumentedModel
 
             model = InstrumentedModel(
                 model, self.run_logger,
@@ -198,13 +195,19 @@ class ProbeGenerator:
                 case_prompts={c.inputs.prompt: c.id for c in selected},
                 batch_case_ids=[c.id for c in selected],
             )
-        for case in selected:
+        # The answer each case was labelled on; only cases that carry none are asked.
+        outputs = ["" if getattr(case, "observed", None) is None else str(case.observed)
+                   for case in selected]
+        missing = [i for i, text in enumerate(outputs)
+                   if not text and getattr(selected[i], "inputs", None) is not None]
+        fresh = model.try_generate_batch([selected[i].inputs for i in missing]) if missing else []
+        for i, answer in zip(missing, fresh):
+            if isinstance(answer, Exception):  # a probe over partial outputs is still useful
+                logger.debug("ProbeGenerator: generate failed for %s: %s", selected[i].id, answer)
+            else:
+                outputs[i] = str(answer)
+        for case, output in zip(selected, outputs):
             inp = getattr(case, "inputs", None)
-            try:
-                output = str(model.generate(inp)) if inp is not None else ""
-            except Exception as exc:  # a probe over partial outputs is still useful
-                logger.debug("ProbeGenerator: generate failed for %s: %s", case.id, exc)
-                output = ""
             label = getattr(case, "label", None)
             records.append({
                 "id": case.id,
@@ -213,8 +216,7 @@ class ProbeGenerator:
                 "label": getattr(label, "value", None),
                 "output": output[:_MAX_OUTPUT_CHARS],
             })
-        path = Path(self._sandbox.workdir) / _INPUT_FILENAME
-        path.write_text(json.dumps({"cases": records}, default=str), encoding="utf-8")
+        self._sandbox.put(_INPUT_FILENAME, json.dumps({"cases": records}, default=str))
 
     def _write_code(self, need: str) -> tuple[str, str]:
         if self._cli_config is not None and self._cli_config.provider != "llm":
@@ -265,20 +267,41 @@ class ProbeGenerator:
         name: str,
         model: "Model",
         cases: "CaseBatch",
-    ) -> "Result | None":
-        sandbox_result = self._sandbox.run(code, timeout_sec=self._timeout_sec)
-        if not sandbox_result.ok:
-            logger.warning(
-                "ProbeGenerator: sandbox run failed (rc=%s): %s",
-                sandbox_result.returncode, (sandbox_result.stderr or "").strip()[:200],
-            )
-            return None
-        return _parse_result(sandbox_result.stdout, name, model, cases)
+    ) -> "tuple[Result | None, str]":
+        """The probe's Result, or ``None`` and why the run produced none."""
+        return run_probe_code(self._sandbox, code, self._timeout_sec,
+                              lambda stdout: _parse_result(stdout, name, model, cases))
 
 
 # ---------------------------------------------------------------------------
 # Module helpers
 # ---------------------------------------------------------------------------
+
+def run_probe_code(
+    sandbox: "ExperimentSandbox",
+    code: str,
+    timeout_sec: int,
+    parse: "Callable[[str], Result | None]",
+) -> "tuple[Result | None, str]":
+    """Run a generated probe; its Result, or ``None`` and the reason in words.
+
+    The reason goes into the run log, so it names what happened: a timeout, the
+    script's own traceback, or a missing result line.
+    """
+    run = sandbox.run(code, timeout_sec=timeout_sec)
+    if run.timed_out:
+        error = f"the probe script was killed after {timeout_sec}s"
+    elif not run.ok:
+        tail = (run.stderr or "").strip().splitlines()[-1:] or ["no error output"]
+        error = f"the probe script exited with code {run.returncode}: {tail[0][:300]}"
+    else:
+        result = parse(run.stdout)
+        if result is not None:
+            return result, ""
+        error = f"the probe script printed no readable {_RESULT_MARKER} line"
+    logger.warning("Generated probe failed: %s", error)
+    return None, error
+
 
 def _extract_code(raw: str) -> str:
     cleaned = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL)

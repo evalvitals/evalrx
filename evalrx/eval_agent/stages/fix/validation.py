@@ -20,7 +20,7 @@ from evalrx.eval_agent.stages.fix.recorder import FixRecorder
 from evalrx.eval_agent.stages.fix.tools import (
     PipelineSpec,
     _safe_generation_kwargs,
-    run_pipeline,
+    run_pipelines,
     safe_format,
     score_to_bool,
     spec_changes_input,
@@ -101,7 +101,6 @@ class CandidateValidator:
         recorder: FixRecorder,
         coder: PipelineCoder,
         progress: "Callable[..., None]",
-        concurrency: int = 1,
         baseline_repeats: int = 1,
         candidate_repeats: int = 1,
         finetune_pool: "Any | None" = None,
@@ -110,13 +109,14 @@ class CandidateValidator:
         self.recorder = recorder
         self.coder = coder
         self._progress = progress
-        self.concurrency = concurrency
         self.baseline_repeats = baseline_repeats
         self.candidate_repeats = candidate_repeats
         self.finetune_pool = finetune_pool
         # case id -> the final output that was scored, filled while a
         # candidate runs and moved onto its FixValidation.
         self._captured: "dict[str, str]" = {}
+        # (model, what was asked, baseline) for every baseline measured so far.
+        self._baselines: "list[tuple[Model, tuple[Any, ...], Baseline]]" = []
 
     @property
     def rates_mode(self) -> bool:
@@ -124,7 +124,30 @@ class CandidateValidator:
         return self.baseline_repeats > 1 or self.candidate_repeats > 1
 
     def baseline(self, model: "Model", data: "CaseBatch") -> Baseline:
-        """Measure the unmodified baseline as a per-case PASS RATE.
+        """The unmodified model's per-case PASS RATE on *data*, measured once.
+
+        A search climbs one tier at a time over the same cases, and its
+        candidates are one family that e-BH corrects together, so they all pair
+        against the same baseline samples; re-drawing them per tier cost 64
+        generations each time and gave each tier a different baseline.
+        """
+        # What the samples depend on besides the model: the prompt asked and the
+        # recorded answer that counts as sample one. A deployed template keeps
+        # the case ids and changes the prompts, so ids alone would not do.
+        asked = tuple(
+            (case.id, str(getattr(case.inputs, "prompt", "")),
+             None if case.observed is None else str(case.observed))
+            for case in data
+        )
+        for seen_model, seen_asked, measured in self._baselines:
+            if seen_model is model and seen_asked == asked:
+                return measured
+        measured = self._measure_baseline(model, data)
+        self._baselines.append((model, asked, measured))
+        return measured
+
+    def _measure_baseline(self, model: "Model", data: "CaseBatch") -> Baseline:
+        """Draw the baseline samples and summarise them per case.
 
         Returns the modal per-case scores, the per-case rates and sample
         counts (for the paired-rates test) and the unstable case ids.
@@ -134,21 +157,23 @@ class CandidateValidator:
           supposedly paired comparison depend on endpoint non-determinism and
           waste a call per case. Cases without an ``observed`` are generated
           once.
-        * ``baseline_repeats == k > 1`` — the frozen sample counts as sample 1
-          and ``k-1`` fresh samples are drawn (all ``k`` fresh when there is no
-          frozen one), so each case gets a rate in ``{0, 1/k, ..., 1}``. A case
-          with ``0 < rate < 1`` is *unstable* (its baseline answer is a coin);
-          it is REPORTED, not dropped: the paired-rates test weighs it by how
-          much a candidate moves its rate, which is the honest accounting for
-          a stochastic model — dropping it removed exactly the cases a
-          variance-reduction scaffold repairs.
+        * ``baseline_repeats == k > 1`` — ``k`` fresh samples, so each case gets
+          a rate in ``{0, 1/k, ..., 1}``. The recorded answer is not one of
+          them: it is the answer the case was labelled by (and, under a
+          majority label, picked to agree with it), so counting it pulls the
+          rate toward the label wherever cases were chosen by label.
+          A case with ``0 < rate < 1`` is *unstable* (its baseline answer is a
+          coin); it is REPORTED, not dropped: the paired-rates test weighs it
+          by how much a candidate moves its rate, which is the honest
+          accounting for a stochastic model — dropping it removed exactly the
+          cases a variance-reduction scaffold repairs.
         """
         k = max(1, int(self.baseline_repeats))
         samples: "dict[str, list[bool]]" = {c.id: [] for c in data}
         need: "list[tuple[Any, int]]" = []
         for case in data:
             observed = getattr(case, "observed", None)
-            if observed is not None:
+            if k == 1 and observed is not None:
                 s0 = score_to_bool(self.score(case, str(observed)))
                 if s0 is not None:
                     samples[case.id].append(bool(s0))
@@ -180,36 +205,32 @@ class CandidateValidator:
         need: "list[tuple[Any, int]]",
         samples: "dict[str, list[bool]]",
     ) -> None:
-        """Draw the missing fresh baseline samples (threaded like candidates)."""
+        """Draw the missing fresh baseline samples, all in one batch."""
         jobs = [case for case, n in need for _ in range(n)]
-
-        def one(case: Any) -> "tuple[str, Optional[bool]]":
-            started = time.perf_counter()
-            try:
-                output = str(model.generate(case.inputs))
-            except Exception as exc:
-                logger.debug("FixAgent: baseline generate failed on %s: %s", case.id, exc)
-                self.recorder.target_exchange(
-                    "fresh_baseline", case.inputs, None, case_id=case.id,
-                    error=str(exc), duration_sec=time.perf_counter() - started,
-                )
-                return case.id, None
+        answers, share = self._generate(model, [case.inputs for case in jobs])
+        for case, answer in zip(jobs, answers):
+            failed = isinstance(answer, Exception)
             self.recorder.target_exchange(
-                "fresh_baseline", case.inputs, output, case_id=case.id,
-                duration_sec=time.perf_counter() - started,
+                "fresh_baseline", case.inputs, None if failed else str(answer),
+                case_id=case.id, error=str(answer) if failed else None, duration_sec=share,
             )
-            return case.id, score_to_bool(self.score(case, output))
-
-        if self.concurrency > 1 and len(jobs) > 1:
-            from concurrent.futures import ThreadPoolExecutor
-
-            with ThreadPoolExecutor(max_workers=self.concurrency) as pool:
-                results = list(pool.map(one, jobs))
-        else:
-            results = [one(case) for case in jobs]
-        for cid, s in results:
+            if failed:
+                logger.debug("FixAgent: baseline generate failed on %s: %s", case.id, answer)
+                continue
+            s = score_to_bool(self.score(case, str(answer)))
             if s is not None:
-                samples[cid].append(bool(s))
+                samples[case.id].append(bool(s))
+
+    @staticmethod
+    def _generate(
+        model: "Model", inputs: "list[Any]", **kwargs: Any
+    ) -> "tuple[list[str | Exception], float]":
+        """One batch of answers and each call's share of the time it took."""
+        if not inputs:
+            return [], 0.0
+        started = time.perf_counter()
+        answers = model.try_generate_batch(inputs, **kwargs)
+        return answers, (time.perf_counter() - started) / len(inputs)
 
     def matched_baseline(
         self, candidate: FixCandidate, model: "Model", data: "CaseBatch"
@@ -228,45 +249,25 @@ class CandidateValidator:
         executor = getattr(model, executor_name, None)
         if not callable(executor):
             return {case.id: None for case in data}
-
-        def guarded(case: "FailureCase") -> "tuple[str, Optional[bool]]":
+        scores: "dict[str, Optional[bool]]" = {}
+        for case in data:
             try:
-                output = executor(case.inputs)
-                return case.id, score_to_bool(self.score(case, str(output)))
+                scores[case.id] = score_to_bool(self.score(case, str(executor(case.inputs))))
             except Exception as exc:
-                logger.warning(
-                    "FixAgent: matched baseline %s failed on case %s: %s",
-                    executor_name,
-                    case.id,
-                    exc,
-                )
-                return case.id, None
-
-        cases = list(data)
-        if self.concurrency > 1 and len(cases) > 1:
-            from concurrent.futures import ThreadPoolExecutor
-
-            with ThreadPoolExecutor(max_workers=self.concurrency) as pool:
-                return dict(pool.map(guarded, cases))
-        return dict(guarded(case) for case in cases)
+                logger.warning("FixAgent: matched baseline %s failed on case %s: %s",
+                               executor_name, case.id, exc)
+                scores[case.id] = None
+        return scores
 
     # -- per-candidate-kind execution ----------------------------------------
     #
-    # A candidate kind either runs per case (a strategy: one model call chain
-    # per case, threaded by scores()) or as a batch (its own executor over the
-    # whole batch). Adding a kind is one method plus one entry below.
-
-    def strategy(
-        self, candidate: FixCandidate
-    ) -> "Callable[[Model, FailureCase], Optional[bool]]":
-        """Compile a candidate to a per-case success function."""
-        build = {
-            "registered_repair": self._registered_repair_strategy,
-            "visual_search": self._visual_search_strategy,
-            "detector_visual_search": self._visual_search_strategy,
-            "template": self._template_strategy,
-        }.get(candidate.kind, self._spec_strategy)
-        return build(candidate)
+    # A candidate kind runs one of three ways. Adding a kind is one method plus
+    # one entry in scores():
+    #   * whole batch, own executor  — coded pipelines, internals, fine-tunes;
+    #   * prompts to the model       — templates and specs: every case's calls
+    #     go to the model as batches, which the backend runs its own way;
+    #   * a model method per case    — registered repairs and visual search.
+    #     These hook the model while they generate, so they run one at a time.
 
     def scores(
         self,
@@ -277,51 +278,54 @@ class CandidateValidator:
         max_tokens_floor: "int | None" = None,
     ) -> "dict[str, Optional[bool]]":
         """Per-case success of one candidate on *data*."""
-        batch = {
+        runners: "dict[str, Callable[..., dict[str, Optional[bool]]]]" = {
             "primitive": self._run_primitive,
             "code": self._run_code,
             "finetune_spec": self._run_finetune,
             "weight_edit": self._run_weight_edit,
-        }.get(candidate.kind)
+        }
+        batch = runners.get(candidate.kind)
         if batch is not None:
             return batch(candidate, model, data, max_tokens_floor=max_tokens_floor)
-        strategy = self.strategy(candidate)
         cases = list(data)
-        from threading import Lock
+        scores: "dict[str, Optional[bool]]" = {case.id: None for case in cases}
+        # Do not execute a conditional repair outside its registered
+        # population. Validation already excludes those cases, but generating
+        # for them wastes compute and can advance a stochastic model before
+        # the applicable cases are sampled.
+        applicable = [case for case in cases if applies(candidate, case)]
+        per_case = self._PER_CASE.get(candidate.kind)
+        if per_case is not None:
+            scores.update(self._run_per_case(candidate, per_case, model, applicable))
+        elif candidate.kind == "template":
+            scores.update(self._run_template(candidate, model, applicable))
+        else:
+            scores.update(self._run_spec(candidate, model, applicable))
+        self._progress("candidate_cases", candidate=candidate.name,
+                       completed=len(cases), total=len(cases))
+        return scores
 
-        progress_lock = Lock()
-        completed = 0
-
-        def guarded(case: "FailureCase") -> "tuple[str, Optional[bool]]":
-            nonlocal completed
-            # One case's failure (a template that cannot render, an adapter
-            # error) scores None for THAT case; it must never abort the whole
-            # candidate — let alone the fix stage.
+    def _run_per_case(
+        self,
+        candidate: FixCandidate,
+        method: str,
+        model: "Model",
+        cases: "list[FailureCase]",
+    ) -> "dict[str, Optional[bool]]":
+        """One model-method call per case, in order."""
+        strategy = getattr(self, method)(candidate)
+        scores: "dict[str, Optional[bool]]" = {}
+        for done, case in enumerate(cases, 1):
+            # One case's failure (an adapter error) scores None for THAT case;
+            # it must never abort the whole candidate — let alone the fix stage.
             try:
-                # Do not execute a conditional repair outside its registered
-                # population. Validation already excludes those cases, but
-                # generating for them wastes compute and can advance a
-                # stochastic model before the applicable cases are sampled.
-                if not applies(candidate, case):
-                    return case.id, None
-                return case.id, strategy(model, case)
+                scores[case.id] = strategy(model, case)
             except Exception as exc:
                 logger.warning("FixAgent: %s failed on case %s: %s", candidate.name, case.id, exc)
-                return case.id, None
-            finally:
-                with progress_lock:
-                    completed += 1
-                    if completed == 1 or completed % 10 == 0 or completed == len(cases):
-                        self._progress("candidate_cases", candidate=candidate.name,
-                                       completed=completed, total=len(cases))
-
-        if self.concurrency > 1 and len(cases) > 1:
-            from concurrent.futures import ThreadPoolExecutor
-
-            with ThreadPoolExecutor(max_workers=self.concurrency) as pool:
-                results = list(pool.map(guarded, cases))
-            return dict(results)
-        return dict(guarded(case) for case in cases)
+            if done == 1 or done % 10 == 0:
+                self._progress("candidate_cases", candidate=candidate.name,
+                               completed=done, total=len(cases))
+        return scores
 
     def _registered_repair_strategy(
         self, candidate: FixCandidate
@@ -389,78 +393,85 @@ class CandidateValidator:
 
         return visual_search
 
-    def _template_strategy(
-        self, candidate: FixCandidate
-    ) -> "Callable[[Model, FailureCase], Optional[bool]]":
+    #: kind -> the method that compiles it to a per-case model-method call
+    _PER_CASE = {
+        "registered_repair": "_registered_repair_strategy",
+        "visual_search": "_visual_search_strategy",
+        "detector_visual_search": "_visual_search_strategy",
+    }
+
+    def _run_template(
+        self, candidate: FixCandidate, model: "Model", cases: "list[FailureCase]"
+    ) -> "dict[str, Optional[bool]]":
+        """An L1 prompt template: one rewritten prompt per case, asked as one batch."""
         template = candidate.payload["prompt_template"]
         gen_kwargs = _safe_generation_kwargs(candidate.payload.get("generation_kwargs"))
-
-        def l1(model: "Model", case: "FailureCase") -> "Optional[bool]":
-            inp = case.inputs
-            metadata = getattr(case, "metadata", {}) or {}
-            template_context = {str(key): value for key, value in metadata.items()}
-            template_context["prompt"] = str(getattr(inp, "prompt", ""))
-            template_context.setdefault("failure_axis", "the relevant visual evidence")
-            # Inside the try, not before it: rendering the template is as
-            # capable of failing as generating from it, and a single bad
-            # case must score None rather than abort the whole validation.
-            started = time.perf_counter()
+        metadata = {"generation_kwargs": gen_kwargs, "candidate": candidate.name}
+        asked: "list[tuple[FailureCase, Any]]" = []
+        for case in cases:
+            context = {str(k): v for k, v in (getattr(case, "metadata", {}) or {}).items()}
+            context["prompt"] = str(getattr(case.inputs, "prompt", ""))
+            context.setdefault("failure_axis", "the relevant visual evidence")
+            # Rendering the template is as capable of failing as generating
+            # from it: a single bad case scores None, the rest still run.
             try:
-                # dataclasses.replace, not a bare Inputs(prompt=..., image=...):
-                # that silently dropped .video/.audio, so every L1 candidate was
-                # unconditionally inapplicable (generate() raising on the
-                # missing required modality field, caught below, scored as
-                # None for every case) on any non-image FailureCase.
-                new_inputs = dataclasses.replace(
-                    inp, prompt=safe_format(template, template_context)
-                )
-                output = str(model.generate(new_inputs, **gen_kwargs))
-                self.recorder.target_exchange(
-                    "template_candidate", new_inputs, output, case_id=case.id,
-                    duration_sec=time.perf_counter() - started,
-                    metadata={"generation_kwargs": gen_kwargs, "candidate": candidate.name},
-                )
-                self._record_output(case.id, output)
-                return score_to_bool(self.score(case, output))
+                # dataclasses.replace keeps .video/.audio; a bare
+                # Inputs(prompt=..., image=...) dropped them.
+                rendered = dataclasses.replace(case.inputs, prompt=safe_format(template, context))
             except Exception as exc:
                 self.recorder.target_exchange(
-                    "template_candidate", locals().get("new_inputs", inp), None,
-                    case_id=case.id, error=str(exc),
-                    duration_sec=time.perf_counter() - started,
-                    metadata={"generation_kwargs": gen_kwargs, "candidate": candidate.name},
+                    "template_candidate", case.inputs, None, case_id=case.id,
+                    error=str(exc), metadata=metadata,
                 )
-                return None
+                continue
+            asked.append((case, rendered))
+        answers, share = self._generate(model, [inputs for _, inputs in asked], **gen_kwargs)
+        scores: "dict[str, Optional[bool]]" = {}
+        for (case, rendered), answer in zip(asked, answers):
+            failed = isinstance(answer, Exception)
+            self.recorder.target_exchange(
+                "template_candidate", rendered, None if failed else str(answer),
+                case_id=case.id, error=str(answer) if failed else None,
+                duration_sec=share, metadata=metadata,
+            )
+            if not failed:
+                self._record_output(case.id, answer)
+                scores[case.id] = self._score(candidate, case, str(answer))
+        return scores
 
-        return l1
-
-    def _spec_strategy(
-        self, candidate: FixCandidate
-    ) -> "Callable[[Model, FailureCase], Optional[bool]]":
+    def _run_spec(
+        self, candidate: FixCandidate, model: "Model", cases: "list[FailureCase]"
+    ) -> "dict[str, Optional[bool]]":
+        """A declarative pipeline: every case's passes advance together."""
         spec = PipelineSpec.from_dict(candidate.payload)
         if spec is None:  # already validated at proposal time; belt and braces
-            return lambda model, case: None
+            return {}
+        started = time.perf_counter()
+        runs = run_pipelines(model, cases, spec)
+        n_calls = sum(len(run.calls) for run in runs)
+        share = (time.perf_counter() - started) / max(1, n_calls)
+        scores: "dict[str, Optional[bool]]" = {}
+        for case, run in zip(cases, runs):
+            for call in run.calls:
+                self.recorder.target_exchange(
+                    "declarative_pipeline", call["inputs"], call["output"],
+                    case_id=case.id, error=call["error"], duration_sec=share,
+                    metadata={"candidate": candidate.name,
+                              "generation_kwargs": call["generation_kwargs"]},
+                )
+            if run.winner is not None:
+                self._record_output(case.id, run.winner)
+                scores[case.id] = self._score(candidate, case, run.winner)
+        return scores
 
-        def declarative(model: "Model", case: "FailureCase") -> "Optional[bool]":
-            capture: "dict[str, Any]" = {}
-            result = run_pipeline(
-                model, case, spec, self.score, capture=capture,
-                call_logger=lambda record: self.recorder.target_exchange(
-                    "declarative_pipeline", record.get("inputs"), record.get("output"),
-                    case_id=case.id, error=record.get("error"),
-                    duration_sec=record.get("duration_sec"),
-                    metadata={
-                        "candidate": candidate.name,
-                        "generation_kwargs": record.get("generation_kwargs") or {},
-                    },
-                ),
-            )
-            winner = capture.get("winner")
-            if winner is None and capture.get("outputs"):
-                winner = capture["outputs"][0]
-            self._record_output(case.id, winner)
-            return result
-
-        return declarative
+    def _score(self, candidate: FixCandidate, case: "FailureCase", output: str) -> "Optional[bool]":
+        """Score one answer; a rubric that raises scores None for that case."""
+        try:
+            return score_to_bool(self.score(case, output))
+        except Exception as exc:
+            logger.warning("FixAgent: %s could not be scored on case %s: %s",
+                           candidate.name, case.id, exc)
+            return None
 
     def _run_primitive(
         self, candidate: FixCandidate, model: "Model", data: "CaseBatch", **_: Any
@@ -581,7 +592,7 @@ class CandidateValidator:
         self._captured = {}
         if isinstance(candidate.payload, dict):
             v.exec_error = str(candidate.payload.get("exec_error", "") or "")
-        # Baseline rates: measured by baseline() (frozen sample + k-1 fresh);
+        # Baseline rates: measured by baseline() (k fresh samples per case);
         # a Baseline built from bare booleans carries 0/1 rates.
         matched_baseline = self.matched_baseline(candidate, model, data)
         base_rates: "dict[str, Optional[float]]" = {}

@@ -11,11 +11,13 @@ from evalrx.agent_runtime.judges.autodetect import (
     resolve_cli_judge,
 )
 from evalrx.agent_runtime.judges.claude import ClaudeModel
+from evalrx.agent_runtime.judges.cli_agent import CliAgentJudge
 from evalrx.agent_runtime.judges.codex import CodexModel
 
 __all__ = [
     "AgyModel",
     "ClaudeModel",
+    "CliAgentJudge",
     "CodexModel",
     "scan_agy_log",
     "DEFAULT_AGY_CANDIDATES",

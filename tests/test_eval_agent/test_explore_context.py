@@ -19,6 +19,7 @@ from evalrx.eval_agent.stages.diagnosis import (
     _format_explore_section,
 )
 from tests.conftest import FakeModel
+from tests.judge_replies import hypothesis, keep_all, proposal, review
 
 # ---------------------------------------------------------------------------
 # ExploreContext construction
@@ -69,10 +70,13 @@ class _ImageJudge(FakeModel):
     def generate(self, inputs, images=None, **kw):  # noqa: D401
         self.calls.append({"prompt": str(inputs), "images": list(images or [])})
         # M3 cites the explore chart it drew the hypothesis from (by title); the
-        # critic pass keeps it. _extract_referenced reads this output for provenance.
-        return ("HYPOTHESIS: model ignores the image, consistent with the ObjSize by "
-                "label chart\nFAILURE_MODE: weak_visual_grounding\n"
-                "KEEP: model ignores the image, consistent with the ObjSize by label chart")
+        # critic keeps it. _extract_referenced reads this output for provenance.
+        if "adversarial ML reviewer" in str(inputs):
+            return keep_all(1)
+        return proposal(hypothesis(
+            "model ignores the image, consistent with the ObjSize by label chart",
+            "weak_visual_grounding",
+        ))
 
 
 def _stats_report_with_figure(fig: str) -> StatsAnalysisReport:
@@ -155,7 +159,7 @@ def test_only_m3_diagnose_accepts_explore_context():
 # ---------------------------------------------------------------------------
 
 def test_coerce_explore_context_accepts_dict_ctx_and_none():
-    from evalrx.eval_agent.run_metadata import _coerce_explore_context
+    from evalrx.eval_agent.loop.metadata import _coerce_explore_context
 
     ctx = _coerce_explore_context({"observations": ["a"]})
     assert isinstance(ctx, ExploreContext)
@@ -167,7 +171,7 @@ def test_coerce_explore_context_accepts_dict_ctx_and_none():
 
 
 def test_dispatch_passes_context_only_to_agents_that_accept_it():
-    from evalrx.eval_agent.loop import _diagnose_with_optional_context
+    from evalrx.eval_agent.loop.stages import _diagnose_with_optional_context
 
     ctx = ExploreContext(observations=["x"])
 
@@ -191,14 +195,16 @@ def test_dispatch_passes_context_only_to_agents_that_accept_it():
 
 
 def test_loop_init_stores_coerced_explore_context():
-    from evalrx.eval_agent.loop import VLDiagnoseLoop
+    from evalrx.eval_agent.loop.diagnose import VLDiagnoseLoop
+    from tests.conftest import FakeModel
 
-    loop = VLDiagnoseLoop.__new__(VLDiagnoseLoop)  # avoid heavy __init__ deps
-    # exercise the coercion path used by __init__
-    from evalrx.eval_agent.run_metadata import _coerce_explore_context
-    loop._explore_context = _coerce_explore_context({"charts": [{"title": "C", "figure_path": "/p.png"}]})
-    assert isinstance(loop._explore_context, ExploreContext)
-    assert loop._explore_context.figure_paths == ["/p.png"]
+    loop = VLDiagnoseLoop(
+        model=FakeModel(), protocol=None,
+        explore_report={"charts": [{"title": "C", "figure_path": "/p.png"}]},
+    )
+    context = loop.stages().memory.explore_context
+    assert isinstance(context, ExploreContext)
+    assert context.figure_paths == ["/p.png"]
 
 
 # ---------------------------------------------------------------------------
@@ -208,10 +214,10 @@ def test_loop_init_stores_coerced_explore_context():
 def test_log_diagnosis_records_explore_provenance(tmp_path):
     import json
 
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.eval_agent.stages.diagnosis import DiagnosisResult
 
-    logger = RunLoggerV2(run_dir=tmp_path / "run1", observability_mode="offline")
+    logger = RunLogger(run_dir=tmp_path / "run1", observability_mode="offline")
     diag = DiagnosisResult(
         model_name="vlm",
         hypotheses=[],
@@ -234,14 +240,14 @@ def test_log_diagnosis_persists_the_critic_prompt_beside_its_response(tmp_path):
     import json
 
     from evalrx.eval_agent.hypothesis import Hypothesis
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.eval_agent.stages.diagnosis import DiagnosisResult
 
-    logger = RunLoggerV2(run_dir=tmp_path / "run2", observability_mode="offline")
+    logger = RunLogger(run_dir=tmp_path / "run2", observability_mode="offline")
     h1 = Hypothesis(statement="h1", target_model="vlm", predicted_failure_mode="x")
     diag = DiagnosisResult(
         model_name="vlm", hypotheses=[h1], raw_judge_output="...",
-        critic_raw_output="REJECT: h1\nREASON: n=30",
+        critic_raw_output=review((1, "reject", "n=30")),
         critic_prompt="adversarial reviewer ... LABEL SUMMARY ... gold=no answered=yes",
         n_critic_rejected=1,
         proposed_hypotheses=[h1],
@@ -253,6 +259,6 @@ def test_log_diagnosis_persists_the_critic_prompt_beside_its_response(tmp_path):
     # both record shapes travel together: the critic prompt/response and the review list
     assert entry["proposed_hypotheses"][0]["statement"] == "h1"
     assert entry["review"]["n_rejected"] == 1 and entry["review"]["decisions"][0]["decision"] == "reject"
-    # Inlined directly (no sibling .prompt.txt/.response.txt files under V2).
-    assert entry["critic_raw_output"] == "REJECT: h1\nREASON: n=30"
+    # Inlined directly (no sibling .prompt.txt/.response.txt files).
+    assert entry["critic_raw_output"] == review((1, "reject", "n=30"))
     assert "LABEL SUMMARY" in entry["critic_prompt"]

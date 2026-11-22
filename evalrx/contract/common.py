@@ -242,20 +242,10 @@ class InputsWire(OpenWireModel):
         return present
 
 
-#: Legacy role names this contract shipped before it was aligned to
-#: :class:`evalrx.core.case.StepRole`. Mapped rather than rejected so a
-#: trajectory written by an older producer still validates.
-_LEGACY_STEP_ROLES = {"env": "tool", "critic": "verifier"}
-
-
 class StepWire(OpenWireModel):
     """One step of an agent trajectory.
 
-    ``role`` is exactly :class:`evalrx.core.case.StepRole`. It was not, and
-    the divergence was not cosmetic: ``planner`` / ``verifier`` / ``memory`` /
-    ``system`` are values the producer emits every multi-agent run, and every one
-    of them failed validation here, while ``env`` / ``critic`` named steps no
-    producer can emit.
+    ``role`` is exactly :class:`evalrx.core.case.StepRole`.
     """
 
     idx: int
@@ -273,9 +263,7 @@ class StepWire(OpenWireModel):
 
     @field_validator("role", mode="before")
     @classmethod
-    def _map_legacy_role(cls, v: Any) -> Any:
-        if isinstance(v, str):
-            return _LEGACY_STEP_ROLES.get(v, v)
+    def _role_value(cls, v: Any) -> Any:
         return getattr(v, "value", v)
 
 
@@ -406,6 +394,9 @@ class JoinReport(WireModel):
         return self.n_left > 0 and self.n_matched == 0
 
 
+StageName = Literal["pre_m1", "m1", "explore", "m2", "m3", "m5_surgery", "m5_fix", "m4"]
+
+
 class StageStatus(WireModel):
     """Terminal state of one stage in one cycle.
 
@@ -414,7 +405,7 @@ class StageStatus(WireModel):
     has for whether to trust the absence of a result.
     """
 
-    stage: Literal["pre_m1", "m1", "explore", "m2", "m3", "m5_surgery", "m5_fix", "m4"]
+    stage: StageName
     state: StageState
     cycle: int = Field(description="Normal cycles start at 0; the post-loop fix uses -1.")
     reason: str | None = Field(

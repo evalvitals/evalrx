@@ -131,7 +131,7 @@ def test_default_runner_constructs_agentic_pipeline_for_every_modality(monkeypat
     from evalrx.benchmark.models import resolve
     from evalrx.benchmark.tasks import get
     from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
-    from evalrx.eval_agent import AgenticDiagnoseLoop, CaseDiscoveryAgent
+    from evalrx.eval_agent import CaseDiscoveryAgent, VLDiagnoseLoop
     from evalrx.specs import get_spec
     from tests.conftest import FakeModel
 
@@ -157,12 +157,12 @@ def test_default_runner_constructs_agentic_pipeline_for_every_modality(monkeypat
 
     def run(loop, data):
         assert loop.probe_agent.allow_codegen
-        assert loop.max_actions == 12
+        assert loop.policy.max_actions == 12
         assert loop.fix_agent.proposer._floor_candidates == ()
         assert len(data) == 8
         raise ReachedController
 
-    monkeypatch.setattr(AgenticDiagnoseLoop, 'run', run)
+    monkeypatch.setattr(VLDiagnoseLoop, 'run', run)
     with pytest.raises(ReachedController):
         runner.run(args, get(dataset), resolved)
 
@@ -182,7 +182,7 @@ def test_triage_explainer_is_the_chain_judge_and_never_the_model_under_test(monk
                                      '--triage-scheduler', 'scored', '--triage-explanations', 'judge'])
     explainer = runner._triage_explainer(args, spec)
     assert isinstance(explainer, Explainer) and seen == {'allow_codegen': False, 'skip_m5': True}
-    assert explainer.identity == {'provider': 'gemini', 'model': 'gemini-2.5-flash', 'effort': 'high'}
+    assert explainer.identity == {'provider': 'gemini', 'model': 'gemini-2.5-flash', 'effort': 'medium'}
     rules = build_parser().parse_args(['--triage-explanations', 'judge'])
     with pytest.raises(SystemExit, match='--triage-scheduler scored'):
         runner._triage_explainer(rules, spec)

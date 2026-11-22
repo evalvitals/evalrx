@@ -42,7 +42,6 @@ _add(ModelSpec(
     hf_repo="Qwen/Qwen2.5-7B-Instruct", auto_class="AutoModelForCausalLM",
     processor_class="AutoTokenizer", min_transformers="4.43.0", tool_calling=True,
     module_paths=ModulePaths(decoder_layers="model.layers"),
-    caveats=("matches the legacy QwenLLM default checkpoint",),
 ))
 _add(ModelSpec(
     key="qwen3-4b", family="qwen3", model_type="qwen3",
@@ -708,7 +707,7 @@ __all__ = ["REGISTRY", "get_spec", "list_specs"]
 # ----------------------------------------------------------------------
 # examples/benchmark family: Gemini (Google Gen AI API, closed weights) (2026-08-25)
 # ----------------------------------------------------------------------
-# ``api_only``: the ``api`` backend with ``gemini_compat.gemini_runtime`` (the
+# ``api_only``: the ``api`` backend with ``backends.api.gemini.gemini_runtime`` (the
 # official google-genai SDK); the spec key IS the API model id (``hf_repo`` is
 # empty, ``APIModel`` sends ``spec.hf_repo or spec.key``). Every model below
 # lists text, image, video, audio and PDF as inputs on its model card, so one

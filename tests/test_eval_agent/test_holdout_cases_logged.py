@@ -17,7 +17,7 @@ from evalrx.core.capability import Capability
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.eval_agent import DiagnosisAgent, RunContext, VLDiagnoseLoop
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
-from evalrx.reporting.run_events import read_v2_events
+from evalrx.reporting.run_events import read_run_events
 from tests.conftest import FakeModel
 from tests.test_eval_agent.test_vl_diagnose import ScriptedModel
 
@@ -35,7 +35,7 @@ def _batch(n: int = 20) -> CaseBatch:
 
 def _logged_ids(root) -> set[str]:
     ids = set()
-    for e in read_v2_events(root):
+    for e in read_run_events(root):
         if e.get("event") == "case_record":
             ids.add(e["case"]["id"])
     return ids
@@ -71,7 +71,7 @@ def test_logging_a_case_twice_does_not_duplicate_it(tmp_path):
         ctx.logger.log_cases(cases)
         ctx.logger.log_cases(cases)
     ids = [
-        e["case"]["id"] for e in read_v2_events(ctx.root) if e.get("event") == "case_record"
+        e["case"]["id"] for e in read_run_events(ctx.root) if e.get("event") == "case_record"
     ]
     assert len(ids) == len(set(ids)) == 8
 
@@ -97,7 +97,7 @@ def test_each_case_record_names_its_partition(tmp_path):
 
     by_split: dict[str, set[str]] = {}
     run_start = None
-    for e in read_v2_events(ctx.root):
+    for e in read_run_events(ctx.root):
         if e.get("event") == "run_start":
             run_start = e
         if e.get("event") == "case_record":

@@ -176,7 +176,7 @@ def _split_top_level(text: str) -> list[str]:
     return parts
 
 
-def _params_of(cls: type) -> "tuple[ProbeParam, ...]":
+def _params_of(cls: "type[Any]") -> "tuple[ProbeParam, ...]":
     try:
         signature = inspect.signature(cls.__init__)
     except (TypeError, ValueError):
@@ -216,13 +216,16 @@ def _first_line(text: "str | None") -> str:
     return ""
 
 
-def is_stub(cls: type) -> bool:
+def is_stub(cls: "type[Any]") -> bool:
     """True when ``_run`` only raises ``NotImplementedError`` (a registered placeholder)."""
     try:
         tree = ast.parse(textwrap.dedent(inspect.getsource(cls._run)))
     except (OSError, TypeError, SyntaxError, AttributeError):
         return False
-    body = [n for n in tree.body[0].body
+    func = tree.body[0]
+    if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return False
+    body = [n for n in func.body
             if not (isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant))]
     if len(body) != 1 or not isinstance(body[0], ast.Raise):
         return False

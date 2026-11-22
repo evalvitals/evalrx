@@ -172,6 +172,11 @@ def main(config: BenchmarkConfig) -> None:
     parser.add_argument("--run-dir", default="outputs")
     parser.add_argument("--smoke-test", action="store_true")
     args = parser.parse_args()
+    if args.judge_provider == "claude" and not args.judge_model:
+        from evalrx.eval_agent import ClaudeModel
+
+        # The package default, named once so the coder follows the judge.
+        args.judge_model = ClaudeModel.DEFAULT_MODEL
 
     manifest = Path(args.manifest)
     if args.smoke_test:
@@ -186,6 +191,7 @@ def main(config: BenchmarkConfig) -> None:
         ExperimentProtocol,
         FixAgent,
         HypothesisTester,
+        ModelKind,
         ProbeAgent,
         RunContext,
         StatsAnalysisAgent,
@@ -219,7 +225,7 @@ def main(config: BenchmarkConfig) -> None:
         from evalrx.eval_agent import ClaudeModel
 
         judge = ClaudeModel(
-            model=args.judge_model or "sonnet",
+            model=args.judge_model,
             effort=args.judge_effort,
             timeout_sec=300,
         )
@@ -280,7 +286,7 @@ def main(config: BenchmarkConfig) -> None:
         "coverage_verification_gap",
     ]
     probe_agent = ProbeAgent(
-        probe=StrategyProbe(priority_override={key: pinned for key in ("vlm", "agent", "llm")}),
+        probe=StrategyProbe(priority_override={kind: pinned for kind in ModelKind}),
         judge=None,
         max_analyzers=len(pinned),
     )

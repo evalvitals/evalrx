@@ -9,17 +9,19 @@ explorer self-declared (the explorer schema does not even carry one).
 
 Mechanics (mirror ``stats_tools`` / ``stats_tool_generator`` exactly):
 
-- ``_reconstruct_decision`` turns sufficient statistics into
-  ``(reject, e_value, effect, ci)`` via the validated core.
-- ``fdr_correct`` applies e-BH across every candidate that produced an e-value
-  (the ``paired_binary`` shape), so proposing more candidates pays more
-  multiplicity — exactly one e-BH family, no per-candidate self-rejection.
-- A ``two_group`` candidate yields a bootstrap-CI reject but no e-value (matching
-  the ``signal_label_assoc`` catalog tool). It is host-adjudicated but sits
-  OUTSIDE the e-BH family and is flagged ``fdr_corrected=False`` — honest, not
-  over-claimed.
+- ``reconstruct_evidence`` turns sufficient statistics into a verdict via the
+  validated core.
+- A ``paired_binary`` candidate yields an e-value; those candidates share one
+  e-BH family.
+- A ``two_group`` candidate yields a bootstrap interval and p-value; those
+  candidates share one Benjamini-Hochberg family. Its ``reject`` is survival of
+  that correction, so proposing more two-group candidates pays more
+  multiplicity, as it does for paired ones. ``raw_reject`` in the returned
+  metadata lists the candidates whose own interval excluded zero.
 - A candidate with no adjudicable ``sufficient`` is ``descriptive_only`` and never
   rejects.
+- ``method`` in the returned metadata names the correction that was applied:
+  ``"e-BH"``, ``"BH"``, both, or ``"none"`` when no candidate could be tested.
 
 IMPORTANT — split discipline: in the standalone chat path the candidate's
 ``sufficient`` is computed on the SAME rows used to discover the signal. That is
@@ -33,7 +35,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from evalrx.analysis.stats_tool_generator import _reconstruct_decision
+from evalrx.analysis.stats_tool_generator import reconstruct_evidence
 from evalrx.analysis.stats_tools import StatsToolResult, fdr_correct
 
 if TYPE_CHECKING:
@@ -57,75 +59,82 @@ def adjudicate_signals(
     Reads only ``candidate.sufficient`` — never a self-declared verdict. Returns a
     metadata dict describing the single e-BH family the candidates competed in.
     """
-    # 1) Host reconstruction per candidate; assemble the e-BH family from the
-    #    candidates that produced an e-value (paired_binary).
+    # 1) Host reconstruction per candidate; candidates with an e-value form the
+    #    e-BH family, candidates with a p-value the BH family.
     raw_reject: dict[int, bool] = {}
     family: list[StatsToolResult] = []
     family_key: dict[int, str] = {}
     for i, c in enumerate(candidates):
-        recon = (
-            _reconstruct_decision(c.sufficient, alpha)
+        evidence = (
+            reconstruct_evidence(c.sufficient, alpha)
             if isinstance(c.sufficient, dict)
             else None
         )
-        if recon is None:
+        if evidence is None:
             c.host_adjudicated = False
             c.descriptive_only = True
             c.fdr_corrected = False
             c.e_value = None
+            c.p_value = None
             c.reject = False
             continue
 
-        reject, e_value, effect, ci = recon
         c.host_adjudicated = True
         c.descriptive_only = False
-        c.e_value = e_value
-        if effect is not None:
-            c.effect = effect
-        if ci is not None:
-            c.ci = ci
-        raw_reject[i] = bool(reject)
-        if e_value is not None:
+        c.e_value = evidence["e_value"]
+        c.p_value = evidence["p_value"]
+        if evidence["effect"] is not None:
+            c.effect = evidence["effect"]
+        if evidence["ci"] is not None:
+            c.ci = evidence["ci"]
+        raw_reject[i] = bool(evidence["reject"])
+        if c.e_value is not None or c.p_value is not None:
             key = _family_key(c, i)
             family_key[i] = key
             family.append(
                 StatsToolResult(
-                    tool=key, e_value=e_value, effect=effect, ci=ci, reject=bool(reject)
+                    tool="candidate_signal", analysis_key=key,
+                    e_value=c.e_value,
+                    p_value=c.p_value if c.e_value is None else None,
+                    effect=c.effect, ci=c.ci, reject=raw_reject[i],
+                    correction_family="e_bh" if c.e_value is not None else "bh",
                 )
             )
 
-    # 2) ONE e-BH family across the e-value-bearing candidates (the multiplicity
-    #    firewall). `fdr_correct` only considers results with an e-value.
+    # 2) One e-BH family across the e-value-bearing candidates and one BH
+    #    family across the p-value-bearing ones (the multiplicity firewall).
     fdr = fdr_correct(family, alpha=alpha)
-    rejected_keys = set(fdr.get("rejected_tools", []))
+    rejected_keys = set(fdr.get("rejected_result_keys", []))
 
-    # 3) Final reject per candidate.
+    # 3) Final reject per candidate: survival of its family's correction.
+    #    `fdr_corrected` means "this rejection is FDR-controlled" — True ONLY
+    #    when it survived (matches fused_pipeline; a family member that did not
+    #    survive is reject=False, fdr_corrected=False).
     for i, c in enumerate(candidates):
         if not c.host_adjudicated:
             continue
-        if c.e_value is not None:
-            # In the e-BH family. `reject` IS the e-BH outcome; `fdr_corrected`
-            # means "this rejection is FDR-controlled" — True ONLY when it survived
-            # e-BH (matches fused_pipeline; a family member that did not survive is
-            # reject=False, fdr_corrected=False). Family membership is recoverable
-            # from `e_value is not None`, so no information is lost.
-            c.reject = family_key.get(i) in rejected_keys
-            c.fdr_corrected = bool(c.reject)
-        else:
-            # two_group: CI-based reject, outside the e-BH family (mirrors M2's
-            # signal_label_assoc). Honest about not being FDR-corrected.
-            c.fdr_corrected = False
-            c.reject = raw_reject.get(i, False)
+        c.reject = family_key.get(i) in rejected_keys
+        c.fdr_corrected = bool(c.reject)
 
+    n_e = sum(1 for c in candidates if c.host_adjudicated and c.e_value is not None)
+    n_p = sum(
+        1 for c in candidates
+        if c.host_adjudicated and c.e_value is None and c.p_value is not None
+    )
+    method = " + ".join(
+        name for name, size in (("e-BH", n_e), ("BH", n_p)) if size
+    ) or "none"
     return {
-        "method": "e-BH",
+        "method": method,
         "alpha": alpha,
         "split": split_label,
         "n_candidates": len(candidates),
         "n_host_adjudicated": sum(1 for c in candidates if c.host_adjudicated),
-        "n_in_family": len(family),  # e-value-bearing candidates under e-BH
+        "n_in_family": n_e,  # e-value-bearing candidates under e-BH
+        "n_in_p_family": n_p,  # p-value-bearing (two_group) candidates under BH
         "n_rejected": sum(1 for c in candidates if c.reject),
         "rejected": [c.name for c in candidates if c.reject],
+        "raw_reject": [c.name for i, c in enumerate(candidates) if raw_reject.get(i)],
     }
 
 

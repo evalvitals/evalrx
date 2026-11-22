@@ -72,7 +72,7 @@ def test_matched_sample_reports_shortfall_instead_of_borrowing():
 
 
 def test_explore_split_is_the_loops_split():
-    from evalrx.eval_agent.loop import VLDiagnoseLoop
+    from evalrx.eval_agent import VLDiagnoseLoop
     from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
     cases = _cases(10, 14)
@@ -865,3 +865,24 @@ def test_per_call_sampling_is_requested_only_where_the_backend_honours_it():
                                                                           "top_k": 20}
     assert _sampling_kwargs(SimpleNamespace(backend="gemini"), args) == {"temperature": 1.0}  # merged per call
     assert _sampling_kwargs(SimpleNamespace(backend="endpoint"), args) is None             # dropped per call
+
+
+def test_metered_model_counts_batch_calls_per_input():
+    from evalrx.eval_agent.probing.metering import MeteredModel
+
+    class Batched:
+        def generate_batch(self, inputs, **kwargs):
+            return [str(i) for i in inputs]
+
+        def try_generate_batch(self, inputs, **kwargs):
+            return ["a", ValueError("no answer")]
+
+        def logprobs_batch(self, inputs, **kwargs):
+            return [[] for _ in inputs]
+
+    metered = MeteredModel(Batched())
+    assert metered.generate_batch([1, 2, 3]) == ["1", "2", "3"]
+    metered.try_generate_batch([1, 2])
+    metered.logprobs_batch([1])
+    assert dict(metered.calls) == {"generate": 5, "logprobs": 1}
+    assert dict(metered.errors) == {"generate": 1}

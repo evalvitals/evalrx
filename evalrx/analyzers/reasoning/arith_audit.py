@@ -78,6 +78,10 @@ class ArithmeticAudit(Analyzer):
     requires = frozenset()
     applies_to_modalities = frozenset({"text", "image"})
 
+    rel_tol: float
+    generate_missing: bool
+    max_cases: int
+
     def __init__(
         self,
         rel_tol: float = 1e-6,
@@ -99,13 +103,17 @@ class ArithmeticAudit(Analyzer):
             raise CapabilityError(
                 analyzer=self.name, model=repr(model), missing={Capability.GENERATE}
             )
-        per_case: list[dict[str, Any]] = []
-        for case in cases.stratified_head(self.max_cases):
-            text = case.observed
-            if not str(text or "").strip() and self.generate_missing:
-                prompt = f"{case.inputs.prompt or ''}\n\n{_COT_SUFFIX}"
-                text = str(model.generate(dataclasses.replace(case.inputs, prompt=prompt)))
-            per_case.append(self._audit(case, text))
+        selected = list(cases.stratified_head(self.max_cases))
+        texts: list[Any] = [case.observed for case in selected]
+        if self.generate_missing:
+            missing = [i for i, text in enumerate(texts) if not str(text or "").strip()]
+            fresh = model.generate_batch([
+                dataclasses.replace(
+                    selected[i].inputs, prompt=f"{selected[i].inputs.prompt or ''}\n\n{_COT_SUFFIX}")
+                for i in missing])
+            for i, text in zip(missing, fresh):
+                texts[i] = str(text)
+        per_case = [self._audit(case, text) for case, text in zip(selected, texts)]
 
         classified = [c for c in per_case if c.get("error_class") not in (None, UNKNOWN)]
         wrong = [c for c in classified if c["answer_correct"] == 0]

@@ -11,7 +11,11 @@ annotated-doc==0.0.5
 annotated-types==0.8.0
     # via pydantic
 anyio==4.15.1
-    # via httpx
+    # via
+    #   httpx
+    #   httpx2
+    #   pydantic-ai-slim
+    #   pydantic-graph
 attrs==26.1.0
     # via aiohttp
 certifi==2026.7.22
@@ -59,14 +63,26 @@ fsspec==2026.7.0
     #   datasets
     #   huggingface-hub
     #   torch
+genai-prices==0.2.5
+    # via pydantic-ai-slim
+griffelib==2.4.1
+    # via pydantic-ai-slim
 h11==0.16.0
-    # via httpcore
+    # via
+    #   httpcore
+    #   httpcore2
 hf-xet==1.7.0
     # via huggingface-hub
 httpcore==1.0.9
     # via httpx
+httpcore2==2.16.2
+    # via httpx2
 httpx==0.28.1
     # via huggingface-hub
+httpx2==2.16.2
+    # via
+    #   genai-prices
+    #   pydantic-ai-slim
 huggingface-hub==1.33.0
     # via
     #   accelerate
@@ -77,6 +93,7 @@ idna==3.20
     # via
     #   anyio
     #   httpx
+    #   httpx2
     #   requests
     #   yarl
 interface-meta==2.0.1
@@ -87,6 +104,8 @@ joblib==1.6.0
     # via scikit-learn
 kiwisolver==1.5.1
     # via matplotlib
+logfire-api==6.0.0
+    # via pydantic-graph
 markdown-it-py==4.2.0
     # via rich
 markupsafe==3.0.4
@@ -163,6 +182,8 @@ nvidia-nvshmem-cu12==3.4.5
     # via torch
 nvidia-nvtx-cu12==12.9.79
     # via cuda-toolkit
+opentelemetry-api==1.45.2
+    # via pydantic-ai-slim
 packaging==26.3
     # via
     #   accelerate
@@ -194,9 +215,17 @@ psutil==7.2.2
 pyarrow==26.0.0
     # via datasets
 pydantic==2.14.0
+    # via
+    #   evalrx (pyproject.toml)
+    #   genai-prices
+    #   pydantic-ai-slim
+    #   pydantic-graph
+pydantic-ai-slim==2.71.0
     # via evalrx (pyproject.toml)
 pydantic-core==2.50.0
     # via pydantic
+pydantic-graph==2.71.0
+    # via pydantic-ai-slim
 pygments==2.21.0
     # via rich
 pyparsing==3.3.3
@@ -262,6 +291,10 @@ transformers==5.15.0
     #   evalrx (pyproject.toml)
 triton==3.7.1
     # via torch
+truststore==0.10.5
+    # via
+    #   httpcore2
+    #   httpx2
 typer==0.27.3
     # via transformers
 typing-extensions==4.16.0
@@ -270,13 +303,18 @@ typing-extensions==4.16.0
     #   aiosignal
     #   anyio
     #   formulaic
+    #   httpx2
     #   huggingface-hub
+    #   opentelemetry-api
     #   pydantic
     #   pydantic-core
     #   torch
     #   typing-inspection
 typing-inspection==0.4.4
-    # via pydantic
+    # via
+    #   pydantic
+    #   pydantic-ai-slim
+    #   pydantic-graph
 urllib3==2.8.0
     # via requests
 wrapt==2.5.0

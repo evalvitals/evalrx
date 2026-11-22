@@ -15,7 +15,6 @@ by case, so the two policies are compared case for case under ``by="case"`` only
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -33,13 +32,9 @@ def explore_confirm_split(data: "CaseBatch", confirm_split: float, seed: int, *,
         raise ValueError(f"by must be one of {SPLIT_BY}, not {by!r}")
     if by == "media":
         return split_by_media(data, float(confirm_split), int(seed))
-    from evalrx.eval_agent.loop import VLDiagnoseLoop
+    from evalrx.eval_agent.loop.partition import split_cases
 
-    view = SimpleNamespace(
-        confirm_split=float(confirm_split), test_split=0.0,
-        confirm_split_seed=int(seed), _strat_key=VLDiagnoseLoop._strat_key,
-    )
-    explore, confirm, _test = VLDiagnoseLoop._split_partitions(view, data)
+    explore, confirm, _test = split_cases(data, confirm_split=float(confirm_split), test_split=0.0, seed=int(seed))
     return explore, confirm
 
 
@@ -49,7 +44,7 @@ def split_by_media(data: "CaseBatch", confirm_split: float, seed: int) -> "tuple
     stratum), so each side keeps the batch's FAIL share. The loop's thresholds hold: no split under
     4 cases or when a side would be empty (then ``(data, None)``)."""
     from evalrx.core.case import CaseBatch
-    from evalrx.eval_agent.loop import VLDiagnoseLoop
+    from evalrx.eval_agent.loop.partition import _strat_key
     from evalrx.eval_agent.probing.validation import source_key
     from evalrx.stats.subset_sampling import stratified_subset
 
@@ -64,7 +59,7 @@ def split_by_media(data: "CaseBatch", confirm_split: float, seed: int) -> "tuple
     n_groups = max(1, min(len(members) - 1, round(len(members) * confirm_split)))
 
     def stratum(group: list) -> tuple:
-        return tuple(sorted(repr(VLDiagnoseLoop._strat_key(c)) for c in group))
+        return tuple(sorted(repr(_strat_key(c)) for c in group))
 
     chosen = {id(c) for g in stratified_subset(members, stratum, n_groups, seed=seed) for c in g}
     confirm = [c for c in cases if id(c) in chosen]

@@ -370,10 +370,10 @@ def spread(groups: "list[list[float]]", kind: str) -> "float | None":
     A share's spread is that of its smoothed rate ``(k + 2) / (m + 4)``, so a share
     measured at 0 still has one (the interval around 0/16 is not empty)."""
     if kind == "rate":
-        rows = [(len(g), (sum(1 for x in g if x >= 0.5) + 2) / (len(g) + 4)) for g in groups if g]
-        if not rows:
+        rates = [(len(g), (sum(1 for x in g if x >= 0.5) + 2) / (len(g) + 4)) for g in groups if g]
+        if not rates:
             return None
-        return math.sqrt(sum(m * p * (1 - p) for m, p in rows) / sum(m for m, _ in rows))
+        return math.sqrt(sum(m * p * (1 - p) for m, p in rates) / sum(m for m, _ in rates))
     rows = [g for g in groups if len(g) >= 2]
     if not rows:
         return None
@@ -661,7 +661,7 @@ def parse(reply: str, offered: dict[str, dict[str, list[str]]],
             primary: list[tuple[str, str]] = []
             for pair in item.get("primary") or []:
                 step, reading = (list(pair) + [None, None])[:2] if isinstance(pair, (list, tuple)) else (None, None)
-                if reading not in (preds.get(step) or {}):
+                if step is None or reading is None or reading not in (preds.get(step) or {}):
                     dropped.append({"what": f"{hid} primary {pair!r}", "reason": "not one of its explicit predictions"})
                 elif (step, reading) not in primary:
                     primary.append((step, reading))
@@ -749,8 +749,8 @@ class Explainer:
         try:
             reply = str(self.judge.generate(text))
         except Exception as exc:  # noqa: BLE001 - a judge failure leaves D at 0 for this revision
-            cost = {"wall_sec": round(time.monotonic() - started, 3), "calls": {"judge": 1}}
-            return ExplanationSet(revision, key, offered=offered, source="failed", cost=cost,
+            failed = {"wall_sec": round(time.monotonic() - started, 3), "calls": {"judge": 1}}
+            return ExplanationSet(revision, key, offered=offered, source="failed", cost=failed,
                                   error=f"{type(exc).__name__}: {exc}")
         cost: dict[str, Any] = {"wall_sec": round(time.monotonic() - started, 3), "calls": {"judge": 1}}
         usage = usage_delta(before, usage_counters(self.judge))

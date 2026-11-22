@@ -82,7 +82,7 @@ import time
 from collections import Counter
 from functools import lru_cache, partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 from evalrx.analyzers.perturbation.prompt_contrast import _DEFAULT_STRATEGIES as _PROMPT_STRATEGIES
 from evalrx.eval_agent.probing.actions import (
@@ -540,10 +540,10 @@ class _Run:
                 return None
             reason = f"step is {why}"
             self.ledger.trace({**base, "event": "not_applicable", "reason": reason})
-            record = {**base, "status": "not_applicable", "reused": False, "reason": reason}
-            self._log(record)
+            skipped = {**base, "status": "not_applicable", "reused": False, "reason": reason}
+            self._log(skipped)
             self.say(f"[triage] {step.name}: not applicable ({self.task_kind})")
-            return record
+            return skipped
         config = self.config(step)
         try:
             analyzer, version, context, step_id = self._identity(step)
@@ -553,13 +553,13 @@ class _Run:
             reason = f"could not construct: {type(exc).__name__}: {exc}"
             self.ledger.trace({**base, "event": "skipped", "status": "failed", "reason": reason})
             self.blocked[step.name] = reason
-            record = {**base, "status": "failed", "reused": False, "error": str(exc)}
-            self._log(record)
-            return record
+            failed = {**base, "status": "failed", "reused": False, "error": str(exc)}
+            self._log(failed)
+            return failed
         todo = ev.todo(target)
         if not todo:
             return None
-        record = None
+        record: "dict[str, Any] | None" = None
         for part in self.chunks(step, todo):
             out = self._run_part(step, part, ev, base, analyzer, version, context, step_id, config,
                                  kind=kind, revision=revision, rule_id=rule_id)
@@ -588,10 +588,10 @@ class _Run:
         if why is not None:
             self.ledger.trace({**base, "event": "skipped", "status": SKIPPED, "reason": why, "n_cases": len(todo)})
             self.blocked[step.name] = why
-            record = {**base, "status": SKIPPED, "reused": False, "reason": why, "n_cases": len(todo)}
-            self._log(record)
+            skipped = {**base, "status": SKIPPED, "reused": False, "reason": why, "n_cases": len(todo)}
+            self._log(skipped)
             self.say(f"[triage] {step.name}: skipped ({why})")
-            return record
+            return skipped
         record = self._adopt(ev, step_id, target, base) if step.reuse else None
 
         todo = ev.todo(target)
@@ -765,7 +765,7 @@ def run_triage(
                              (at most ``explainer.max_asks`` times, and only while the largest
                              call so far fits the budget); its predictions give each
                              candidate its D. ``None`` = D stays 0.
-        run_logger:          optional RunLoggerV2 for per-call model logs.
+        run_logger:          optional RunLogger for per-call model logs.
     """
     if scheduler not in SCHEDULERS:
         raise ValueError(f"scheduler must be one of {SCHEDULERS}; got {scheduler!r}")
@@ -1032,7 +1032,7 @@ def run_triage(
             pool[route], offer[route] = rows, rows + extra
         return pool, offer
 
-    explored_on: set[tuple[str, str]] = set()   # (route, step key) an exploration decision started
+    explored_on: set[tuple[str | None, str]] = set()   # (route, step key) an exploration decision started
 
     def exploration_targets(records: list[dict[str, Any]], states: dict[str, list[dict[str, Any]]], growing: bool,
                             axis: str, readings: Readings
@@ -1158,10 +1158,10 @@ def run_triage(
                                    "readings": [m.card() for m in CARDS[step.name]]})
             measured: dict[str, Any] = {}
             for key in sorted(CARDS):
-                rows = {m.field: {k: v for k, v in o.items() if k != "observed" or v != "not_measured"}
+                read = {m.field: {k: v for k, v in o.items() if k != "observed" or v != "not_measured"}
                         for m in CARDS[key] if (o := outcome_of(route, key, m))["n"] != [0, 0]}
-                if rows:
-                    measured[key] = rows
+                if read:
+                    measured[key] = read
             ran = [{"step": key, "readings": [m.card() for m in CARDS[key]]} for key in measured
                    if not restates_route(route, key) and all(c["step"] != key for c in to_run)]
             if not to_run and not ran:
@@ -1443,8 +1443,10 @@ def run_triage(
                 break
             if why == "explore" and targets is not None and pick in targets:
                 explored_on.add((pick.route, pick.key))
-            if pick.kind != "battery" and (pick.route, pick.rule_id, pick.key) not in followed:
-                followed.append((pick.route, pick.rule_id, pick.key))
+            if pick.kind != "battery":
+                step_done = (cast(str, pick.route), cast(str, pick.rule_id), pick.key)   # a follow-up has both
+                if step_done not in followed:
+                    followed.append(step_done)
             round_no += 1
 
     while stop is None:
@@ -1459,10 +1461,10 @@ def run_triage(
                 if n_actions() >= max_actions:
                     stop = {"reason": "max_actions", "max_actions": max_actions, "pending": "expansion"}
                     break
-                why = run.over_budget(plan[3])
-                if why is not None:
-                    expansion_note = {"state": "skipped", "reason": why, "gaps": gaps}
-                    decide({"kind": "expand_skipped", "rule_id": "E1", "reason": why, "gaps": gaps,
+                refused = run.over_budget(plan[3])
+                if refused is not None:
+                    expansion_note = {"state": "skipped", "reason": refused, "gaps": gaps}
+                    decide({"kind": "expand_skipped", "rule_id": "E1", "reason": refused, "gaps": gaps,
                             "estimate_sec": plan[3]})
                     continue
                 cut = do_expand(plan, gaps, {"rationale": "an evidence gap a larger nested sample can close; expansion "
@@ -1642,7 +1644,7 @@ def _evidence_cost(run: _Run) -> dict[str, Any]:
                            "wall_sec": round(sum(float(c.get("wall_sec") or 0.0) for c in costs), 3)}
     if priced:
         usd = [c.get("usd") for c in priced]
-        out["usd"] = round(sum(usd), 6) if all(v is not None for v in usd) else None
+        out["usd"] = round(sum(cast("list[float]", usd)), 6) if all(v is not None for v in usd) else None
     return out
 
 
@@ -1659,13 +1661,14 @@ def _judge_cost(sets: list[ExplanationSet]) -> dict[str, Any]:
     return {"n_calls": len(asked), "n_failed": sum(1 for es in asked if es.source == "failed"),
             "n_read_back": sum(1 for es in sets if es.source == "read_back"),
             "wall_sec": round(sum(float(es.cost.get("wall_sec") or 0.0) for es in asked), 3),
-            **({"usd": round(sum(usd), 6) if all(v is not None for v in usd) else None} if usd else {})}
+            **({"usd": round(sum(cast("list[float]", usd)), 6) if all(v is not None for v in usd) else None} if usd else {})}
 
 
 def _explanations_report(sets: list[ExplanationSet], explainer: Any,
                          outcome_of: Callable[[str, str, Metric], dict[str, Any]]) -> dict[str, Any]:
     """Every explanation set with each prediction checked on the final evidence, and the tally."""
-    rows, tally = [], Counter()
+    rows: list[dict[str, Any]] = []
+    tally: Counter = Counter()
     for es in sets:
         final = check(es.hypotheses, outcome_of)
         for hid, h in final.items():
@@ -1757,7 +1760,7 @@ def _cost_summary(executions: list[dict[str, Any]], stage0_cost: "dict[str, Any]
                                "wall_sec": round(sum(float(c.get("wall_sec") or 0.0) for c in costs), 3)}
         if usage:
             out["api_usage"] = {k: sum(int(u.get(k, 0)) for u in usage) for k in usage[0]}
-            out["usd"] = round(sum(usd), 6) if all(v is not None for v in usd) else None
+            out["usd"] = round(sum(cast("list[float]", usd)), 6) if all(v is not None for v in usd) else None
         return out
 
     ran = [e for e in executions if e.get("cost") is not None and not e.get("reused")]

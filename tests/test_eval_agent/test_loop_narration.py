@@ -1,11 +1,11 @@
 """Regression coverage for the M1-M5 loop's live terminal narration
-(RunLoggerV2's `narrate=True` -> LoopNarrator)."""
+(RunLogger's `narrate=True` -> LoopNarrator)."""
 
 from __future__ import annotations
 
 import io
 
-from evalrx.eval_agent.narration import LoopNarrator, _supports_color
+from evalrx.eval_agent.runlog.narration import LoopNarrator, _supports_color
 
 
 def _narrator() -> tuple[LoopNarrator, io.StringIO]:

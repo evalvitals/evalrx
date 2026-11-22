@@ -4,7 +4,7 @@ These tests are the teeth behind log_schema.py: they prove the committed
 ``run_log.schema.json`` is (1) in sync with the schema-as-code builder, and
 (2) a well-formed Draft 2020-12 schema. (3) — that what a run actually
 emits for *every* event type validates against it — lives in
-``test_run_logger_v2.py``'s
+``test_run_logger.py``'s
 ``test_persisted_event_identity_orders_concurrent_calls_and_validates``,
 next to the producer it's checking.
 """
@@ -20,19 +20,19 @@ jsonschema = pytest.importorskip("jsonschema")
 
 def test_committed_schema_matches_builder():
     """The shipped JSON file must equal build_schema() — re-render after edits."""
-    from evalrx.eval_agent.log_schema import SCHEMA_PATH, build_schema
+    from evalrx.eval_agent.runlog.schema import SCHEMA_PATH, build_schema
 
     committed = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     assert committed == build_schema(), (
         "run_log.schema.json is stale. Re-render it:\n"
-        "  python -c \"import json; from evalrx.eval_agent.log_schema import "
+        "  python -c \"import json; from evalrx.eval_agent.runlog.schema import "
         "build_schema, SCHEMA_PATH; SCHEMA_PATH.write_text(json.dumps(build_schema(), "
         "indent=2)+chr(10))\""
     )
 
 
 def test_schema_is_valid_draft_2020_12():
-    from evalrx.eval_agent.log_schema import build_schema
+    from evalrx.eval_agent.runlog.schema import build_schema
 
     schema = build_schema()
     cls = jsonschema.validators.validator_for(schema)
@@ -42,7 +42,7 @@ def test_schema_is_valid_draft_2020_12():
 
 def test_validation_rejects_malformed_events():
     """The schema must actually reject the breakage it claims to catch."""
-    from evalrx.eval_agent.log_schema import RUN_LOG_SCHEMA_VERSION, validate_event
+    from evalrx.eval_agent.runlog.schema import RUN_LOG_SCHEMA_VERSION, validate_event
 
     base = {
         "event": "probe", "schema_version": RUN_LOG_SCHEMA_VERSION,

@@ -34,7 +34,7 @@ from evalrx.analyzers.reasoning._text import (
     extract_answer,
     normalize_answer,
 )
-from evalrx.core.analyzer import Analyzer
+from evalrx.core.analyzer import Analyzer, Ask, Probe, run_probes
 from evalrx.core.capability import Capability
 from evalrx.core.registry import register_analyzer
 from evalrx.core.result import Result
@@ -79,6 +79,10 @@ class SelfRepairAnalyzer(Analyzer):
     requires = frozenset({Capability.GENERATE})
     applies_to_modalities = frozenset({"text", "image"})
 
+    revise_with_critique: bool
+    max_cases: int
+    generate_missing: bool
+
     def __init__(
         self,
         revise_with_critique: bool = False,
@@ -97,18 +101,8 @@ class SelfRepairAnalyzer(Analyzer):
         self.answer_fn = answer_fn or extract_answer
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
-        per_case: list[dict[str, Any]] = []
-        for case in cases.stratified_head(self.max_cases):
-            baseline = case.observed
-            if not str(baseline or "").strip():
-                if not self.generate_missing:
-                    per_case.append(
-                        {"sample_id": case.id, "skipped": "no stored answer to revise"}
-                    )
-                    continue
-                baseline = str(model.generate(case.inputs))
-            entry = self._probe_case(model, case, str(baseline))
-            per_case.append(entry)
+        per_case = run_probes(
+            model, [self._probe_case(case) for case in cases.stratified_head(self.max_cases)])
 
         graded = [c for c in per_case if "baseline_correct" in c]
         failed = [c for c in graded if c["baseline_correct"] == 0]
@@ -171,13 +165,20 @@ class SelfRepairAnalyzer(Analyzer):
         return Result(analyzer=self.name, model=repr(model), cases=cases, findings=findings)
 
     # ------------------------------------------------------------------
-    def _probe_case(self, model: "Model", case: "FailureCase", baseline: str) -> dict[str, Any]:
+    def _probe_case(self, case: "FailureCase") -> Probe[dict[str, Any]]:
+        baseline = str(case.observed or "")
+        if not baseline.strip():
+            if not self.generate_missing:
+                return {"sample_id": case.id, "skipped": "no stored answer to revise"}
+            baseline = str((yield Ask([case.inputs]))[0])
         entry: dict[str, Any] = {"sample_id": case.id}
         base_grade = self.grader(baseline, case)
 
-        critique = str(model.generate(self._ask(case, _CRITIQUE, baseline)))
+        critique, revised, *told_out = map(str, (yield Ask([
+            self._ask(case, _CRITIQUE, baseline), self._ask(case, _REVISE_BLIND, baseline),
+            *([self._ask(case, _REVISE_TOLD, baseline)] if self.revise_with_critique else []),
+        ])))
         says_incorrect = _parse_verdict(critique)
-        revised = str(model.generate(self._ask(case, _REVISE_BLIND, baseline)))
         revised_grade = self.grader(revised, case)
 
         entry["self_says_incorrect"] = (
@@ -203,9 +204,8 @@ class SelfRepairAnalyzer(Analyzer):
         if says_incorrect is not None:
             entry["detection_correct"] = int(says_incorrect == (not base_grade))
 
-        if self.revise_with_critique:
-            told = str(model.generate(self._ask(case, _REVISE_TOLD, baseline)))
-            told_grade = self.grader(told, case)
+        if told_out:
+            told_grade = self.grader(told_out[0], case)
             if told_grade is not None:
                 entry["told_correct"] = int(told_grade)
                 entry["told_repaired"] = int(not base_grade and told_grade)

@@ -13,10 +13,8 @@ correct to incorrect, rather than just describing the failing topic.
 
 {clusters_block}
 
-Reply with EXACTLY ONE JSON array, one object per cluster listed above:
-[{{"cluster_id": <int>, "name": "<short_snake_case_tag>", "description": "<one sentence>"}}, ...]
-
-Return ONLY the JSON array — no prose outside it."""
+Give one entry per cluster listed above: its cluster_id, a short snake_case
+name, and a one-sentence description."""
 
 ERROR_SIGNAL_PROMPT = """\
 You are an ML failure-analysis expert. Below are (expected, observed) pairs
@@ -27,7 +25,4 @@ that it is wrong.
 
 {pairs_block}
 
-Reply with EXACTLY ONE JSON array, one object per pair listed above:
-[{{"index": <int>, "error": "<short phrase>"}}, ...]
-
-Return ONLY the JSON array — no prose outside it."""
+Give one entry per pair listed above: its index and the short phrase."""

@@ -370,3 +370,23 @@ def test_a_correctness_name_that_does_not_track_the_label_is_kept():
     ids = list(inp.labels)
     inp.per_case["some.correct"] = {c: float(i % 2) for i, c in enumerate(ids)}
     assert not restates_label(inp, "some.correct")
+
+
+def test_one_surviving_result_does_not_vouch_for_its_tools_other_results():
+    from evalrx.analysis.fused_pipeline import _fused_signal
+    from evalrx.analysis.stats_tools import StatsToolResult
+
+    def signal(name: str):
+        result = StatsToolResult(
+            tool="signal_label_assoc", analysis_key=f"signal_label_assoc:{name}",
+            e_value=30.0, effect=0.4, reject=False,
+        )
+        return _fused_signal(
+            name=name, source="catalog", description="", suggested_test="", recipe=None,
+            result=result, rejected_result_keys={"signal_label_assoc:kept"},
+            confirmed_on="confirm",
+        )
+
+    kept, dropped = signal("kept"), signal("dropped")
+    assert kept.fdr_corrected and kept.reject
+    assert not dropped.fdr_corrected and not dropped.reject

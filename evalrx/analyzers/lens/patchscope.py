@@ -105,6 +105,14 @@ class PatchscopeAnalyzer(Analyzer):
         "ps_media_query_share": ("Share of media read as the question word", "Those readouts as a share of all media-token readouts."),
     }
 
+    target: str
+    target_prompt: str
+    n_points: int
+    media_layers: int
+    batch_rows: int
+    reference: 'CaseBatch | None'
+    max_cases: int
+
     def __init__(self, target: str = "prediction", target_prompt: str = IDENTITY_PROMPT,
                  n_points: int = 0, media_layers: int = 0, batch_rows: int = 64,
                  reference: "CaseBatch | None" = None, max_cases: int = 0) -> None:
@@ -261,13 +269,13 @@ class PatchscopeAnalyzer(Analyzer):
         else:
             query, query_inferred = specific_words(prompt_words)
         for row in per_case:
-            words = media_words.get(row["sample_id"])
-            own = query.get(row["sample_id"])
-            if words is None or not query_inferred:
+            read = media_words.get(row["sample_id"])
+            asked = query.get(row["sample_id"]) or set()
+            if read is None or not query_inferred:
                 continue
-            decoded = [(w or "").strip().lower() for layer_words in words.values() for w in layer_words]
-            found = sorted({w for w in decoded if w in own})
-            row["ps_media_query_hits"] = sum(1 for w in decoded if w in own)
+            decoded = [(w or "").strip().lower() for layer_words in read.values() for w in layer_words]
+            found = sorted({w for w in decoded if w in asked})
+            row["ps_media_query_hits"] = sum(1 for w in decoded if w in asked)
             row["ps_media_query_share"] = round(row["ps_media_query_hits"] / max(1, len(decoded)), 4)
             row["ps_media_query_found"] = found
         label_of = {c.id: getattr(getattr(c, "label", None), "value", None) for c in cases}

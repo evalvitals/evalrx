@@ -63,7 +63,7 @@ def artifact_manifests_for_event(event: dict[str, Any], *, run_dir: str | Path) 
 
     Event fields intentionally contain relative paths, never inline binary
     content.  This small adapter gives the Langfuse writer a complete upload
-    manifest without changing the established JSONL event shapes.
+    manifest without changing the event shapes.
     """
     root = Path(run_dir).resolve()
     candidates: list[tuple[str, str]] = []

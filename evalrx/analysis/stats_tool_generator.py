@@ -44,10 +44,11 @@ from evalrx.analysis.prompts.stats_tool_generator import (
 from evalrx.analysis.stats_tools import StatsInput, StatsToolResult, describe_data
 from evalrx.stats import compare
 from evalrx.stats.evalue import evalue_bernoulli
+from evalrx.stats.exact import two_group_exact_p
 
 if TYPE_CHECKING:
     from evalrx.agent_runtime.cli_types import CliAgentConfig
-    from evalrx.core.model import Model
+    from evalrx.core.model import Judge
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +92,7 @@ class StatsToolGenerator:
 
     def __init__(
         self,
-        judge: "Model | None" = None,
+        judge: "Judge | None" = None,
         cli_config: "CliAgentConfig | None" = None,
         sandbox: "ExperimentSandbox | None" = None,
         timeout_sec: int = 60,
@@ -222,8 +223,7 @@ class StatsToolGenerator:
             "scalars": inp.scalars,
             "groups": inp.groups,
         }
-        path = Path(self._sandbox.workdir) / _INPUT_FILENAME
-        path.write_text(json.dumps(payload), encoding="utf-8")
+        self._sandbox.put(_INPUT_FILENAME, json.dumps(payload))
 
     def _write_code(self, need: str, inp: StatsInput) -> tuple[str, str]:
         """Return ``(code, source)`` from the CLI agent or the judge."""
@@ -306,15 +306,16 @@ def _extract_code(raw: str) -> str:
     return cleaned.strip()
 
 
-def _reconstruct_decision(
-    suff: Any, alpha: float
-) -> "tuple[bool, float | None, float | None, tuple | None] | None":
-    """Recompute ``(reject, e_value, effect, ci)`` HOST-SIDE from a generated
-    tool's sufficient statistics, using the validated core — so a generated
-    tool can choose WHAT statistic to compute but never WHETHER to reject.
+def reconstruct_evidence(suff: Any, alpha: float) -> "dict[str, Any] | None":
+    """Recompute a verdict HOST-SIDE from sufficient statistics.
 
-    Returns ``None`` when *suff* is missing or not an adjudicable shape; the
-    caller then treats the tool as descriptive (``reject=False``).
+    Returns ``reject``, ``e_value``, ``p_value``, ``effect``, ``ci`` and
+    ``n_clusters``, or ``None`` when *suff* is missing or not an adjudicable
+    shape. ``paired_binary`` yields an e-value; ``two_group`` yields a
+    bootstrap interval and p-value. A ``two_group`` shape may carry
+    ``clusters_a`` / ``clusters_b`` — one group id per entry of ``a`` / ``b`` —
+    and the bootstrap then resamples whole groups, so rows cut from one item
+    are not counted as independent evidence.
     """
     if not isinstance(suff, dict):
         return None
@@ -326,19 +327,53 @@ def _reconstruct_decision(
                 return None
             n = b + c
             e_value = evalue_bernoulli(b, n, p0=0.5) if n > 0 else 1.0
-            reject = e_value >= 1.0 / alpha
-            effect = (b - c) / n if n > 0 else 0.0
-            return reject, float(e_value), effect, None
+            return {
+                "reject": e_value >= 1.0 / alpha, "e_value": float(e_value),
+                "p_value": None, "effect": (b - c) / n if n > 0 else 0.0,
+                "ci": None, "n_clusters": None,
+            }
         if kind == "two_group":
             a = [int(x) for x in suff["a"]]
             grp_b = [int(x) for x in suff["b"]]
             if not a or not grp_b:
                 return None
-            sr = compare(a, grp_b, paired=False, alpha=alpha)
-            return bool(sr.reject), sr.e_value, sr.effect, tuple(sr.ci)
+            cluster_by = None
+            if suff.get("clusters_a") is not None or suff.get("clusters_b") is not None:
+                ca, cb = list(suff["clusters_a"]), list(suff["clusters_b"])
+                if len(ca) != len(a) or len(cb) != len(grp_b):
+                    # Misaligned group ids cannot be trusted to mean anything.
+                    return None
+                cluster_by = (ca, cb)
+            sr = compare(a, grp_b, paired=False, alpha=alpha, cluster_by=cluster_by)
+            p_value = sr.details.get("p_value")
+            if cluster_by is None and set(a) | set(grp_b) <= {0, 1}:
+                # Independent rows, binary outcome: the exact test, which does
+                # not degenerate on small cleanly separated samples.
+                p_value = two_group_exact_p(sum(a), len(a), sum(grp_b), len(grp_b))
+            return {
+                "reject": bool(sr.reject), "e_value": sr.e_value,
+                "p_value": p_value, "effect": sr.effect,
+                "ci": tuple(sr.ci), "n_clusters": sr.details.get("n_clusters"),
+            }
     except (KeyError, TypeError, ValueError):
         return None
     return None
+
+
+def _reconstruct_decision(
+    suff: Any, alpha: float
+) -> "tuple[bool, float | None, float | None, tuple | None] | None":
+    """Recompute ``(reject, e_value, effect, ci)`` HOST-SIDE from a generated
+    tool's sufficient statistics, using the validated core — so a generated
+    tool can choose WHAT statistic to compute but never WHETHER to reject.
+
+    Returns ``None`` when *suff* is missing or not an adjudicable shape; the
+    caller then treats the tool as descriptive (``reject=False``).
+    """
+    evidence = reconstruct_evidence(suff, alpha)
+    if evidence is None:
+        return None
+    return evidence["reject"], evidence["e_value"], evidence["effect"], evidence["ci"]
 
 
 def _parse_result(stdout: str, name: str, alpha: float = 0.05) -> StatsToolResult:
@@ -373,7 +408,8 @@ def _parse_result(stdout: str, name: str, alpha: float = 0.05) -> StatsToolResul
     ci = data.get("ci")
     ci_tuple = tuple(ci) if isinstance(ci, (list, tuple)) and len(ci) == 2 else None
     effect = _as_float(data.get("effect"))
-    details = data.get("details") if isinstance(data.get("details"), dict) else {}
+    raw_details = data.get("details")
+    details = raw_details if isinstance(raw_details, dict) else {}
 
     # HOST reconstructs the decision; the script's own reject/e_value/p_value are
     # never trusted as a verdict (closes the codegen p-hacking hole).

@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from evalrx.core.capability import Capability
-from evalrx.core.model import Model, Trace
+from evalrx.core.model import CaptureSpec, Model, Trace
 
 
 class BlackboxModel(Model):
@@ -23,7 +23,7 @@ class BlackboxModel(Model):
         self.model_id = model_id
         self.api_key = api_key
 
-    def forward(self, inputs: Any, capture: set[Capability]) -> Trace:
+    def forward(self, inputs: Any, capture: set[Capability], spec: CaptureSpec | None = None) -> Trace:
         raise NotImplementedError(
             "Black-box models expose no internals; only generate() is available."
         )

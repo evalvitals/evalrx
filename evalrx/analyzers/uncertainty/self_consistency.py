@@ -110,6 +110,7 @@ class SelfConsistencyAnalyzer(Analyzer):
 
     name = "self_consistency"
     requires = frozenset({Capability.GENERATE})
+    single_case = True
     applies_to_modalities = frozenset({"text", "image"})
     signal_docs = {
         'consistency': ('Answer stability', 'How often the model gave the same answer when asked the same question repeatedly. Low means unstable reasoning.'),
@@ -119,6 +120,11 @@ class SelfConsistencyAnalyzer(Analyzer):
         'n_unique': ('Different answers given', 'How many different answers came back for the same question.'),
         'normalized_semantic_entropy': ('Answer spread', 'How spread out the answers were. High means the model has no settled view.'),
     }
+
+    n: int
+    gen_kwargs: dict[str, Any]
+    semantic: bool
+    seed: 'int | None'
 
     def __init__(
         self,
@@ -140,6 +146,9 @@ class SelfConsistencyAnalyzer(Analyzer):
         from evalrx.analyzers._internals.seeds import case_seed, seeded
 
         case = cases[0]
+        # One generate call per sample, not one batch: under a seed a case's samples are
+        # then the same draws whatever the backend's batch size, and the same as before
+        # the backends batched.
         with seeded(case_seed(self.seed, case)) if self.seed is not None else nullcontext():
             samples = [model.generate(case.inputs, **self.gen_kwargs) for _ in range(self.n)]
         raw = [str(s).strip().lower() for s in samples]

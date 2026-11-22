@@ -36,7 +36,7 @@ from evalrx.analyzers.reasoning._text import (
     extract_answer,
     normalize_answer,
 )
-from evalrx.core.analyzer import Analyzer
+from evalrx.core.analyzer import Analyzer, Ask, Probe, run_probes
 from evalrx.core.capability import Capability
 from evalrx.core.registry import register_analyzer
 from evalrx.core.result import Result
@@ -79,6 +79,11 @@ class CoverageVerificationGap(Analyzer):
     requires = frozenset({Capability.GENERATE})
     applies_to_modalities = frozenset({"text", "image"})
 
+    k: int
+    self_verify: bool
+    max_cases: int
+    gen_kwargs: dict[str, Any]
+
     def __init__(
         self,
         k: int = 5,
@@ -99,12 +104,8 @@ class CoverageVerificationGap(Analyzer):
         self.answer_fn = answer_fn or extract_answer
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
-        per_case: list[dict[str, Any]] = []
-        for case in cases.stratified_head(self.max_cases):
-            if case.expected is None:
-                per_case.append({"sample_id": case.id, "skipped": "no gold answer"})
-                continue
-            per_case.append(self._probe_case(model, case))
+        per_case = run_probes(
+            model, [self._probe_case(case) for case in cases.stratified_head(self.max_cases)])
 
         scored = [c for c in per_case if "coverage_gap" in c]
         degenerate = bool(scored) and all(c["n_unique"] == 1 for c in scored)
@@ -139,10 +140,10 @@ class CoverageVerificationGap(Analyzer):
         return Result(analyzer=self.name, model=repr(model), cases=cases, findings=findings)
 
     # ------------------------------------------------------------------
-    def _probe_case(self, model: "Model", case: "FailureCase") -> dict[str, Any]:
-        samples = [
-            str(model.generate(case.inputs, **self.gen_kwargs)) for _ in range(self.k)
-        ]
+    def _probe_case(self, case: "FailureCase") -> Probe[dict[str, Any]]:
+        if case.expected is None:
+            return {"sample_id": case.id, "skipped": "no gold answer"}
+        samples = [str(s) for s in (yield Ask([case.inputs] * self.k, self.gen_kwargs))]
         answers = [self.answer_fn(s) for s in samples]
         grades = [self.grader(s, case) for s in samples]
         graded = [g for g in grades if g is not None]
@@ -174,12 +175,10 @@ class CoverageVerificationGap(Analyzer):
             listing = "\n".join(
                 f"{i + 1}. {a}" for i, a in enumerate(dict.fromkeys(answers))
             )
-            chosen = model.generate(
-                dataclasses.replace(
-                    case.inputs,
-                    prompt=f"{case.inputs.prompt or ''}\n\n{_VERIFY.format(candidates=listing)}",
-                )
-            )
+            (chosen,) = yield Ask([dataclasses.replace(
+                case.inputs,
+                prompt=f"{case.inputs.prompt or ''}\n\n{_VERIFY.format(candidates=listing)}",
+            )])
             verdict = self.grader(chosen, case)
             if verdict is not None:
                 entry["verify_correct"] = int(verdict)

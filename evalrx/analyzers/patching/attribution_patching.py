@@ -61,7 +61,7 @@ from __future__ import annotations
 
 from collections import Counter
 from contextlib import contextmanager, nullcontext
-from typing import TYPE_CHECKING, Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterator, cast
 
 from evalrx.core.analyzer import Analyzer
 from evalrx.core.capability import Capability
@@ -191,6 +191,18 @@ class AttributionPatchingAnalyzer(Analyzer):
         "ap_verified": ("Estimate verified", "ap_verify_mae is within verify_tol: this case's curves and relay token can be read (only these enter the aggregates)."),
     }
 
+    corruption: str
+    noise_scale: float
+    n_noise: int
+    ig_steps: int
+    direction: str
+    n_verify: int
+    verify_tol: float
+    min_effect: float
+    target: str
+    seed: int
+    max_cases: int
+
     def __init__(self, corruption: str = "noise", noise_scale: float = 3.0, n_noise: int = 1,
                  ig_steps: int = 5, direction: str = "denoise", n_verify: int = 2,
                  verify_tol: float = 0.25, min_effect: float = 1.0, target: str = "prediction",
@@ -285,7 +297,7 @@ class AttributionPatchingAnalyzer(Analyzer):
         skipped: Counter = Counter()
         slots: Counter = Counter()
         for case in cases.stratified_head(self.max_cases):
-            clean_variant = (case.inputs, {}, (None, None))
+            clean_variant: tuple[Any, dict, tuple[Any, Any]] = (case.inputs, {}, (None, None))
             # A gray image's DeepStack copies are interpolated too: record both runs' copies.
             clean_rec: "dict | None" = {} if (integrated and mergers and self.corruption == "gray") else None
             clean_grad_needed = not (denoise or integrated)
@@ -330,7 +342,8 @@ class AttributionPatchingAnalyzer(Analyzer):
                     corrupt_h = [states[layer] for layer in layers]
                     del trace, states
                     store = variant[2][0]
-                    deltas = ({i: corrupt_rec[i] - clean_rec[i] for i in corrupt_rec} if corrupt_rec
+                    # corrupt_rec is only a dict when clean_rec is
+                    deltas = ({i: corrupt_rec[i] - cast(dict, clean_rec)[i] for i in corrupt_rec} if corrupt_rec
                               else (dict(store) if store else None))
                     term = None
                     for alpha in alphas:  # ḡ averaged along the corrupt → clean media path
@@ -348,7 +361,7 @@ class AttributionPatchingAnalyzer(Analyzer):
                     del trace, states, grads
                 else:
                     corrupt_h = [states[layer] for layer in layers]
-                    term = attributed(clean_h, corrupt_h, clean_grad)
+                    term = attributed(clean_h, corrupt_h, cast(list, clean_grad))  # computed: not denoise/integrated
                     del trace, states
                 if not denoise:
                     corrupt_runs.append(corrupt_h)
@@ -424,7 +437,7 @@ class AttributionPatchingAnalyzer(Analyzer):
             curves[case.id] = {"last": [round(r, 4) for r in last_curve]}
             if relay_curve is not None:
                 curves[case.id]["relay"] = [round(r, 4) for r in relay_curve]
-                curves[case.id]["relay_pos_from_end"] = [last - p for p in relay_at]
+                curves[case.id]["relay_pos_from_end"] = [last - p for p in cast("list[int]", relay_at)]  # set with relay_curve
             del contrib, share, clean_h, clean_grad, corrupt_runs
 
         if not per_case:

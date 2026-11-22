@@ -301,7 +301,7 @@ def collect_continuation_stats(
     sequences, skipped = encode_continuations(
         model, cases, groups=groups, repeat_ngram=repeat_ngram, max_tokens=max_tokens)
 
-    sums = {g: {s.layer: {"in": None, "out": None, "n": 0} for s in sites} for g in names}
+    sums: dict[str, dict[int, dict[str, Any]]] = {g: {s.layer: {"in": None, "out": None, "n": 0} for s in sites} for g in names}
     current: dict[str, Any] = {}
 
     def make(layer: int):

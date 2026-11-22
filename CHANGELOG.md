@@ -6,6 +6,529 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — held-out confirmation that respects groups
+
+Rows cut from one underlying item (frames of a clip, one prompt answered by
+several models) are not independent. `evalrx explore --group-col COLUMN` and
+`split_records(..., group_col=)` keep each group on one side of the split, and
+`holdout_confirm(..., group_col=)` resamples whole groups for every interval.
+`evalrx.stats.weighted_bootstrap` is the cluster bootstrap behind it, and
+`compare(a, b, paired=False, cluster_by=(groups_a, groups_b))` is the clustered
+two-group comparison. A `two_group` sufficient statistic may carry
+`clusters_a` / `clusters_b`. When no group column is named, the profile
+suggests columns that look like one (`DatasetProfile.suggested_group_columns`)
+and a held-out run reports how many held-out rows share a group with an
+explored row. `docs/holdout_confirmation.md` is the guide;
+`docs/validation/holdout_calibration_20261121.md` has the calibration.
+
+### Added — more comparisons a frozen recipe can ask for
+
+A recipe may carry `where` (a subgroup condition), `design: stratified` with
+`strata`, `design: did` with a `modifier`, `design: dose_response` with fixed
+`bins`, and `expect` (`>`, `<`, `abs<` a bound, or `nonzero`). `abs<` is how a
+control is written: it holds only when the whole interval is inside the bound.
+Recipes may call `has_word(column, "word")` and `contains(column, "text")`.
+A numeric outcome is supported (differences of means). Signals whose claim
+holds list `representative_cases`, chosen at each side's median.
+`evalrx.analysis.holdout_designs` implements the designs.
+
+### Added — host-checked predictions and structured experiment plans
+
+A hypothesis may carry `predictions` about named signals; the host checks them
+on the held-out rows and reports `host_verdict` without a model. `experiment`
+(`data_needed`, `operation`, `expected_result`, `falsified_by`) replaces a
+free-text plan for an intervention. `HypothesisAgent` asks for both.
+
+### Added — data card, leakage check, keyword recipes
+
+`--data-card` (or `--row-unit`, `--row-extraction`, `--outcome-threshold`,
+`--deployment-aggregation`) records what a row is and how the table was built;
+answers and gaps are printed in the report's caveats. The profile flags
+columns that almost fully determine the outcome
+(`DatasetProfile.leakage_suspects`). `--group-col` / `--time-col` name column
+roles explicitly, and calendar-like names and ISO date values are recognised
+as time. `--text-col` freezes over-represented words as recipes on the
+exploration half and re-tests them on the held-out half
+(`evalrx.analysis.keywords`).
+
+### Changed — every held-out claim is corrected, and the header says how
+
+All held-out claims — one per adjudicated signal, one per hypothesis
+prediction — share one Benjamini-Hochberg family; `reject` on a signal now
+means its claim survived that correction, and `raw_reject` keeps the
+uncorrected verdict. In-sample `two_group` candidates get a p-value and their
+own BH family instead of an uncorrected interval check. `adjudication.method`
+names the correction actually applied (`"BH"`, `"e-BH"`, `"e-BH + BH"`, or
+`"none"` when nothing could be tested); it no longer says `e-BH` for an empty
+family. Two-group comparisons of a binary outcome with independent rows use
+the exact test for their p-value (`evalrx.stats.two_group_exact_p`).
+`compare(..., paired=False)` reports its method as `two-sample bootstrap
+(unpaired)` unless clusters were given.
+
+### Changed — the held-out judge follows `--backend`
+
+`--judge-backend` (default `same`) picks the judge; it no longer requires the
+Claude CLI on a run that used another backend. `--judge-model` defaults to
+`claude-opus-4-8` only on a Claude backend. `confirm_report.json` records
+whether the judge is the model that proposed the hypotheses and warns when it
+is or may be.
+
+### Changed — row limit and sandbox
+
+A host load that drops rows at `--max-rows` says how many were dropped and
+that the kept rows are not a random sample
+(`load_records_from_path(..., info=)`). `explore(..., out=)` deletes the
+temporary sandbox, which holds a copy of the data, once the artifacts are
+written; `--keep-sandbox` / `keep_sandbox=True` keeps it. Recipes are refused
+if any of their expressions reads the outcome column, whatever its name.
+
+### Changed — Stage 0 labels a sampled case by the majority of five answers
+
+A sampling model can answer one case both ways, so one answer labelled the case
+by chance. On Qwen3.5-2B / BBH causal judgement at T=0.6 (32 cases), two
+independent Stage 0 passes gave a case the same label 17 times out of 32.
+`CaseDiscoveryAgent(n_samples=k)` now draws `k` answers per case in one batch
+and labels the case by their majority; with five, the same two-pass check gave
+25 of 32. `case.observed` is the first answer that earned the label, so scoring
+it reproduces the label, and `case.metadata["discovery_votes"]` holds the count.
+A failed sample does not vote; an even split is `UNKNOWN`. The default stays
+one answer per case.
+
+The benchmark runner uses five when the task samples and one when it decodes
+greedily; `--label-samples` sets it. `baseline.json` gains `label_samples`,
+`n_split` (cases that answered both ways) and each case's `votes`. Stage 0
+generates five times as much: 107-114 s became 516-521 s on those 32 cases.
+The labels are steadier, not settled: 9 of the 32 cases passed 4 to 6 times in
+10, and no vote count makes such a case's label repeatable.
+
+The fix stage's repeated baseline (`baseline_repeats=k > 1`) now draws `k`
+fresh samples instead of counting `case.observed` as the first. That answer is
+the one the case was labelled by, and under a majority label it is picked to
+agree with it, so counting it pulled the baseline rate toward the label. This
+is one more generation per case per baseline.
+
+### Fixed — the fix search on the explore partition is in the run log
+
+`loop.run_fix` searches on the explore partition with `record=False` and then
+confirms one candidate. `record=False` muted the whole recorder, so the run log
+held the confirm phase only: none of the model calls of the candidates that were
+searched, and none of the judge calls that proposed them. It now leaves out only
+the `fix` outcome event, which the caller writes once for the combined result
+(`FixRecorder.muted()` became `without_outcome()`).
+
+### Changed — hf_local batches multimodal inputs and logprobs; the last per-case loops batch
+
+`hf_local` now has one batching path for text and multimodal specs. Each input
+is encoded on its own, as a single call encodes it, and the encodings are
+stacked: token-level tensors are left-padded, image and audio tensors are
+concatenated. `generate` is `generate_batch` with one input. A long list is
+encoded a window of four batches at a time, so the encodings alive at once do
+not grow with the list, and inputs that carry different tensors (with an image,
+without one) batch separately. A multimodal family
+batches only when it is listed in `BATCHED_MULTIMODAL_FAMILIES`; the others run
+one input at a time, as do inputs whose media tensors do not stack. Listed, each
+checked on a real checkpoint in float32 with greedy decoding and inputs of
+different sizes (batched text identical to one-at-a-time text on every input;
+logprobs within 1e-3): `qwen3_5` (Qwen3.5-2B, 10/10), `qwen2_5_vl`
+(Qwen2.5-VL-3B, 10/10), `qwen3_vl` (Qwen3-VL-2B, 10/10), `qwen2_vl`
+(Qwen2-VL-2B, 10/10), `qwen2_audio` (Qwen2-Audio-7B, 8/8). Not listed because no checkpoint was at hand: LLaVA,
+InstructBLIP, Gemma 4, GLM-4V, Kimi-VL, Llama 4, the Qwen omni models and
+Nemotron omni.
+
+`Model.logprobs_batch(inputs)` is new: `hf_local` runs it in padded batches and
+ends each row at its own end-of-sequence token, `vllm_offline` hands the engine
+the whole list, and every other model calls `logprobs` per input,
+`Model.concurrency` at a time. The run log records one
+`logprobs` call per input with its `batch_size`.
+
+Analyzers:
+
+- `context_shap` asks every context ablation of every case in one round.
+  `_shapley.coalitions()` lists the coalitions `shapley_values` will evaluate
+  for given arguments; the sampler never looks at a value, so they can be asked
+  up front.
+- `vl_shap` and `mm_shap` score every masked input of their case up front with
+  `logprobs_batch`; `vl_shap` does it 64 masked images at a time, since each is
+  its own copy of the image (a caller-supplied `region_score_fn` / `score_fn` is
+  still called per coalition).
+- `calibration` scores its cases' logprobs in one batch and asks each case on
+  its own only when that batch fails.
+- `arith_audit(generate_missing=True)` and `answer_extraction_audit(reask=True)`
+  generate their missing chains and re-asks as one batch.
+
+Left as they are: `verbalized_confidence` and `logprob_entropy` make one model
+call for one case, so there is nothing to batch (`calibration` is the batch-level
+counterpart of both, and the M1 routes pair them with it).
+
+Fixed on the way: `verbalized_confidence` built its question as
+`str(case.inputs) + elicit`, a bare string, so a vision model was asked without
+the case's image. It now keeps the inputs and replaces the prompt.
+
+### Changed — the examples follow the package's default Claude model
+
+No example names a Claude model any more. `deco_hallu`, `deco_chair`,
+`deco_miss`, `deco_pope`, `musicavqa_videollama2` and `llm_benchmark` read
+`judge_model` / `codegen_model` from `config.yaml` when present and otherwise use
+`ClaudeModel.DEFAULT_MODEL` (currently `sonnet`); their configs no longer set
+either. `deco_hallu_explore`, `mmau_qwen2_audio`,
+`audiocaps_hallucination_qwen2_audio` and the `chartqa` / `spatial457` examples
+do the same for an empty `--judge-model`, and their compose commands no longer
+pass `--judge-model claude-opus-5`. In the audio, `chartqa` and `spatial457`
+examples the coder now gets the judge's model; with an empty name it had used
+the CLI's session default. Effort settings are unchanged.
+
+`llm_benchmark` had pinned a full model name on purpose, so that two runs share
+one judge. Its config now says to set `judge_model` to a full name for runs that
+will be compared.
+
+`mmau_qwen2_audio/run.py` read `coder_cfg` before assigning it and stopped with
+`UnboundLocalError` on every run without `--paper-method-only`; fixed.
+
+### Fixed — a generated probe no longer loses its input file to the agent that wrote it
+
+M1 sometimes logged `sandbox produced no parseable result` for a generated
+probe. The coding agent writes the script in the sandbox directory, where the
+host had already put the cases file. In 3 of 19 sessions the agent tried its
+script by overwriting that file with two invented cases and deleted it
+afterwards, so the real run failed with `FileNotFoundError`.
+
+`ExperimentSandbox.put(name, data)` places a file the generated code will read
+and keeps its content; `run()` writes back any such file that was changed or
+removed. The M1 probe generators, the M2 statistics-tool generator, the explore
+agent and the M5 experiment writer place their inputs with it
+(`SandboxProtocol` gained `put`). The two probe prompts now say the file is the
+real data and must be left alone. With both changes, 12 of 12 sessions produced
+a result.
+
+A failed probe run is logged with what happened (`the probe script exited with
+code 1: FileNotFoundError: …`, `was killed after 60s`, `printed no readable
+PROBE_RESULT_JSON= line`) in place of the one fixed sentence.
+
+### Changed — the fix stage asks the model in batches and has no thread pool
+
+`FixAgent`, `CandidateValidator`, `PipelineCoder` and `run_coded_pipeline` no
+longer take `concurrency`. The fix stage hands the model the calls that do not
+depend on each other and the model runs them its own way, as M1 does:
+
+- The fresh baseline samples are one `try_generate_batch`; so is a template
+  candidate.
+- `run_pipeline(model, case, spec, score_fn, capture=, call_logger=)` is replaced
+  by `run_pipelines(model, cases, spec) -> list[PipelineRun]`. Every case and
+  every one of a spec's `n_samples` passes advance together, one round of
+  generation per strategy step. A `PipelineRun` carries the rendered prompt, the
+  outputs, the winner and each model call; the caller scores the winner.
+  `SpecPipelineModel` gained `generate_batch` on the same path.
+- The coded-pipeline bridge answers the calls that arrive within 50 ms of each
+  other as one batch, from one host thread. The coder prompt now asks for one
+  thread per case instead of `max_workers=8`.
+- Registered repairs, visual search and the matched baseline call a method on
+  the model that hooks it while it generates; they run one case at a time.
+- The fresh baseline is measured once for a model and a set of cases (their
+  prompts and recorded answers) and shared by every tier of the search. Each tier had drawn its own 64 samples, so the
+  tiers of one e-BH family were paired against different baselines.
+
+`Model.concurrency` (default 1) is how many `generate` calls the default
+`generate_batch` runs at once. The `api` backend sets it from
+`RuntimeConfig.concurrency`; a `Model` subclass that calls an endpoint sets it on
+itself. `APIModel` no longer overrides `generate_batch`.
+
+This also removes a fault in the previous entry's change: with `--concurrency`
+defaulting to 8, the benchmark passed 8 to `FixAgent` on `hf_local` too, so eight
+threads generated on one in-process model. In the one run that had it, on a
+shared GPU, the fresh-baseline step took 64 min; it took 25 min serially.
+
+The `llm_benchmark` example drops `fix_concurrency`; its `concurrency` setting
+now covers M1 and the fix stage as well.
+
+### Changed — one setting for requests in flight against an API backend
+
+`RuntimeConfig.concurrency` (default 8) is how many requests an API model has in
+flight, in every stage. `ProbeAgent` runs in-process analyzers one at a time on
+the calling thread and each sends its questions as batches; `max_workers` now
+only bounds Docker-mode analyzers. Before, up to 8 analyzers ran in threads,
+each asking one question at a time. `CaseDiscoveryAgent` no longer takes
+`concurrency`: it makes one batch call and the backend decides. The benchmark's
+`--concurrency` sets `RuntimeConfig.concurrency` for the `endpoint` and `gemini`
+backends and defaults to 8 (was 1, and applied to Stage 0 only). The benchmark
+run config no longer records `m1_workers`.
+
+### Changed — M3 rewrites a test that names evidence M2 did not measure
+
+M4 does not judge a hypothesis whose test names only identifiers with no M2
+result (a signal name the judge made up, a case id): it reports the test as
+unmet. In one 22-minute run that was three of six hypotheses. M3's proposal call
+now checks each test the way M4 will and, when one is unmet, asks the judge once
+to rewrite it against the signals that have a result, or in plain words. As with
+the plain-language check, the second answer is accepted as it is.
+
+### Changed — M1 is bounded by default
+
+`ProbeAgent` now caps a probe round at 6 analyzers (`max_analyzers=6`; `None`
+removes the cap) and at 30 minutes (`time_budget_sec=1800`; 0 removes it). An
+analyzer that has not started when the time is spent is skipped and named in
+the selection rationale. The agentic benchmark path had neither limit: one run
+selected 17 analyzers and spent 10,081 s in a single M1.
+
+While M1 runs, the console prints the plan and one line per analyzer as it
+finishes (`RunLogger.progress`); it printed nothing until the stage ended.
+
+Nine analyzers explain one input and read only the first case of a batch
+(`rise`, `vl_shap`, `mm_shap`, `logprob_entropy`, `self_consistency`,
+`verbalized_confidence`, `attention_rollout`, `cka`, `token_entropy`). They now
+declare `single_case = True` and selection does not offer them on a batch of
+several cases, where they gave M2 one row. A caller that names one
+(`analyzers=[...]`) still gets it.
+
+A selection is no longer padded up to `max_analyzers`: the static selector
+replaces a choice that cannot run, it does not add analyzers the judge or the
+caller did not ask for.
+
+### Added — batch generation is part of the `Model` interface
+
+`Model.generate_batch(inputs, **kwargs)` returns one answer per input, in order.
+`hf_local` pads a text-only spec's prompts into batches of
+`RuntimeConfig.batch_size` (default 32, longest first, halved on a CUDA
+out-of-memory error); `vllm_offline` passes the engine the whole list, where it
+sent one prompt per call before; `api` keeps `RuntimeConfig.concurrency`
+(default 8) requests in flight; every other model asks one at a time.
+`try_generate_batch` returns an input's exception in its place. Multimodal specs
+on `hf_local` still answer one input at a time.
+
+Measured on Qwen3.5-2B, 24 BBH causal-judgement prompts, one GPU: greedy
+decoding 217 s one at a time and 19.8 s batched; sampled at the benchmark's
+settings (2048-token cap) about 20 s per prompt one at a time, and batched 4.3 s
+at a batch size of 16, 2.8 s at 32 and 1.6 s at 64 (8.4 GB peak).
+In float32 the batched answers equal the single ones on 16 of 16 prompts. In
+bfloat16 they differ after the first tokens, including for an unpadded batch:
+half-precision rounding depends on the batch shape.
+
+`evalrx.core.analyzer` adds `Ask`, `Probe` and `run_probes`: an analyzer writes
+its per-case logic as a generator that yields an `Ask` for the answers it needs,
+and `run_probes` batches each round across the cases. `labelled_answers` reads
+`case.observed` and asks only for the cases without one.
+
+Analyzers now on batches: `prompt_contrast`, `cot_faithfulness`,
+`perturbation_battery`, `modality_ablation`, `coverage_verification_gap`,
+`calibration` (its verbalized-confidence questions), `self_consistency`,
+`selfcheck_consistency`, `format_sensitivity`, `knowledge_reasoning_split`,
+`self_repair`, `step_rollout_value`, `termination_audit`, `contamination_score`,
+`rise`; Stage 0 (`CaseDiscoveryAgent`) on a local backend; and
+`ProbeGenerator`'s output collection. Within one analyzer the calls now go out
+round by round across cases, not case by case.
+
+### Changed — decoding settings belong to the model
+
+`RuntimeConfig.sampling` holds the decoding a model is deployed with;
+`hf_local` and `jax_local` apply it to every `generate` call that passes none of
+its own, and `vllm_offline` now reads `max_new_tokens`, `do_sample`, `top_p` and
+`top_k` where it dropped them. The benchmark sets it from the Stage 0 settings.
+Before, Stage 0 labelled the llm tasks under sampling (T=0.6) while analyzers,
+which pass no arguments, ran greedy, so an analyzer's "baseline" was not the
+answer the label described.
+
+`pope` and `chair` score the answer the case was labelled on (`case.observed`)
+and no longer ask for it again; `ProbeGenerator` reads it too. Analyzers that
+pair a baseline against a changed prompt (`prompt_contrast`,
+`perturbation_battery`, `cot_faithfulness`, `modality_ablation`) still ask for a
+fresh one, now under the same decoding.
+
+On `hf_local` this changes what the answer-changed signals mean when the model
+is deployed with sampling: a flip in `perturbation_battery`, `format_sensitivity`,
+`cot_faithfulness`, `modality_ablation` or a `prompt_contrast` pair now includes
+decoding noise, as it always did on the API backends. Measured on Qwen3.5-2B /
+BBH causal judgement at T=0.6: an unchanged prompt asked again gave the labelled
+answer 68 times in 128 (53%), the same for PASS and FAIL cases. For a
+deterministic comparison deploy the model greedy (`RuntimeConfig.sampling`);
+`perturbation_battery` also takes `gen_kwargs={"do_sample": False}`.
+
+A model under test must be a `Model`: stages call `generate_batch` on it, so an
+object that only has `generate` no longer works.
+
+### Changed — run log schema v9
+
+`model_call.batch_size` marks a call that was one input of a batch; its
+`duration_sec` is that input's share of the batch's wall time, so the records
+still sum to the time spent.
+
+### Changed — the Claude judge defaults to `sonnet`
+
+`ClaudeModel.DEFAULT_MODEL = "sonnet"` is the one place the default lives. The
+benchmark CLI (`--judge-model` unset) and the judge auto-detection
+(`DEFAULT_CLAUDE_CANDIDATES`) use it; the benchmark's `--judge-effort` default
+goes from `high` to `medium`. Measured on prompts recorded from a real run: a
+28k-character M3 review took 71-124 s on `claude-fable-5` and 5 s on `sonnet`; a
+1.8k-character M4 yes/no took 17 s and 2 s. A 22-minute `qwen_loop_claude` run
+spent about 20 of those minutes in judge stages. Pass `--judge-model` to choose
+a larger model.
+
+### Changed — `eval_agent` grouped into `loop/` and `runlog/`
+
+The loop and its policies live in `evalrx.eval_agent.loop`, the run directory and
+event log in `evalrx.eval_agent.runlog`. Top-level imports
+(`from evalrx.eval_agent import VLDiagnoseLoop, RunContext, ...`) are unchanged;
+deep imports move, with no aliases left behind:
+
+| Was | Now |
+|---|---|
+| `evalrx.eval_agent.loop` | `evalrx.eval_agent.loop.diagnose` |
+| `evalrx.eval_agent.policy` | `evalrx.eval_agent.loop.state` (`Policy`, `RunState`, `cycle_summary`), `evalrx.eval_agent.loop.fixed` (`FixedOrderPolicy`) |
+| `evalrx.eval_agent.agentic` (and `.actions`, `.board`, `.tools`, `.policy`) | `evalrx.eval_agent.loop.judge` (same submodules) |
+| `evalrx.eval_agent.loop_reports` | `evalrx.eval_agent.loop.report` |
+| `evalrx.eval_agent.loop_fix` | `evalrx.eval_agent.loop.fix` |
+| `evalrx.eval_agent.run_metadata` | `evalrx.eval_agent.loop.metadata` |
+| `evalrx.eval_agent.run_context` | `evalrx.eval_agent.runlog.context` |
+| `evalrx.eval_agent.run_logger` | `evalrx.eval_agent.runlog.logger` |
+| `evalrx.eval_agent.run_log_entries` / `run_log_files` / `run_log_tracing` | `evalrx.eval_agent.runlog.entries` / `files` / `tracing` |
+| `evalrx.eval_agent.log_schema` (+ `run_log.schema.json`) | `evalrx.eval_agent.runlog.schema` (schema file beside it) |
+| `evalrx.eval_agent.narration` | `evalrx.eval_agent.runlog.narration` |
+| `evalrx.eval_agent.model_instrumentation` | `evalrx.eval_agent.runlog.instrumentation` |
+| `evalrx/eval_agent/RUN_LOGGER.md` | `evalrx/eval_agent/runlog/README.md` |
+
+The stages leave the loop class. `evalrx.eval_agent.loop.stages.Stages` runs and
+records M1 probe, explore, M2, M3, M4 and the held-out M4 pass
+(`probe`, `explore`, `analyze`, `diagnose`, `test_hypotheses`, `test_on_holdout`,
+`bridge_signals`) and holds the stage dependencies, never the loop.
+`VLDiagnoseLoop.stages()` builds one from the loop's current settings for each
+run, and a policy reaches them through `RunState.stages` (a new required
+field). What outlives a run on the same loop — the explorer notes M3 and the fix
+stage read, the default M3 agent, the token count — is one `StageMemory`
+(was `loop._explore_context`, `loop._tokens_used`, and a `diagnosis_agent`
+assigned on first use). The explore/confirm/test partition is the pure function
+`evalrx.eval_agent.loop.partition.split_cases`. Removed from `VLDiagnoseLoop`:
+`_do_m1`, `_do_explore`, `_do_m2`, `_do_m3`, `_do_m4`, `_m4_holdout_pass`,
+`_bridge_signals`, `_explore_out_dir`, `_get_diagnosis_agent`, `_emit_m1`,
+`_finalize_confirmatory_stats` (now `loop.stages.finalize_confirmatory_stats`),
+`_strat_key`. The constructor is unchanged.
+
+### Added — typed judge calls
+
+`evalrx.agent_runtime.judge_call.ask_judge(judge, prompt, OutputModel, role=...)`
+asks a judge for one pydantic object. PydanticAI runs the exchange: the
+reply's first JSON value is validated, an invalid reply goes back to the
+judge with the validation errors, and when the retry budget runs out
+`JudgeOutputError` is raised (`JudgeCallError` when the judge itself fails).
+Both carry every exchange for the log. Stages move onto it one by one and
+drop their own parsers.
+
+### Changed — Python 3.11 and two new core dependencies
+
+`pydantic>=2.12` and `pydantic-ai-slim>=2.71,<3` are core dependencies, and
+the package needs Python 3.11 (pydantic-ai does; Python 3.10 left upstream
+support in October 2026). CI no longer tests 3.10.
+
+### Changed — the agentic loop's decision is a typed answer
+
+`decide` asks through `ask_judge` with an output model whose `tool` field only
+admits registered tool names. Removed: `parse_action`, `ActionParseError`,
+`ACTION_SCHEMA`, the `validate_json_shape` re-export from
+`evalrx.eval_agent.agentic`, `ACTION_REPAIR_PROMPT`, and `decide(max_repairs=)`
+(now `retries=`). Every decision exchange is logged with role `agent_decision`
+and its attempt number; there is no separate `agent_decision_repair` role.
+
+### Changed — M3 asks for typed hypotheses and a typed review
+
+`DiagnosisAgent` asks for a `Proposal` (`hypotheses`: `hypothesis`,
+`plain_statement`, `failure_mode` as a snake_case tag, `test`,
+`expected_association`) and the critic for a `Review` (one keep/reject
+decision per numbered hypothesis). The Markdown label parser and its
+regexes, the format re-ask and the separate plain-language repair call are
+gone: an invalid answer, or a plain statement that fails the jargon check,
+goes back to the judge once with the reason. An empty proposal means "no
+problem found" (was `NO_ISSUE`).
+
+A proposal that is still invalid after its retry now raises `JudgeOutputError`
+instead of being replaced by template hypotheses; the loop logs every
+exchange and retries M3 or stops. The report marks such a run's M3 stage `failed`, with
+the reason (`stage_detail.m3.error`), on the loop figure and the M3 page. A critic with no usable answer keeps the
+hypotheses with `review_unavailable`, as a failed critic call did before.
+All proposer attempts are logged as role `diagnosis_judge`; the
+`diagnosis_format_repair` and `diagnosis_plain_language_repair` roles are gone.
+
+### Changed — the remaining structured judge calls go through `ask_judge`
+
+M5 fix proposals (`FixAgent`), failure-mode cluster naming and error signals
+(`cluster_failures`), and held-out grading (`holdout_confirm`) ask through
+`ask_judge`, so a reply in prose or code fences is read, and an invalid one is
+sent back with the errors instead of being repeated blind or dropped. A
+held-out judge that gives no valid answer now records `verdict="not_judged"`
+with `judge_error`, not `not_testable`. Every fix-judge attempt is logged
+(`FixRecorder.judge_exchanges`).
+
+### Changed — M2 and case labeling ask for typed answers
+
+`StatsAnalysisAgent`'s written analysis is a typed answer (`conclusion`,
+`evidence_chain`, `qualitative`) instead of `CONCLUSION:`/`EVIDENCE_CHAIN:`
+sections, and its tool selection only accepts catalog names (the free-text
+scan for any tool name in the reply is gone). An analysis that is still
+invalid after one retry keeps the deterministic report, with the reason in
+`llm_fallback_reason` and the judge's last answer in `llm_raw`.
+`CaseDiscoveryAgent`'s judge label is typed (`PASS`/`FAIL`/`UNKNOWN`, any
+case); a judge with no valid label falls back to the expected-answer
+rubric, as an `UNKNOWN` label did, instead of keyword-scanning the reply.
+
+### Changed — `evalrx explore` hypotheses are a typed answer
+
+`HypothesisAgent` (the hypotheses after `explore()`) asks through `ask_judge`
+for `hypotheses` (`hypothesis`, `plain_statement`, `basis`, `test`); the
+`HYPOTHESIS:`/`PLAIN:` parser, its trajectory de-duplication and
+`PLAIN_REPAIR_PROMPT` are gone, and a jargon-laden plain statement goes back
+once through the same retry. With a CLI coding agent as the backend, the
+agent now writes its answer to `answer.json` (new
+`evalrx.agent_runtime.judges.cli_agent.CliAgentJudge`) instead of the
+hypotheses being scraped from its whole tool-call trajectory, where a draft
+could be read as the answer.
+
+### Changed — one way to run a CLI judge
+
+`ClaudeModel`, `CodexModel` and `AgyModel` run through the providers'
+`SubprocessRunner`: a timeout kills the CLI's whole process group (its worker
+processes outlived a plain `subprocess.run` timeout), Claude runs in a
+throwaway directory instead of the caller's, and a limit notice printed as an
+answer raises for every provider, not only Claude.
+A coding agent (`claude_code`, `codex`, ...) that ends its session on a
+limit notice and writes no files now reports `error="account limit reached: ..."`
+instead of no error and no files.
+
+### Changed — one diagnosis loop; the judge-decided mode is a policy
+
+`AgenticDiagnoseLoop` is gone. Pass `policy=JudgePolicy(judge, max_actions=...,
+time_budget_sec=..., registry_factory=...)` to `VLDiagnoseLoop` for the same
+judge-decided run; the loop's own `explorer` becomes the `explore_data` tool.
+`run_start` records the loop as `JudgePolicy`. A custom `registry_factory`
+still receives `(loop, run_state)`; the decision judge is `run_state.judge`
+(was `loop.judge`).
+
+The fixed M1→M4 cycle is a policy too, `FixedOrderPolicy`, and the default:
+`loop.policy` is never `None`. A policy is any object with
+`run(loop, data, timings) -> AutoDiagnoseReport`; `VLDiagnoseLoop.run` resets
+the token count, calls it and logs `loop_end`. Both policies keep their
+bookkeeping in one `evalrx.eval_agent.policy.RunState` (the agentic
+`_RunState` is gone), and the `stopped_by` values are constants in
+`loop_reports` (`STOPPED_BY_*`).
+
+### Removed
+
+- `create_sandbox`, `SandboxFactoryConfig`, `SandboxConfig`
+  (`evalrx.agent_runtime.factory`): nothing called them, and the `docker` mode
+  silently returned the subprocess sandbox. Use `ExperimentSandbox(workdir)`.
+- `evalrx.agent_runtime.json_shape.validate_json_shape`: output models
+  validate with pydantic.
+
+### Changed — probing after the 0.2.0 reorganisation and the batch calls
+
+The triage follows the package's new layout (`loop.partition.split_cases` for the
+EXPLORE/CONFIRM split, `runlog.instrumentation` for per-call logs; the triage entry
+sits beside the steps `runner.run` was split into, and its validation source is
+labelled by the same Stage 0 step as the pool). `prompt_contrast` and
+`modality_ablation` ask in batches like the other generation analyzers; a
+counterfactual swap asks the unablated questions first, since the donor depends on
+their answers. `self_consistency` keeps one `generate` call per sample: under its
+seed a case's samples are then the same draws whatever the backend's batch size.
+The triage's call meter counts `generate_batch` / `try_generate_batch` /
+`logprobs_batch` per input, under `generate` and `logprobs`; unmetered, a batched
+step would have read as one that ran without calling the model. The probing
+package and the analyzers it extended now pass the package's type check.
+
 ### Changed — probing: dead code removed, `compare` has a CLI
 
 Removed what later code had superseded: `Ledger.spent` / `spent_wall_sec` (the budget
@@ -563,6 +1086,252 @@ mode output is unchanged.
 subclass carrying the check's `verdict`), so callers can tell an untrustworthy
 edit from an ordinary failure without parsing the message.
 
+## [0.2.0] — 2026-11-14
+
+### Changed — the run logger and its readers lose their "V2" names
+
+There has been one run logger since 0.1.2, so its names no longer carry a
+version. The old names are gone, with nothing forwarding to the new ones:
+
+| was | is |
+|---|---|
+| `evalrx.eval_agent.run_logger_v2` | `evalrx.eval_agent.run_logger` |
+| `RunLoggerV2` | `RunLogger` |
+| `read_v2_events` | `read_run_events` |
+| `write_v2_bundle` | `write_run_bundle` |
+| `resolve_v2_root` | `resolve_run_root` |
+| `evalrx/eval_agent/RUN_LOGGER_V2.md` | `RUN_LOGGER.md`, rewritten to describe the current design |
+
+The Langfuse delivery queue's temp directory is `evalrx-outbox-<user>`.
+
+### Changed — `run_logger.py` split by what each part does
+
+`RunLogger` keeps routing, stamping and atomic writes. What each event
+records moved to `run_log_entries` (one pure function per event), what lands
+on disk beside the JSON to `run_log_files`, and the Langfuse mirror of each
+event to `run_log_tracing`. The `log_*` methods, their signatures, the files
+they write and the tracer calls they make are unchanged.
+
+### Removed — reading runs written by earlier log versions
+
+A run is read from its log: `run.json` and `M1..M5/log.json`, as the current
+logger writes them. The readers for what earlier versions kept in files
+beside the log are gone:
+
+- `artifacts/c<N>_<analyzer>.result.json`, `fixes/*/result.json` and
+  `outputs.jsonl`, `report/hypotheses.json`, `report/m4_results.json`,
+  `prompts/`, `tools/`, `manifest.json`, and an `explore/` directory beside
+  the logs of a loop run.
+- The join against a benchmark data manifest that supplied case text for
+  runs whose log did not carry the cases. With it go `--example-dir` on
+  `evalrx report` / `evalrx publish-report` and the `example_dir` argument of
+  `build_report_data`, `publish_report`, `export_static_report`,
+  `RunContext.publish_report` and `VLDiagnoseLoop.publish_report`.
+
+- What the report inferred for logs that did not record it: the partition
+  of untagged case records (from the record order), a finished run from
+  `loop_end` (a run is finished when it logged `run_end`), the repair
+  numbering of contract payloads written before `ref`, and case text from
+  `report/discovery_cases.json`.
+- Layouts published before two renderer changes: the `OutcomeCard` component
+  is no longer accepted, and elements without `props` are no longer patched
+  on load.
+- Events without the envelope the logger stamps. Events are ordered by
+  `event_seq` (a log without it is not readable), and a `surgery` / `fix`
+  event is told apart by its own `module`.
+- M3's `agent_response` and `unparsed_proposals` in `stage_detail` (and the
+  `UnparsedProposal` contract model): they were filled from a `prompts/`
+  directory. The aggregate M4 example shown when a log kept no validation
+  case, and M1 examples rebuilt for logs that recorded none, are gone too.
+- The contract no longer maps the spellings `ebh` / `bh` (correction method)
+  or `env` / `critic` (trajectory step role) onto the current ones.
+
+A run logged by an earlier version is refused with a message that says so.
+Re-run it to open it with this version.
+
+### Fixed — report fields that still looked for files no run writes
+
+- The Case Studio and M5's worked example show what the repair answered on
+  each case again. They read `outputs.jsonl` from a trial folder that is gone
+  by the time a run finishes; the fix event carries the same answers, and the
+  report reads them from there.
+- The header names the agent that drove the run ("Claude Code ·
+  claude-opus-5"). It looked for a `manifest.json` beside the log; the
+  `run_start` event records it.
+- M2's rate comparison (failure rate with and without a signal) draws again:
+  the two rates are on the analysis event, not in an `artifacts/` file.
+- The case study's example case shows its gold answer and the model's
+  baseline answer, read from the case record instead of
+  `report/discovery_cases.json`.
+- Each M4 verdict card shows its own test statistics. With several
+  hypotheses, every card borrowed the last verdict's interval.
+- A case with more than one media slot shows each file in its own slot. The
+  report paired a case's inputs with the copies the logger made by position,
+  in a different slot order than the logger wrote them, so an image-and-audio
+  case had the two swapped. They are paired by file name.
+- The Case Studio lists a multiple-choice case's options (`metadata.options`,
+  else `metadata.choices`); the block was always empty. A case's label is its
+  `metadata.category`, else the task kind, so it is no longer blank on
+  datasets without categories.
+
+Report data is version 23.
+
+### Fixed — the pinned-M1 examples ran no analyzer on an audio model
+
+`mmau_qwen2_audio`, `audiocaps_hallucination_qwen2_audio`,
+`musicavqa_videollama2` and the three VLM examples keyed their pinned
+analyzer list on `vlm` / `agent` / `llm` only. An audio model is routed as
+`alm` or `avlm`, so it was handed an empty list and M1 ran nothing. They key
+the list on every `ModelKind`.
+
+### Changed — the explore agent's record shows for loop runs too
+
+M2's full record now carries the explore agent's code, output and audit for a
+diagnosis run as well, read from the files the logger inlines on the explore
+event. It was filled only for standalone explore outputs.
+
+### Removed — the first M2 tool layer; run log schema 8
+
+`StatsToolAgent` (`evalrx.analysis.stats_tool_agent`: `scalar_summary` and
+`per_case_signal_label_association`) ran beside the statistical tool layer
+only to fill two report fields, `stats_tool_results` and `visualizations`.
+Nothing read them: the M2 judge, M3, M4, the contract and the report all use
+`stats_results` and `figures`.
+
+- `StatsToolAgent`, `StatsAnalysisAgent(stats_tool_agent=...)`, and
+  `StatsAnalysisReport.stats_tool_results` / `.visualizations` are removed.
+  `enable_stats_tools` is unchanged: it gates the statistical tool layer.
+- The `analysis` event no longer carries `stats_tool_results` or
+  `visualizations`, so `RUN_LOG_SCHEMA_VERSION` is 8.
+
+### Removed — names and code paths kept from earlier iterations
+
+Each of these had a current replacement and stayed only so older code kept
+working. They are gone, with no forwarding name left behind.
+
+- `QwenLLM()` / `QwenVL()`: use `evalrx.load("<spec key>")` or a version
+  factory such as `qwen2_5_7b_instruct()`.
+- The model aliases `"qwen"` and `"qwen2.5-7b"` and `resolve_spec_key`: name a
+  spec key (`evalrx.list_specs()`). An unknown key raises `KeyError`.
+- `registry.models` and `register_model`: model identity lives in
+  `evalrx.specs`.
+- `PureQADataset` and `evalrx.datasets.pure_qa`: use `LLMQADataset`.
+- `evalrx.stats.sample_subset` (use `stratified_subset`) and `ab_test` (use
+  `compare`).
+- A leading `call_` on `analysis:` in a config file is no longer stripped.
+- `VLDiagnoseReport` (use `AutoDiagnoseReport`, the same class) and the
+  report's `all_hypotheses` property (use `final_hypotheses`).
+- `evalrx.reporting.langfuse_exporter`: import `export_to_langfuse_bundle` /
+  `sync_to_langfuse_live` from `evalrx.observability`, or run
+  `evalrx export-langfuse`.
+- `evalrx.cli.serve_report` and the hidden `evalrx serve --no-audio` flag,
+  which did nothing.
+- The pre-0.1.2 module paths (`evalrx.models.backends.hf_local`,
+  `.jax_local`, `.openai_compat`, `.gemini_compat`,
+  `evalrx.models.blackbox.gemini`, `evalrx.models._discover`,
+  `evalrx.models.inference`, `evalrx.models.jax*`): import from
+  `evalrx.models.backends.{hf,jax,api}`.
+- `AutoDiagnoseReport.final_results` (always empty) and `final_analysis`
+  (a mirror of `final_stats_report`).
+- `Trial.write_record` / `Trial.write_result`, `RUN_LOGGER_V2_VERSION`,
+  `HFLocalModel._vcd_next_token_logits`, and the `_resolve_image` /
+  `_resolve_audio` names in `backends.hf.model` (use
+  `evalrx.models._media`): nothing called them.
+- The held-out M4 probe no longer retries without `analyzers=` when a probe
+  agent raises `TypeError`.
+- The report server no longer looks for case media in a `data/` folder beside
+  the run. The logger copies each case's media into the run's `media/`, and
+  the report serves that copy.
+- `run_fix` calls its fix agent with `FixAgent`'s signature. It used to
+  inspect the agent and pass only the keywords it accepted, skip `recommend`
+  and `no_fix_recommendation` when they were missing, and hand back whatever
+  object `propose_and_validate` returned. A replacement agent now needs the
+  members listed under "A replacement fix agent" in `docs/stage_io.md` and
+  must return a `FixOutcome`; one that does not fails at the call instead of
+  running a tier ladder that ignores the tier.
+- `DiagnosisAgent.diagnose` takes the M2 report only. It no longer wraps a
+  bare `{analyzer: Result}` dict, and its `model_name` argument (used only for
+  that dict) is gone: pass `AnalysisModule().analyze(results, model_name)`.
+- `RunLogger.inline_text_artifacts` and `.preserve_full_model_io`. Both were
+  always true: they let a producer ask which logger it had, and there is one.
+  With them go the branches for the other answer, in which a model call's
+  text was cut at 8000 characters and a coded repair's prompt and code were
+  written as files in its trial folder, and the checks for whether the
+  logger has `log_model_exchange`. A stage records its model calls whenever
+  it has a run logger.
+- `rejected_tools` in the multiplicity report (`fdr_correct`,
+  `StatsAnalysisReport.corrected_rejections`, `FusedReport.adjudication`):
+  read `rejected_result_keys`. A tool name stood for every result of that
+  tool, so one surviving signal marked all of `signal_label_assoc` as
+  surviving. M2's evidence chain, which M3 reads, now lists the surviving
+  results by key and names the correction that was applied (BH, e-BH or
+  mixed) instead of always saying e-BH.
+- `evalrx.analysis.default_plan` and `AnalysisPlanItem.as_legacy_tuple`: call
+  `plan_stats_input`, which returns the `AnalysisPlanItem`s (`.tool`,
+  `.config`, `.rationale`) the tuples were made from.
+- `compile_diagnostic_report` with `DiagnosticReport`, `Claim`, `Evidence`
+  and `ReportStep` (exported from `evalrx.reporting` and `evalrx.analysis`),
+  `evalrx.reporting.stages` (`STAGE_SPECS`, `StageSpec`,
+  `stage_specs_as_dicts`), `evalrx.viz.prompts` and `evalrx.viz.schema`: they
+  fed the dashboard server this release removes, and nothing else read them.
+  The report's opening summary (`compile_reader_report`) is unchanged.
+- `evalrx.eval_agent.iter_log_errors` (it validated a `run_log.jsonl`, which
+  no logger writes; use `validate_event` per event), and the schema entries
+  for fields only the flat logger wrote: `judge_io`, `model_calls_path`,
+  `code_paths`, `output_paths`, `record`.
+
+### Added — follow a run while it is written
+
+`evalrx serve` on a run still in progress follows it: the top bar says "run in
+progress" and the report on screen is replaced in place each time the run logs
+something (server-sent events on `/api/runs/{id}/live`), until the run ends.
+A run that goes quiet without ending says so, with how long it has been quiet,
+instead of "report complete". The report carries `setting.finished` and
+`setting.last_event_at`, so an export of an unfinished run says the same.
+
+### Changed — the run log records when a run ends: `run_end`
+
+`RunLogger.close()` writes a `run_end` event, the run-level completion
+signal. `loop_end` ends M1–M4 only (M5 and the fix step log after it), which
+is why it could not serve. A run whose log has no `run_end` is read as
+unfinished. The new event type made the log schema 7; the removal of two
+`analysis` fields (above) makes it 8.
+
+### Added — compare two runs in `evalrx serve`
+
+**Compare** in the report's top bar opens the run beside another one the
+server lists (`#/compare/<id>`): metrics and stage outcomes side by side, and
+the shared cases (joined by id) that passed in one run and failed in the
+other, each linking into the case studio.
+
+### Changed — the package type-checks, and CI enforces it
+
+`mypy evalrx` reports no errors (it reported 672) and now runs in CI. Most of
+the work was declarations: analyzers declare the hyper-parameters
+`Analyzer.__init__` stores with `setattr`, the HF backend mixins declare the
+host attributes they use, and stages type their judge as the new
+`evalrx.core.model.Judge` protocol (`capabilities` + `generate`), which every
+`Model` and the CLI judges in `agent_runtime.judges` satisfy. Two real bugs it
+found are listed under Fixed. `CapabilityError.missing` accepts any set.
+
+### Fixed — Docker-routed analyzers crashed on cases without a label
+
+`ProbeAgent(use_docker=True)` rebuilt each case inside the container with
+`label=None` when the case had no usable label, so anything that serialised
+the case (`FailureCase.to_dict()`) raised `AttributeError`. Such cases are
+now `Label.UNKNOWN`, the field's own default.
+
+### Fixed — `ReportData.repairs` carried the per-case repair outcomes
+
+`build_report_data` reused the name `repairs` for M5's per-case outcomes, so
+the report's `repairs` list (`[{id, fixed, title, effect, fixed_cases,
+broken_cases}]`) was replaced by a `case id → outcome` dict, and the loop
+figure, which reads `repairs[0]`, never showed the repair. The list is back;
+the per-case outcomes still reach each case as `case.repair`. Its counts now
+come from the same M5 result as the "Cases repaired" tile (the confirmation,
+or the strongest scored candidate when none was certified); read from the fix
+event alone they said "0 fixed" beside a tile of 3.
+
 ### Added — validation report for the published weight edit on Qwen3.5-0.8B
 
 `docs/validation/astra_p50c_20261115.md` records the structure read-out, the
@@ -665,8 +1434,7 @@ with everything only they used:
 - `evalrx.eval_agent.orchestrator` (`EvalOrchestrator`) and what only it used:
   `ab_runner` (`ABRunner`, `ABResult`), `preregister` (`DataSplit`, `Split`,
   `PreregisteredHypothesis`, `PreregistrationLog`) and `report`
-  (`DiagnosticReport` — `evalrx.reporting.DiagnosticReport` is a different,
-  kept class). For a paired comparison use `evalrx.stats.compare`.
+  (`DiagnosticReport`). For a paired comparison use `evalrx.stats.compare`.
 - `evalrx.eval_agent._tools`, whose one live function `SurgeryAgent`'s
   parameter sweep now calls directly.
 
@@ -684,20 +1452,33 @@ from `evalrx.agent_runtime.providers.<name>`; `SkillInstaller` /
 `evalrx.eval_agent` still exports `CliAgentConfig`, `CliAgentResult` and
 `create_cli_agent`.
 
-### Removed — the `dashboard` report server (breaking)
+### Removed — the `dashboard` report server and the legacy static report (breaking)
 
 Run reports have one UI: the React report (`evalrx serve` / `evalrx report` /
-`evalrx publish-report`).
+`evalrx publish-report`), for loop runs and explore outputs alike.
 
 - `evalrx dashboard` and `evalrx.analysis.dashboard` are removed: the
   standard-library server that served the legacy static `report.html`, and the
   `load_run` / `load_case_studies` / `load_loop_story` loaders, which nothing
   outside their tests used. Use `evalrx serve <run dir>` for a run.
-- `evalrx explore`, `evalrx run-codebase` and `evalrx-explore`: an explore
-  output is not an M1–M5 run, and the React report cannot render one (all five
-  stages read "not run"), so these keep writing the legacy static
-  `report.html` (`evalrx.reporting.html_report`, now used only for this).
-  `--serve-report` opens that file in a browser instead of starting a server;
+- `evalrx.reporting.html_report` (`build_html_report`, `generate_html_report`,
+  `embed_figures`, `embed_media`, and the `evalrx.reporting.build_html_report`
+  export) is removed. An explore output (`evalrx explore`, `evalrx
+  run-codebase`, a fused run) is now read as its own report: M2 and M3 show
+  as completed, the question and data come from its `exploratory_report.json`
+  (or `fused_report.json`), and the header counts patterns, charts and
+  proposed causes instead of cases. M2's full record carries what the legacy
+  page showed of the explore agent, for loop runs too: the analysis code it
+  ran, what it printed, its audit, and its trajectory (cut at 200 000
+  characters; the run directory keeps the whole file). `evalrx serve <explore out>` works on it,
+  and the `report.html` these commands write is the React report's portable
+  export (`evalrx.reporting.static_export.write_report`). A source checkout
+  must build the renderer (`npm run build` in `evalrx/reporting/web`) for that
+  file; without it the run finishes and says why the file was not written.
+  The example images that run an explore step build the renderer in a Node
+  stage, and no longer ask for the `dashboard` extra, which no longer exists.
+- `evalrx explore`, `evalrx run-codebase` and `evalrx-explore`:
+  `--serve-report` opens the written `report.html` in a browser instead of starting a server;
   the deprecated `--dashboard` alias and `--port` are removed (`evalrx-explore`
   had `--dashboard`, now `--serve-report`). The `run_explore` /
   `run_codebase_cli` keywords `dashboard` / `dashboard_port` become
@@ -781,13 +1562,14 @@ log lines now come from the `evalrx.eval_agent.loop_fix` logger.
 
 ### Changed — the run reader moved to `evalrx.reporting.run_data`
 
-`extract_run_data` (and the run-layout helpers and analyzer glossary it uses)
-moved from `evalrx.reporting.html_report` to `evalrx.reporting.run_data`. It
-is the reader behind the dynamic report, the Langfuse bundle export and the
-legacy static page, and no longer lives inside the legacy renderer.
-`html_report` keeps the static page (`build_html_report`,
-`generate_html_report`, `embed_figures`, `embed_media`). Import
-`extract_run_data` from `evalrx.reporting.run_data`.
+`extract_run_data` (and the run-layout helpers it uses) moved from
+`evalrx.reporting.html_report` to `evalrx.reporting.run_data`. It is the
+reader behind the report and the Langfuse bundle export. Import
+`extract_run_data` from `evalrx.reporting.run_data`; `html_report` itself is
+gone (see the removal above).
+
+The reader is one function per stage now, and the analyzer glossary and the
+M1 results live in `evalrx.reporting.run_probes`.
 
 ### Changed — FixAgent split into the `stages/fix/` package
 
@@ -832,17 +1614,13 @@ unchanged. Visible differences:
 - After `run_fix(max_tier=...)` or an `auto_escalate` run, the agent keeps
   its configured `max_tier`; it used to keep the requested or last-tried
   tier, which leaked into the next `run_fix` call.
-- A custom fix agent whose `propose_and_validate` cannot take
-  `max_tier`/`min_tier` now raises `TypeError` under `auto_escalate` or an
-  explicit `max_tier`, instead of running every rung at its own tier.
-- A custom fix agent whose `propose_and_validate` does not take `record`
-  is no longer silenced during the search (the loop used to set its
-  `run_logger` to `None`); it logs whatever it logs per round.
-- Under `auto_escalate` without a held-out split, a custom agent's opaque
-  (non-`FixOutcome`) result is returned as-is, as the held-out ladder
-  already did, instead of raising `AttributeError`.
+- A replacement fix agent is called with these keywords and must return a
+  `FixOutcome`: see "A replacement fix agent" in `docs/stage_io.md`. One
+  whose `propose_and_validate` cannot take `max_tier` / `min_tier` /
+  `record` raises `TypeError` at the call, instead of running every rung at
+  its own tier.
 
-### Fixed — RunLoggerV2 outbox on multi-user hosts
+### Fixed — the Langfuse outbox on multi-user hosts
 
 The Langfuse outbox lived in a single shared `/tmp/evalrx-v2-outbox`, owned by
 whichever user created it first; every other user's run then failed with

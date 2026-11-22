@@ -43,7 +43,7 @@ ANALYSIS_DIR = OUT / "analysis"
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default=run.CFG["model"])
-    ap.add_argument("--judge-model", default=run.CFG.get("judge_model", "claude-opus-4-8"))
+    ap.add_argument("--judge-model", default=run.JUDGE_MODEL)
     ap.add_argument("--judge-effort", default=run.CFG.get("judge_effort", "low"))
     ap.add_argument("--backend", default="claude", choices=["claude", "codex", "agy"],
                     help="coder backend for M2 stats codegen (default claude)")
@@ -71,7 +71,7 @@ def main() -> None:
     from evalrx.analysis.stats_agent import StatsAnalysisAgent
     from evalrx.eval_agent import (
         CliAgentConfig,
-        RunLoggerV2,
+        RunLogger,
         VLDiagnoseLoop,
     )
     from evalrx.eval_agent.hypothesis import hypothesis_to_dict
@@ -101,7 +101,7 @@ def main() -> None:
               f"{len(explore_report.get('charts') or [])} chart(s), "
               f"{len(explore_report.get('observations') or [])} observation(s)")
 
-    run_logger = RunLoggerV2(run_dir=OUT / "logs_analysis", narrate=True)
+    run_logger = RunLogger(run_dir=OUT / "logs_analysis", narrate=True)
     loop = VLDiagnoseLoop(
         model=model,
         protocol=run.build_protocol(),
@@ -119,13 +119,13 @@ def main() -> None:
     run_logger.close()
 
     print(f"\nstopped_by={report.stopped_by} "
-          f"proposed={len(report.all_hypotheses)} (UNCONFIRMED — no M4/M5/Fix yet)")
-    for h in report.all_hypotheses:
+          f"proposed={len(report.final_hypotheses)} (UNCONFIRMED — no M4/M5/Fix yet)")
+    for h in report.final_hypotheses:
         print(f" - [{h.predicted_failure_mode}] {h.statement[:110]}")
 
     # ── Persist the artifacts PHASE 2 reuses (same hypotheses + same stats) ──
     ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
-    hyp_dicts = [hypothesis_to_dict(h) for h in report.all_hypotheses]
+    hyp_dicts = [hypothesis_to_dict(h) for h in report.final_hypotheses]
     (ANALYSIS_DIR / "proposed_hypotheses.json").write_text(
         json.dumps(hyp_dicts, indent=2), encoding="utf-8")
 

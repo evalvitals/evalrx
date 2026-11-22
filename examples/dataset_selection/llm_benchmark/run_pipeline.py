@@ -4,7 +4,7 @@
     python run_pipeline.py --analysis-only        # M1->M2->M3, stop before M4/M5
     python -m evalrx.cli serve outputs/qwen3.5-9b/supergpqa_law
 
-Stages (evalrx.eval_agent.loop.VLDiagnoseLoop -- the class name says VL, but
+Stages (evalrx.eval_agent.loop.diagnose.VLDiagnoseLoop -- the class name says VL, but
 it takes a plain Model plus an ExperimentProtocol whose target_modalities is
 {"text"} here, and nothing in it is vision-specific):
 
@@ -57,6 +57,12 @@ from evalrx.core.model import Model  # noqa: E402
 
 CFG = yaml.safe_load((HERE / "config.yaml").read_text())
 
+# The judge and the coder follow the package default unless config.yaml names a model.
+from evalrx.agent_runtime.judges.claude import ClaudeModel  # noqa: E402
+
+JUDGE_MODEL = str(CFG.get("judge_model") or ClaudeModel.DEFAULT_MODEL)
+CODEGEN_MODEL = str(CFG.get("codegen_model") or ClaudeModel.DEFAULT_MODEL)
+
 
 # ---------------------------------------------------------------- model
 #: Appended in ``mode="answer"`` so the scored tokens are an ANSWER rather than
@@ -108,7 +114,7 @@ class EndpointModel(Model):
 
     def __init__(self, model_id: str, base_url: str, max_tokens: int, sampling: dict,
                  logprobs_mode: str = "answer", logprobs_max_tokens: int = 64,
-                 logprobs_top_k: int = 5):
+                 logprobs_top_k: int = 5, concurrency: int = 1):
         from evalrx.core.capability import Capability
 
         self.capabilities = frozenset({Capability.GENERATE, Capability.LOGPROBS})
@@ -123,10 +129,13 @@ class EndpointModel(Model):
         self.n_calls = 0
         self.n_truncated = 0
         self.n_logprob_calls = 0
-        # M1 analyzers and the fix module's declarative candidates call
-        # generate() from worker threads; the counters are read as telemetry
-        # (the fix module diffs n_truncated around each candidate), so they
-        # must not lose increments.
+        # Requests in flight for one generate_batch: the M1 analyzers and the
+        # fix stage hand their independent prompts over as a batch, and the
+        # vLLM server batches whatever arrives together.
+        self.concurrency = max(1, int(concurrency))
+        # generate() therefore runs on worker threads; the counters are read
+        # as telemetry (the fix module diffs n_truncated around each
+        # candidate), so they must not lose increments.
         import threading
         self._lock = threading.Lock()
 
@@ -487,7 +496,7 @@ def _spends_gpu(cls) -> bool:
         src = inspect.getsource(cls)
     except (OSError, TypeError):
         return True  # unknown: cap it rather than risk another straggler
-    return "model.generate(" in src or "model.logprobs(" in src
+    return any(call in src for call in ("model.generate(", "model.generate_batch(", "Ask(", "model.logprobs("))
 
 
 def build_analyzer_overrides(max_cases: int, model=None, verbose: bool = True) -> dict:
@@ -573,8 +582,8 @@ def build_analyzer_overrides(max_cases: int, model=None, verbose: bool = True) -
 
 
 def _stats_report_from(diagnosis: dict, analysis: dict, raw_results: dict, logs_dir: Path):
-    """Shared V1/V2 tail of :func:`load_prior_run`: rebuild the
-    ``StatsAnalysisReport`` once the per-version reader has produced plain
+    """The tail of :func:`load_prior_run`: rebuild the
+    ``StatsAnalysisReport`` once the reader has produced plain
     dicts for the last M3 diagnosis / M2 analysis / M1 probe events."""
     from evalrx.analysis.stats_agent import StatsAnalysisReport
     from evalrx.analysis.stats_tools import StatsToolResult
@@ -612,7 +621,7 @@ def _stats_report_from(diagnosis: dict, analysis: dict, raw_results: dict, logs_
 
 
 def _load_prior_run_v2(logs_dir: Path):
-    """RunLoggerV2 layout: one JSON document per stage, same-event arrays.
+    """RunLogger layout: one JSON document per stage, same-event arrays.
     M1/M2/M3 each keep every cycle's entry in an array under their own key
     (``probe`` / ``analysis`` / ``diagnosis``); the last entry is the latest
     cycle. Nothing here is externalized to a sibling file (v2 inlines
@@ -695,7 +704,7 @@ def build_codegen(backend: str):
     effort = str(CFG.get("codegen_effort", "") or "")
     return CliAgentConfig(
         provider=provider,
-        model=str(CFG.get("codegen_model", "claude-opus-5")) if is_claude else "",
+        model=CODEGEN_MODEL if is_claude else "",
         max_budget_usd=float(CFG.get("codegen_budget_usd", 2.0)),
         timeout_sec=int(CFG.get("codegen_timeout_sec", 480)),
         extra_args=(("--effort", effort) if (effort and is_claude) else ()),
@@ -729,7 +738,7 @@ def main() -> None:
     ap.add_argument("--model", default=CFG["model"])
     ap.add_argument("--base-url", default=CFG["base_url"])
     ap.add_argument("--dataset", default=CFG["dataset"])
-    ap.add_argument("--judge-model", default=CFG["judge_model"])
+    ap.add_argument("--judge-model", default=JUDGE_MODEL)
     ap.add_argument("--judge-effort", default=CFG["judge_effort"])
     ap.add_argument("--backend", default="claude", choices=["claude", "codex", "agy"])
     ap.add_argument("--max-cycles", type=int, default=CFG["max_cycles"])
@@ -786,7 +795,7 @@ def main() -> None:
     from evalrx.eval_agent import (
         ExperimentWriterConfig,
         FixAgent,
-        RunLoggerV2,
+        RunLogger,
         SurgeryAgent,
         VLDiagnoseLoop,
     )
@@ -830,7 +839,8 @@ def main() -> None:
                            "top_p": float(CFG["top_p"]), "top_k": int(CFG["top_k"])},
                           logprobs_mode=str(CFG.get("logprobs_mode", "answer")),
                           logprobs_max_tokens=int(CFG.get("logprobs_max_tokens", 64)),
-                          logprobs_top_k=int(CFG.get("logprobs_top_k", 5)))
+                          logprobs_top_k=int(CFG.get("logprobs_top_k", 5)),
+                          concurrency=int(CFG.get("concurrency", 1)))
     judge = build_judge(args.judge_model, args.judge_effort,
                         timeout_sec=int(CFG.get("judge_timeout_sec", 240)))
     codegen = build_codegen(args.backend)
@@ -850,9 +860,9 @@ def main() -> None:
     overrides = (build_analyzer_overrides(args.analyzer_max_cases, model=model)
                  if args.analyzer_max_cases > 0 else {})
     # A confirm-only pass logs beside the analysis it reuses, never over it.
-    # RunLoggerV2 writes run.json + one JSON per M-stage (M1/log.json ..
-    # M5/log.json) under this dir — see evalrx/eval_agent/RUN_LOGGER_V2.md.
-    logger = RunLoggerV2(run_dir=out / ("logs_confirm" if args.confirm_only else "logs"),
+    # RunLogger writes run.json + one JSON per M-stage (M1/log.json ..
+    # M5/log.json) under this dir — see evalrx/eval_agent/runlog/README.md.
+    logger = RunLogger(run_dir=out / ("logs_confirm" if args.confirm_only else "logs"),
                          verbose=True)
 
     # max_cases_per_analyzer is the BACKSTOP for analyzer_overrides: the
@@ -909,11 +919,8 @@ def main() -> None:
             baseline_generation_kwargs={"max_tokens": max_tokens,
                                         "temperature": float(CFG["temperature"]),
                                         "top_p": float(CFG["top_p"])},
-            # Declarative candidates run their cases in parallel against the
-            # endpoint (coded pipelines stay serial through the bridge).
-            concurrency=int(CFG.get("fix_concurrency", 1)),
-            # Noise model: the baseline is a per-case PASS RATE (frozen sample
-            # + k-1 fresh at the batch's own T), the paired test runs on rate
+            # Noise model: the baseline is a per-case PASS RATE (k fresh
+            # samples at the batch's own T), the paired test runs on rate
             # differences (betting e-value) — sampling-unstable cases are
             # weighed, not dropped, and one T=0.6 sample per arm no longer
             # decides fixed/broken. Candidates default to one pass (coded
@@ -998,7 +1005,7 @@ def main() -> None:
                               else bool(CFG.get("fix_on_unverified", True))),
         "fix_candidate_repeats": int(CFG.get("fix_candidate_repeats", 1)),
         "n_hypotheses": len(getattr(report, "hypotheses", None)
-                            or getattr(report, "all_hypotheses", None) or []),
+                            or getattr(report, "final_hypotheses", None) or []),
         "n_verified": len(getattr(report, "verified_hypotheses", []) or []),
         "model_calls": model.n_calls,
         "model_truncated": model.n_truncated,

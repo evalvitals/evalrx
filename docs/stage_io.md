@@ -3,15 +3,15 @@
 A single reference for what goes into and comes out of each stage of the
 M1→M5 diagnosis pipeline. [Architecture](architecture.md#eval_agent-automated-diagnosis-pipeline)
 covers *why* the pipeline is shaped this way and how the two loops
-(`VLDiagnoseLoop`, `AgenticDiagnoseLoop`) orchestrate these
+(`VLDiagnoseLoop` with its fixed cycle or a `JudgePolicy`) orchestrate these
 same stages differently; [Exploratory Analysis (M2/M3)](m2_analysis.md) and
 [Intervention & Verification (M4/M5)](intervention.md) cover usage. This page
 covers the shape of the data crossing each boundary, and — since that shape
 is exactly what a viewer has to render — [what to put on screen for it](#ui-reference-building-a-viewer-on-this-pipeline).
 Building a new UI on this pipeline? Read the stage you're rendering below,
 then [UI Reference](#ui-reference-building-a-viewer-on-this-pipeline) at the
-bottom for the static report's page layout, tab-to-stage mapping, and
-rendering conventions (source: `evalrx/reporting/html_report.py`).
+bottom for the report's page layout, tab-to-stage mapping, and
+rendering conventions (source: `evalrx/reporting/web`).
 For an implementation hand-off, start with
 [Frontend implementation contract](#frontend-implementation-contract): it
 defines the files to load, event fields, joins, state derivation, null/error
@@ -48,9 +48,9 @@ M5  FixAgent.propose_and_validate(...) → FixOutcome
     (propose + validate candidate repairs, tiered L1→L4)
 ```
 
-`VLDiagnoseLoop` runs M1→M2→M3→M4 in a cycle and calls M5 (`SurgeryAgent` then
+`VLDiagnoseLoop` runs M1→M2→M3→M4 in a cycle (the default `FixedOrderPolicy`) and calls M5 (`SurgeryAgent` then
 `FixAgent`) once, post-loop, on the best verified hypothesis.
-`AgenticDiagnoseLoop` lets a judge choose the next stage instead. Both consume and
+With `policy=JudgePolicy(judge)` a judge chooses the next stage instead. Both consume and
 produce the same per-stage types described below — only the wiring differs.
 
 **Pre-M1 (optional):** `ProbeSearchAgent.run(model, seed_pool)` synthesizes
@@ -73,7 +73,7 @@ then probes. See [m2_analysis.md](m2_analysis.md#probe-search-hierarchical-mcts-
 | M5 (verify) | `SurgeryAgent` | `operate(hypothesis, model, results, data)` | one `Hypothesis` + `dict[str, Result]` + `CaseBatch` | `InterventionResult` |
 | M5 (fix) | `FixAgent` | `propose_and_validate(model, data, hypotheses, prior_attempts=)` | `Model` + `CaseBatch` + `list[Hypothesis]` | `FixOutcome` |
 | M4 | `HypothesisTester` | `test(hypotheses, stats_report, data, protocol=)` | `list[Hypothesis]` + `StatsAnalysisReport` + `CaseBatch` | `list[HypothesisTestResult]` |
-| Loop | `VLDiagnoseLoop` / `AgenticDiagnoseLoop` | `run(cases)` | `CaseBatch` | `AutoDiagnoseReport` (both loops return this one class — see below) |
+| Loop | `VLDiagnoseLoop` (optionally `policy=JudgePolicy(...)`) | `run(cases)` | `CaseBatch` | `AutoDiagnoseReport` (both modes return this one class — see below) |
 
 ## Shared input type — `CaseBatch`
 
@@ -241,8 +241,7 @@ verdicts must never look the same to the reader.
 
 ### `DiagnosisAgent` (loop-internal)
 
-**Input:** `analysis: AnalysisReport | StatsAnalysisReport | dict[str, Result]`
-(M2's output — dict form is accepted for backward compatibility),
+**Input:** `analysis: AnalysisReport | StatsAnalysisReport` (M2's output),
 `prior_cycles: list[dict] | None` (summaries of earlier M1→M5 cycles, so the
 judge avoids re-proposing tested hypotheses), `explore_context`,
 `failure_modes` (optional, descriptive-only context from clustering).
@@ -259,8 +258,13 @@ object).
 
 **Output:** `list[Hypothesis]`, each with `statement` (technical claim),
 `plain_statement` (jargon-free rewrite), `basis` (which M2 takeaway grounds
-it), `test_design` (what evidence would confirm/refute it). Proposal only —
-generating a hypothesis is not testing one.
+it), `test_design` (what evidence would confirm/refute it). Two optional
+fields appear only when stated: `predictions` (numeric claims about named
+candidate signals, which the host checks on held-out rows) and `experiment`
+(`data_needed`, `operation`, `expected_result`, `falsified_by` — the
+intervention needed when re-counting rows cannot decide the claim). See
+[Held-out Confirmation](holdout_confirmation.md). Proposal only — generating a
+hypothesis is not testing one.
 
 **UI (Tab 3 — Hypotheses):** one card per hypothesis — headline is
 `plain_statement` (falls back to `statement`), technical `statement` shown
@@ -326,6 +330,16 @@ right anyway was solved by the pipeline's own computation, not a repair of
 the model. Those cases are excluded from the paired test
 (`n_model_independent`) rather than counted as `fixed`.
 
+**A replacement fix agent.** `VLDiagnoseLoop(fix_agent=...)` and
+`run_fix(fix_agent=...)` call the agent they are given the way they call
+`FixAgent`, so subclass it, or provide the same members:
+`propose_and_validate(model, data, hypotheses, prior_attempts=, context=,
+max_tier=, min_tier=, record=)` returning a `FixOutcome`,
+`validate_candidate(model, data, candidate)`, `recommend(routed, model=,
+data=, reason_prefix=, max_tier=)`, `no_fix_recommendation(attempted,
+routed_tiers, data, model, max_tier=)`, and the attributes `alpha`,
+`max_tier` and `run_logger`.
+
 **UI (Tab 5 — Fix):** greyed "not available" placeholder
 (`_render_unavailable_panel`: title, what happened, how to get it) when no
 `fix_report.json` sits next to the exploratory report — this pipeline phase
@@ -387,8 +401,8 @@ attached to a specific claim.
 
 ## Loop-level output
 
-Both loops — `VLDiagnoseLoop` and `AgenticDiagnoseLoop` — return the **same
-class**: `AutoDiagnoseReport` (`VLDiagnoseReport` is a
+Both modes — the fixed cycle and a `JudgePolicy` run — return the **same
+class**: `AutoDiagnoseReport` (`AutoDiagnoseReport` is a
 back-compat alias for the identical class, so `isinstance` checks against
 either name succeed for a report from any loop). Each loop populates the
 subset of fields relevant to what it ran; fields the loop has no equivalent
@@ -399,12 +413,10 @@ concept for stay at their default (`None` / empty):
 | `cycles` | all | M1→M4/M5 cycles executed (or agentic decision steps). |
 | `resolved: bool` | all | Diagnosis considered closed: `bool(verified_hypotheses)`. |
 | `stopped_by: str \| None` | VL / agentic | Why the loop stopped: `"criteria_met"` / `"max_cycles"` / `"budget"` / `"no_hypotheses"` / `"no_probe_results"` / `"analysis_complete"`, or agentic's `"agent_stop"` / `"max_actions"` / `"time_budget"` / `"invalid_actions"`. |
-| `final_hypotheses: list[Hypothesis]` | all | All M3 proposals across every cycle. (`all_hypotheses` is a read-only alias, kept for existing callers.) |
+| `final_hypotheses: list[Hypothesis]` | all | All M3 proposals across every cycle. |
 | `verified_hypotheses: list[HypothesisTestResult]` | VL / agentic (M4) | SUPPORTED + protocol-consistent, highest confidence first — feed into `run_m5`. |
 | `all_test_results: list[HypothesisTestResult]` | VL / agentic (M4) | All M4 test results across every cycle. |
-| `final_results: dict[str, Result]` | — | Left empty by both loops (it was the removed `AutoDiagnoseLoop`'s); M1's results are in the run log and `final_analysis`. |
-| `final_analysis: AnalysisReport \| None` | all | Last M2 report. Auto-populated from `final_stats_report` when only that was set (`StatsAnalysisReport` is an `AnalysisReport` subclass), so this field works regardless of which loop produced the report. |
-| `final_stats_report: StatsAnalysisReport \| None` | VL / agentic | Last M2 report (same object as `final_analysis` when set). |
+| `final_stats_report: StatsAnalysisReport \| None` | VL / agentic | Last M2 report. |
 | `fix_proposal` / `fix_outcome` | post-loop | Populated by `run_m5` / `run_fix` after `run()` returns. |
 | `store` | all | Accumulated results and hypotheses. |
 
@@ -450,7 +462,7 @@ Two things the contract will not do for you, both deliberate:
   grounded.
 
 The rest of this section describes the raw run directory — `RunContext`'s
-only layout now (`evalrx/eval_agent/RUN_LOGGER_V2.md`; there is no other
+only layout now (`evalrx/eval_agent/runlog/README.md`; there is no other
 logger to select). `contract/` is unaffected by any of this.
 
 ### 1. Choose a source of truth
@@ -502,8 +514,7 @@ For a finished run, `run.json["manifest"]` is the file inventory. Its shape is:
 
 `config` is intentionally extensible: render recognized values as summary
 chips and preserve the remainder in a raw configuration view. `files` is a
-flat, complete file index (not grouped by category the way V1's was) —
-render it as-is.
+flat, complete file index — render it as-is.
 
 #### Artifact path resolution
 
@@ -628,7 +639,7 @@ but keep the original JSON untouched.
 Each stage document (`M<n>/log.json`) is one JSON object whose keys are event
 names, each mapping to an array of entries for that stage; `run.json` is the
 same shape for run-wide events (`run_start`, `cases`, `manifest`,
-`diagnose_reports`, `loop_end`, …). `evalrx.reporting.run_events.read_v2_events(root)`
+`diagnose_reports`, `loop_end`, …). `evalrx.reporting.run_events.read_run_events(root)`
 flattens all of it into one ordered list of independent event objects — the
 shape this section (and every table below) describes; prefer it over reading
 each file directly. Every event has:
@@ -654,14 +665,15 @@ and cross-service correlation only.
 | Event | Stage | Required/important payload | UI interpretation |
 |---|---|---|---|
 | `run_start` | run | model/judge/config, `n_cases`, protocol, budgets, version/git/data fingerprint when available | create run header; missing optional provenance is “unknown,” not failure |
-| `probe` | M1 | `cycle`, `analyzers`, `findings`, `results` (each analyzer's complete document, inline), `artifact_paths`; optional `selected_analyzers`, rationale, `failed_analyzers`, `judge_io`, duration | one analyzer card per selected analyzer; a name in `failed_analyzers` is a local analyzer failure |
+| `probe` | M1 | `cycle`, `analyzers`, `findings`, `results` (each analyzer's complete document, inline), `artifact_paths`; optional `selected_analyzers`, rationale, `failed_analyzers`, `judge_prompt` / `judge_response`, duration | one analyzer card per selected analyzer; a name in `failed_analyzers` is a local analyzer failure |
 | `explore` | descriptive side path | `cycle`, `ok`, counts, observations, caveats, figures; optional error/report path | `ok: false` fails this optional step, but does not by itself fail the diagnosis loop |
-| `analysis` | M2 | `cycle`, severity, findings, narrative, `descriptive_only`; optional stats outputs, conclusion, figures, `llm_fallback_reason`, `judge_io` | label descriptive and confirmatory analysis explicitly; a fallback can still be a successful M2 |
-| `diagnosis` | M3 | `cycle`, model, `n_hypotheses`, `hypotheses`, raw output; optional referenced charts/context flags, `judge_io` | zero parsed hypotheses is a completed empty/abstained M3 unless an explicit error exists elsewhere |
+| `analysis` | M2 | `cycle`, severity, findings, narrative, `descriptive_only`; optional stats outputs, conclusion, figures, `llm_fallback_reason`, `judge_prompt` / `judge_response` | label descriptive and confirmatory analysis explicitly; a fallback can still be a successful M2 |
+| `diagnosis` | M3 | `cycle`, model, `n_hypotheses`, `hypotheses`, raw output; optional referenced charts/context flags, `judge_prompt` | zero parsed hypotheses is a completed empty/abstained M3 unless an explicit error exists elsewhere |
 | `surgery` | M5 or M4 | `cycle`, `module`, hypothesis text, failure mode, status, `fixed`, confidence/evidence, refocused-case count | route by `module`; do not infer M5 vs M4 from the event name alone |
-| `experiment` | M5 | `cycle`, `module`, hypothesis, status/fixed; optional provider, metrics, exit/timing, code/output/workspace paths, record | generated verification execution detail; failure of one experiment need not fail the whole run |
-| `fix` | post-loop Fix | `cycle: -1`, `max_tier`, selection/final attempts, best, fixed, recommendation/refine signal, records | distinguish EXPLORE selection from held-out FINAL confirmation; see below |
+| `experiment` | M5 | `cycle`, `module`, hypothesis, status/fixed; optional provider, metrics, exit/timing, `code`, `stdout` / `stderr`, `workspace_snapshot` | generated verification execution detail; failure of one experiment need not fail the whole run |
+| `fix` | post-loop Fix | `cycle: -1`, `max_tier`, selection/final attempts, best, fixed, recommendation/refine signal | distinguish EXPLORE selection from held-out FINAL confirmation; see below |
 | `loop_end` | diagnosis loop | cycles, resolved/stopped reason, final and verified hypotheses, tokens/timings | diagnosis loop ended; **not necessarily the last event in the run** |
+| `run_end` | run | envelope only (schema 7) | the logger closed: the run-level completion signal, after everything else the run logged |
 | `agent_decision` | agentic loop | `step`, action/params/rationale, validity/repair/fallback, judge I/O | trajectory node; `valid: false` means host fallback, not automatically run failure |
 | `agent_tool` | agentic loop | `step`, tool, `ok`, summary/error, duration | dispatch result; stage-specific event remains the source for stage payload |
 | `tool_codegen` | support | cycle/module/tool/need/source/`ok`, error/code paths | one tool-generation attempt, not a stage verdict |
@@ -706,8 +718,9 @@ Recommended derivation rules:
 7. A hypothesis status of `inconclusive` is a valid abstention, not an exception.
 8. `loop_end` terminates M1→M4 orchestration, but M5 verification and Fix can be
    logged after it. Do not mark the entire run immutable merely because
-   `loop_end` appeared. A live transport/process terminal signal or a finalized
-   manifest is the run-level completion signal.
+   `loop_end` appeared. `run_end` (log schema 7, written when the logger
+   closes) is the run-level completion signal; for an older log, `loop_end` is
+   the best there is. The report carries the result as `setting.finished`.
 9. Missing events in an older/in-progress run mean “not observed”; do not invent
    a failure. Use `schema_version` and run configuration to decide skipped vs.
    not started.
@@ -911,13 +924,13 @@ There is already a working viewer for this exact data: `evalrx serve
 <run-dir>` runs it as a local dynamic UI, and `evalrx report <run-dir>`
 exports the same UI as one portable `report.html` — see the
 [CLI reference](cli.md) for the full command set. The source of truth is
-`evalrx/reporting/dynamic.py` (compiles `ReportData` + layout),
+`evalrx/reporting/dynamic.py` (compiles `ReportData` + layout, from the
+`report_inputs` / `stage_views` / `report_summary` modules beside it),
 `evalrx/reporting/server.py` (the `serve` FastAPI app) and
 `evalrx/reporting/static_export.py` (the `report` exporter); all three share
-the same React/json-render renderer. (`evalrx/reporting/html_report.py` is
-the older, pre-React renderer that `evalrx explore` / `run-codebase` still
-use for their explore-shaped output — not this contract.) Read this section as the contract that
-renderer must preserve.
+the same React/json-render renderer, which also renders an `evalrx explore` /
+`run-codebase` output. Read this section as the contract that renderer must
+preserve.
 
 ### Requirements for the new UI
 

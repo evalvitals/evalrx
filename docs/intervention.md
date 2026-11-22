@@ -24,13 +24,14 @@ For stage contracts and full data flow, see
 ## Quickstart — verify, then fix
 
 ```python
-from evalrx.eval_agent import VLDiagnoseLoop, RunLogger
+from evalrx.eval_agent import RunLogger, VLDiagnoseLoop
 from evalrx.eval_agent.stages.probe_agent import ProbeAgent
 from evalrx.analysis.stats_agent import StatsAnalysisAgent
 from evalrx.eval_agent.stages.diagnosis import DiagnosisAgent
 
 loop = VLDiagnoseLoop(
     model=model,
+    protocol=protocol,                                # an ExperimentProtocol
     probe_agent=ProbeAgent(max_analyzers=3),
     stats_agent=StatsAnalysisAgent(judge=judge),      # feeds M4
     diagnosis_agent=DiagnosisAgent(judge=judge),

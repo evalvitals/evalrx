@@ -61,6 +61,32 @@ class MeteredModel:
     def chat(self, messages: list, tools: "list | None" = None) -> Any:
         return self._timed("chat", self._metered.chat, messages, tools)
 
+    # The batch calls are counted per input under the single call's name, so a
+    # step's call counts read the same whether its analyzer batches or not.
+    def _timed_batch(self, method: str, fn: Any, inputs: Any, **kwargs: Any) -> Any:
+        items = list(inputs)
+        t0 = time.monotonic()
+        failed = len(items)
+        try:
+            outs = fn(items, **kwargs)
+            failed = sum(1 for out in outs if isinstance(out, Exception))
+            return outs
+        finally:
+            with self._lock:
+                self.calls[method] += len(items)
+                if failed:
+                    self.errors[method] += failed
+                self.model_sec += time.monotonic() - t0
+
+    def generate_batch(self, inputs: Any, **kwargs: Any) -> Any:
+        return self._timed_batch("generate", self._metered.generate_batch, inputs, **kwargs)
+
+    def try_generate_batch(self, inputs: Any, **kwargs: Any) -> Any:
+        return self._timed_batch("generate", self._metered.try_generate_batch, inputs, **kwargs)
+
+    def logprobs_batch(self, inputs: Any, **kwargs: Any) -> Any:
+        return self._timed_batch("logprobs", self._metered.logprobs_batch, inputs, **kwargs)
+
 
 def usage_counters(model: Any) -> "dict[str, int] | None":
     """The model's cumulative provider counters (through any proxy), or ``None``."""

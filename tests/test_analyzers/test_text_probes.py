@@ -443,3 +443,98 @@ def test_answer_fn_still_detects_genuine_disagreement():
     f = SelfConsistencyAnalyzer(n=4, semantic=False, answer_fn=extract_answer).run(
         _chain_model(["(A)", "(B)", "(A)", "(C)"]), _one_case()).findings
     assert f["consistency"] == 0.5 and f["n_unique"] == 3
+
+
+# ── the remaining per-case loops ask in batches ───────────────────────────────
+
+
+class BatchLog(PromptAwareModel):
+    """PromptAwareModel that records the size of every batch it is given."""
+
+    def __init__(self) -> None:
+        super().__init__([])
+        self.generate_batches: list[int] = []
+        self.logprob_batches: list[int] = []
+
+    def generate_batch(self, inputs, **kwargs):
+        self.generate_batches.append(len(inputs))
+        return [self.generate(item, **kwargs) for item in inputs]
+
+    def logprobs_batch(self, inputs, **kwargs):
+        self.logprob_batches.append(len(inputs))
+        return [self.logprobs(item, **kwargs) for item in inputs]
+
+
+def test_shapley_coalitions_are_exactly_what_the_estimator_evaluates():
+    from evalrx.analyzers.perturbation._shapley import coalitions, shapley_values
+
+    asked: list[frozenset] = []
+
+    def value(kept: set) -> float:
+        asked.append(frozenset(kept))
+        return float(len(kept)) + (2.0 if 1 in kept else 0.0)
+
+    direct = shapley_values(range(4), value, n_samples=6, seed=3)
+    planned = coalitions(range(4), n_samples=6, seed=3)
+
+    assert planned == asked and planned[0] == frozenset()
+    table = {kept: float(len(kept)) + (2.0 if 1 in kept else 0.0) for kept in planned}
+    assert shapley_values(range(4), lambda kept: table[frozenset(kept)], n_samples=6, seed=3) == direct
+
+
+def test_context_shap_asks_every_ablation_of_every_case_in_one_batch():
+    ctx = "Alice owns a red car.\n\nBob owns a blue bike."
+    cases = CaseBatch([
+        FailureCase(inputs=Inputs(prompt=f"Context:\n{ctx}\n\nWhat colour is Alice's car? ({i})"),
+                    observed="red", label=Label.PASS, metadata={"context": ctx})
+        for i in range(3)
+    ])
+    model = BatchLog()
+
+    rows = ContextShapAnalyzer(n_samples=8, seed=0).run(model, cases).findings["per_case"]
+
+    assert len(model.generate_batches) == 1            # two chunks: at most four coalitions a case
+    assert model.generate_batches[0] <= 12
+    assert all(row["top_chunk_index"] == 0 for row in rows)
+
+
+def test_calibration_scores_logprobs_in_one_batch_and_survives_one_bad_case():
+    batch = CaseBatch([
+        FailureCase(id=f"c{i}", inputs=Inputs(prompt=f"q{i}"),
+                    label=Label.PASS if i % 2 == 0 else Label.FAIL)
+        for i in range(4)
+    ])
+    model = BatchLog()
+    assert CalibrationAnalyzer().run(model, batch).findings["logprob_channel"]["n"] == 4
+    assert model.logprob_batches == [4]
+
+    class OneBad(BatchLog):
+        def logprobs(self, inputs, **kwargs):
+            if inputs.prompt == "q2":
+                raise TimeoutError("endpoint timed out")
+            return super().logprobs(inputs, **kwargs)
+
+    findings = CalibrationAnalyzer().run(OneBad(), batch).findings
+    assert findings["logprob_channel"]["n"] == 3
+    (bad,) = [row for row in findings["per_case"] if "logprob_error" in row]
+    assert bad["sample_id"] == "c2" and "TimeoutError" in bad["logprob_error"]
+
+
+def test_verbalized_confidence_asks_with_the_case_image():
+    from evalrx.analyzers.uncertainty.verbalized_conf import VerbalizedConfidenceAnalyzer
+
+    seen: list[Inputs] = []
+
+    class Sees(ScriptModel):
+        def generate(self, inputs, **kwargs):
+            seen.append(inputs)
+            return "A cat.\nConfidence: 80"
+
+    picture = object()
+    case = FailureCase(inputs=Inputs(prompt="What animal is this?", image=picture))
+
+    findings = VerbalizedConfidenceAnalyzer().run(Sees(["x"]), CaseBatch([case])).findings
+
+    assert findings["verbalized_confidence"] == 0.8
+    assert seen[0].image is picture and seen[0].prompt.startswith("What animal is this?")
+    assert "Confidence:" in seen[0].prompt

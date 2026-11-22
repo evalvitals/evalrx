@@ -8,9 +8,10 @@ import mimetypes
 import os
 import re
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterator
 
 from evalrx.reporting.dynamic import (
     CATALOG_VERSION,
@@ -27,7 +28,7 @@ try:  # FastAPI stays optional, but a route's annotations must resolve against
     # module globals — a function-local import of UploadFile would not be seen.
     from fastapi import File, UploadFile
 except ImportError:  # pragma: no cover - create_app reports the missing extra
-    File = UploadFile = None  # type: ignore[assignment]
+    File = UploadFile = None  # type: ignore[assignment,misc]
 
 # A dropped archive is a whole run directory, which for a media-carrying
 # benchmark is mostly audio/video. The workbench default (1 GiB) is the same
@@ -114,9 +115,9 @@ def _run_label(root: Path) -> str:
     return f"{root.parent.name}/{root.name}" if root.name == "logs" else root.name
 
 
-#: RunLoggerV2's per-stage documents (evalrx/eval_agent/run_logger_v2.py).
+#: RunLogger's per-stage documents (evalrx/eval_agent/runlog/logger.py).
 #: A run.json + at least one of these is its on-disk signature, matching
-#: find_run_root's marker and reporting/run_events.py's resolve_v2_root.
+#: find_run_root's marker and reporting/run_events.py's resolve_run_root.
 _STAGES = ("M1", "M2", "M3", "M4", "M5")
 
 
@@ -247,26 +248,89 @@ def find_run_root(base: Path) -> Path | None:
 
 
 def _compile_report(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Publish the run's report cache when writable, else compile in memory."""
+    """Publish the run's report cache when writable, else compile in memory.
+
+    A run still being written is compiled in memory too: its directory
+    belongs to the logger until the run ends, and it is published then.
+    """
     try:
-        if not report_is_current(root):
-            publish_report(root)
+        if report_is_current(root):
+            return load_published_report(root)
+        data = build_report_data(root)
+        if not data["setting"]["finished"]:
+            return data, _in_memory_envelope(data, "deterministic-live")
+        publish_report(root)
         return load_published_report(root)
     except PermissionError:
         # Historical/shared runs are often intentionally read-only. Serving a
         # report must not require mutating its evidence directory.
         data = build_report_data(root)
-        envelope = {
-            "schema_version": REPORT_SCHEMA_VERSION,
-            "format": "json-render",
-            "json_render_version": JSON_RENDER_VERSION,
-            "catalog_version": CATALOG_VERSION,
-            "trace_id": data["trace_id"],
-            "source_event_seq": data["source_event_seq"],
-            "generated_by": {"mode": "deterministic-read-only", "model": None},
-            "spec": fallback_spec(data),
-        }
-        return data, envelope
+        return data, _in_memory_envelope(data, "deterministic-read-only")
+
+
+def _in_memory_envelope(data: dict[str, Any], mode: str) -> dict[str, Any]:
+    return {
+        "schema_version": REPORT_SCHEMA_VERSION,
+        "format": "json-render",
+        "json_render_version": JSON_RENDER_VERSION,
+        "catalog_version": CATALOG_VERSION,
+        "trace_id": data["trace_id"],
+        "source_event_seq": data["source_event_seq"],
+        "generated_by": {"mode": mode, "model": None},
+        "spec": fallback_spec(data),
+    }
+
+
+def _log_signature(root: Path) -> tuple[tuple[str, int, int], ...]:
+    """What changes whenever the run's log is rewritten: each document's
+    mtime and size. Cheaper than re-reading the log on every poll, and it
+    sees a second logger that restarts ``event_seq`` in the same directory."""
+    stamps = []
+    for doc in (root / "run.json", *(root / stage / "log.json" for stage in _STAGES)):
+        try:
+            stat = doc.stat()
+        except OSError:
+            continue
+        stamps.append((doc.name if doc.parent == root else doc.parent.name, stat.st_mtime_ns, stat.st_size))
+    return tuple(stamps)
+
+
+def follow_run(
+    runs: "RunRegistry",
+    key: str,
+    *,
+    poll_sec: float = 2.0,
+    max_sec: float = 600.0,
+    sleep: Callable[[float], None] = time.sleep,
+) -> Iterator[str]:
+    """Server-sent events for a run being written: ``update`` whenever its log
+    is rewritten (the run is recompiled first), ``done`` once it has finished.
+
+    The stream ends after *max_sec* without ``done`` while the run goes on, and
+    the browser's EventSource reconnects; only ``done`` tells it to stop. A
+    compile that fails on a half-written document keeps the last good report
+    and is retried on the next poll.
+    """
+    run = runs.get(key)
+    seen = _log_signature(run.root)
+    waited = 0.0
+    while not run.data["setting"].get("finished", True):
+        if waited >= max_sec:
+            return
+        sleep(poll_sec)
+        waited += poll_sec
+        signature = _log_signature(run.root)
+        if signature == seen:
+            yield ": waiting\n\n"
+            continue
+        try:
+            run = runs.open(key)
+        except Exception:  # noqa: BLE001 - a document mid-rewrite; try again
+            continue
+        seen = signature
+        payload = json.dumps({"source_event_seq": run.data.get("source_event_seq")})
+        yield f"event: update\ndata: {payload}\n\n"
+    yield "event: done\ndata: {}\n\n"
 
 
 def create_app(
@@ -287,7 +351,7 @@ def create_app(
     """
     try:
         from fastapi import FastAPI, HTTPException, Query
-        from fastapi.responses import FileResponse
+        from fastapi.responses import FileResponse, StreamingResponse
         from fastapi.staticfiles import StaticFiles
     except ImportError as exc:
         raise ImportError(
@@ -366,6 +430,16 @@ def create_app(
         run = loaded(run_id)
         return {"id": run_id, "label": run.label, "root": str(run.root), **run.payload}
 
+    @app.get("/api/runs/{run_id}/live")
+    def follow(run_id: str) -> Any:
+        """Follow a run still being written (server-sent events; see follow_run)."""
+        loaded(run_id)
+        return StreamingResponse(
+            follow_run(runs, run_id),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-store"},
+        )
+
     @app.get("/api/runs/{run_id}/stages/{stage_id}")
     def get_stage(run_id: str, stage_id: str) -> dict[str, Any]:
         data = loaded(run_id).data
@@ -420,10 +494,8 @@ def create_app(
         if item is None:
             raise HTTPException(status_code=404, detail="Unknown media")
         # A media id is selected from the report's fixed evidence index, not a
-        # caller-provided path.  It may safely resolve into the example's
-        # adjacent data directory (where VLM images / ALLM audio conventionally
-        # live), while the generic artifact endpoint remains run-confined.
-        path = _resolve_indexed_media(run.root, str(item.get("path") or ""))
+        # caller-provided path; the logger copied the file into the run.
+        path = _resolve_media(run.root, str(item.get("path") or ""))
         if path is None:
             raise HTTPException(status_code=404, detail="Media is not available in the local cache")
         return FileResponse(path, media_type=mimetypes.guess_type(path.name)[0])
@@ -521,7 +593,6 @@ def _resolve_media(root: Path, value: str) -> Path | None:
     possibilities = [candidate] if candidate.is_absolute() else [
         root / candidate,
         root.parent / candidate,
-        root.parent / "data" / candidate,
     ]
     for possibility in possibilities:
         try:
@@ -535,32 +606,4 @@ def _resolve_media(root: Path, value: str) -> Path | None:
         # the run root and therefore pass the same check.
         if any(resolved == base or base in resolved.parents for base in allowed_roots):
             return resolved
-    return None
-
-
-def _resolve_indexed_media(root: Path, value: str) -> Path | None:
-    """Resolve report-indexed case media without opening arbitrary paths.
-
-    Case assets may live at ``<example>/data`` while a run writes its log to
-    ``<example>/outputs*/logs``.  The media index was built from saved case
-    records, so this endpoint permits only that nearby data directory in
-    addition to the usual run-owned roots.  The artifact route deliberately
-    does not use this broader resolver.
-    """
-    resolved = _resolve_media(root, value)
-    if resolved is not None:
-        return resolved
-    candidate = Path(value)
-    possibilities = [candidate] if candidate.is_absolute() else [
-        root.parent / "data" / candidate,
-        root.parent.parent / "data" / candidate,
-    ]
-    allowed_roots = [root.parent / "data", root.parent.parent / "data"]
-    for possibility in possibilities:
-        try:
-            path = possibility.resolve()
-        except OSError:
-            continue
-        if path.is_file() and any(base.resolve() in path.parents for base in allowed_roots if base.is_dir()):
-            return path
     return None

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Iterable
 
-from evalrx.core.analyzer import Analyzer
+from evalrx.core.analyzer import Analyzer, labelled_answers
 from evalrx.core.capability import Capability
 from evalrx.core.registry import register_analyzer
 from evalrx.core.result import Result
@@ -50,6 +50,9 @@ class CHAIRAnalyzer(Analyzer):
     # match alone still offers this on a batch with no images in it.
     requires_modalities = frozenset({"image"})
 
+    object_vocab: Iterable[str]
+    gt_key: str
+
     def __init__(self, object_vocab: Iterable[str], gt_key: str = "gt_objects") -> None:
         super().__init__(object_vocab=list(object_vocab), gt_key=gt_key)
 
@@ -57,8 +60,7 @@ class CHAIRAnalyzer(Analyzer):
         per_case = []
         chair_is = []
         n_with_hallucination = 0
-        for case in cases:
-            caption = model.generate(case.inputs)
+        for case, caption in zip(cases, labelled_answers(model, cases)):
             mentioned = extract_objects(caption, self.object_vocab)
             gt = case.metadata.get(self.gt_key, [])
             sc = chair_score(mentioned, gt)

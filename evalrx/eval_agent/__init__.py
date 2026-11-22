@@ -1,11 +1,11 @@
 """Self-evolving evaluation agent — automated failure discovery and diagnosis.
 
-Two loops are available:
+One loop, two policies for the order of its stages:
 
-  VLDiagnoseLoop       M1 → M2 → M3 → M4 inner loop, M5 called post-loop (Plan A)
-                       Stops when M4 finds a statistically supported,
-                       protocol-consistent hypothesis.
-  AgenticDiagnoseLoop  the same stages, driven by a judge-decided action loop.
+  VLDiagnoseLoop       M1 → M2 → M3 → M4, M5 called post-loop (Plan A)
+  FixedOrderPolicy     the default: M1 → M4 cycles until M4 finds a statistically
+                       supported, protocol-consistent hypothesis.
+  JudgePolicy          pass as VLDiagnoseLoop(policy=...): a judge picks each next stage.
 
 Stage modules live in ``stages/``; shared infrastructure stays at the top level.
 The CLI-agent runtime (sandboxing, code generation, providers, judge models,
@@ -15,7 +15,7 @@ so neither package depends on the other.
 Top-level (shared / orchestration):
   loop.py              VLDiagnoseLoop
   loop_fix.py          run_fix orchestration: fix targets, tier ladder, EXPLORE→CONFIRM
-  run_logger_v2.py     RunLoggerV2 — run.json + per-stage M<n>/log.json event log
+  run_logger.py     RunLogger — run.json + per-stage M<n>/log.json event log
   hypothesis.py        Hypothesis, HypothesisStatus, serialization helpers
   store.py             Store / InMemoryStore / JsonlStore — persistent memory
 
@@ -48,7 +48,6 @@ stages/ (M1–M4 implementation):
   stats_tools.py       M2 — statistical tool catalog wrapping evalrx.stats
                               (signal/label association, McNemar+e-value, Friedman,
                               single-rate e-value, rank corr) + StatsInput/fdr_correct
-  stats_tool_agent.py  M2 — legacy deterministic exploratory stats tools
   stats_tool_generator.py M2 tier(b) — StatsToolGenerator: LLM/CLI writes a new
                               stats script, runs it in a sandbox, parses a
                               STATS_RESULT_JSON contract (never mutates repo source)
@@ -88,7 +87,6 @@ stages/ (M1–M4 implementation):
 """
 
 from evalrx.agent_runtime.cli_types import CliAgentConfig, CliAgentResult
-from evalrx.agent_runtime.factory import SandboxConfig, SandboxFactoryConfig, create_sandbox
 from evalrx.agent_runtime.judges import AgyModel, ClaudeModel, CodexModel
 from evalrx.agent_runtime.providers import create_cli_agent
 from evalrx.agent_runtime.sandbox import (
@@ -109,7 +107,6 @@ from evalrx.analysis.profile import (
     profile_stats_input,
 )
 from evalrx.analysis.stats_agent import StatsAnalysisAgent, StatsAnalysisReport
-from evalrx.analysis.stats_tool_agent import StatsToolAgent
 from evalrx.analysis.stats_tool_generator import (
     GeneratedStatsTool,
     StatsToolGenerator,
@@ -121,15 +118,8 @@ from evalrx.analysis.stats_tools import (
     StatsToolResult,
     build_stats_input,
     build_stats_input_from_records,
-    default_plan,
     fdr_correct,
     run_stats_tool,
-)
-from evalrx.eval_agent.agentic import (
-    AgenticDiagnoseLoop,
-    ToolOutcome,
-    ToolRegistry,
-    ToolSpec,
 )
 from evalrx.eval_agent.hypothesis import (
     Hypothesis,
@@ -139,19 +129,25 @@ from evalrx.eval_agent.hypothesis import (
     hypothesis_from_dict,
     hypothesis_to_dict,
 )
-from evalrx.eval_agent.log_schema import (
+from evalrx.eval_agent.loop.diagnose import VLDiagnoseLoop
+from evalrx.eval_agent.loop.fixed import FixedOrderPolicy
+from evalrx.eval_agent.loop.judge import (
+    JudgePolicy,
+    ToolOutcome,
+    ToolRegistry,
+    ToolSpec,
+)
+from evalrx.eval_agent.loop.report import AutoDiagnoseReport
+from evalrx.eval_agent.nl_runner import scaffold_from_description
+from evalrx.eval_agent.runlog.context import RunContext
+from evalrx.eval_agent.runlog.logger import RunLogger
+from evalrx.eval_agent.runlog.schema import (
     RUN_LOG_SCHEMA_VERSION,
     SCHEMA_PATH,
     build_schema,
-    iter_log_errors,
     load_schema,
     validate_event,
 )
-from evalrx.eval_agent.loop import VLDiagnoseLoop
-from evalrx.eval_agent.loop_reports import AutoDiagnoseReport, VLDiagnoseReport
-from evalrx.eval_agent.nl_runner import scaffold_from_description
-from evalrx.eval_agent.run_context import RunContext
-from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
 from evalrx.eval_agent.stages.case_discovery import (
     CaseDiscoveryAgent,
     CaseDiscoveryReport,
@@ -233,9 +229,9 @@ __all__ = [
     # Loop
     "AutoDiagnoseReport",
     "VLDiagnoseLoop",
-    "VLDiagnoseReport",
-    # Agentic loop (judge-decided M1-M4, alternative to VLDiagnoseLoop's fixed cycle)
-    "AgenticDiagnoseLoop",
+    # Policies: who picks the next stage
+    "FixedOrderPolicy",
+    "JudgePolicy",
     "ToolSpec",
     "ToolOutcome",
     "ToolRegistry",
@@ -245,7 +241,6 @@ __all__ = [
     # M2 stats agent
     "StatsAnalysisAgent",
     "StatsAnalysisReport",
-    "StatsToolAgent",
     # M2 stats tools
     "StatsInput",
     "StatsToolResult",
@@ -253,7 +248,6 @@ __all__ = [
     "STATS_TOOL_CATALOG",
     "build_stats_input",
     "build_stats_input_from_records",
-    "default_plan",
     "fdr_correct",
     "run_stats_tool",
     "ColumnProfile",
@@ -281,13 +275,12 @@ __all__ = [
     "InMemoryStore",
     "JsonlStore",
     "RunContext",
-    "RunLoggerV2",
+    "RunLogger",
     # Published event schema
     "RUN_LOG_SCHEMA_VERSION",
     "build_schema",
     "load_schema",
     "validate_event",
-    "iter_log_errors",
     "SCHEMA_PATH",
     # Experiment execution
     "ExperimentWriter",
@@ -302,9 +295,6 @@ __all__ = [
     "validate_entry_point",
     "validate_entry_point_resolved",
     # Sandbox factory
-    "SandboxConfig",
-    "SandboxFactoryConfig",
-    "create_sandbox",
     # NL scaffold
     "scaffold_from_description",
     # CLI agents

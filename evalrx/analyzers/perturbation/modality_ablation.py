@@ -162,6 +162,13 @@ class ModalityAblationAnalyzer(Analyzer):
     #: the analyzer would report a grounding rate over zero probes.
     requires_modalities = frozenset(MEDIA_SLOTS)
 
+    mode: str
+    slots: 'tuple[str, ...] | None'
+    score_fn: Optional[Callable[['FailureCase', str], Optional[bool]]]
+    max_cases: int
+    donor_rule: str
+    donor_pool: 'CaseBatch | None'
+
     def __init__(
         self,
         mode: str = "drop",
@@ -287,8 +294,26 @@ class ModalityAblationAnalyzer(Analyzer):
             found = self._donor(pool, slot, case, key_of)
             return (found[0], found[1], "content", None) if found else None
 
-        for case in selected:
-            base_answer = str(model.generate(case.inputs))
+        # Two batches. First each case as asked (the control, asked again rather
+        # than read from ``case.observed``); then once per ablated slot, as a
+        # counterfactual donor is chosen by the answer the control gave.
+        base_answers = [str(out) for out in model.generate_batch([case.inputs for case in selected])]
+        plan: list[tuple[Any, str, list[tuple[str, str, Any]]]] = []
+        asked: list[Any] = []
+        for case, base_answer in zip(selected, base_answers):
+            ablations: list[tuple[str, str, Any]] = []
+            for slot in self._slots_of(case):
+                found = find_donor(slot, case, _norm_answer(base_answer)) if swap else None
+                donor: Any = found[1] if found else None
+                # swap with no donor degrades to drop rather than skipping: the
+                # weaker evidence is still evidence, and silently probing nothing
+                # would look identical to a fully-grounded model.
+                ablations.append((slot, "swap" if donor is not None else "drop", found))
+                asked.append(dataclasses.replace(case.inputs, **{slot: donor}))
+            plan.append((case, base_answer, ablations))
+        answers = iter(str(out) for out in model.generate_batch(asked))
+
+        for case, base_answer, ablations in plan:
             base_key = _norm_answer(base_answer)
             base_verdict = score(case, base_answer)
             if base_verdict is not None:
@@ -297,17 +322,9 @@ class ModalityAblationAnalyzer(Analyzer):
             row: dict[str, Any] = {"sample_id": case.id}
             if swap:
                 row["ablation_base_answer"] = base_answer[:120]
-            for slot in self._slots_of(case):
-                found = find_donor(slot, case, base_key) if swap else None
-                donor = found[1] if found else None
-                # swap with no donor degrades to drop rather than skipping: the
-                # weaker evidence is still evidence, and silently probing nothing
-                # would look identical to a fully-grounded model.
-                effective = "swap" if donor is not None else "drop"
+            for slot, effective, found in ablations:
                 modes_used.setdefault(slot, set()).add(effective)
-                ablated = dataclasses.replace(case.inputs, **{slot: donor})
-
-                answer = str(model.generate(ablated))
+                answer = next(answers)
                 changed = _norm_answer(answer) != base_key
 
                 probed[slot] += 1

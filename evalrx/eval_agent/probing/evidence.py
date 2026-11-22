@@ -17,6 +17,7 @@ measured it and nothing is merged or recomputed by hand.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
@@ -73,7 +74,7 @@ class StepEvidence:
         return sorted({obs.status for cid in ids if (obs := self.for_case(cid)) is not None})
 
 
-def pick(evidence: "dict[str, Any]", key: str, cid: str) -> "Observation | None":
+def pick(evidence: "Mapping[str, Any]", key: str, cid: str) -> "Observation | None":
     """The observation for *cid* under *key*: a plain :class:`Observation` (one batch) or a
     :class:`StepEvidence` (chunks)."""
     value = evidence.get(key)

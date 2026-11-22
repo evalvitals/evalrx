@@ -47,7 +47,8 @@ from __future__ import annotations
 
 import math
 from collections import Counter
-from typing import Any, Callable
+from collections.abc import Mapping
+from typing import Any, Callable, cast
 
 from evalrx.analyzers.perturbation.prompt_contrast import _norm_answer
 from evalrx.core.case import MEDIA_SLOTS
@@ -157,11 +158,17 @@ def finish_reason_source(case: Any, host_assumed: bool) -> str:
 
 
 def _unavailable(obs: "Observation | None", analyzer: str) -> "str | None":
+    """Why *obs* cannot be read, or ``None``: then it exists and ran (callers narrow it with ``_ran``)."""
     if obs is None:
         return f"{analyzer} not in the plan or not executed"
     if obs.status != OK:
         return f"{analyzer} {obs.status}: {obs.error or ''}".strip()
     return None
+
+
+def _ran(obs: "Observation | None") -> Observation:
+    """*obs* after :func:`_unavailable` returned ``None`` for it."""
+    return cast(Observation, obs)
 
 
 def _h_field(obs: "Observation | None", analyzer: str, field: str, link: "str | None", kind: str,
@@ -170,6 +177,7 @@ def _h_field(obs: "Observation | None", analyzer: str, field: str, link: "str | 
     why = _unavailable(obs, analyzer)
     if why is not None:
         return {**out, "state": UNTESTED, "reason": why}
+    obs = _ran(obs)
     out["action_id"] = obs.action_id
     row = obs.per_case().get(cid)
     if row is None:
@@ -213,6 +221,7 @@ def _n_check(obs: "Observation | None", case: Any, needs_counterfactual: bool,
     why = _unavailable(obs, "modality_ablation")
     if why is not None:
         return {"state": UNTESTED, "reason": why}
+    obs = _ran(obs)
     out: dict[str, Any] = {"action_id": obs.action_id, "mode": (obs.params or {}).get("mode")}
     if out["mode"] != "swap":
         return {**out, "state": UNTESTED, "reason": f"modality_ablation ran mode={out['mode']!r}, not swap"}
@@ -222,8 +231,10 @@ def _n_check(obs: "Observation | None", case: Any, needs_counterfactual: bool,
     out["base_answer"] = row.get("ablation_base_answer")
     if not str(out["base_answer"] or "").strip():
         return {**out, "state": UNTESTED, "reason": "empty baseline answer; the comparison is not reliable"}
+    common = common or {}
+    agree = agree_fn or exact_answer
     base_key = answer_fn(case, str(out["base_answer"])) if common and answer_fn else None
-    hit = next((g for g in common or {} if base_key and agree_fn(case, base_key, g)), None)
+    hit = next((g for g in common if base_key and agree(case, base_key, g)), None)
     if hit is not None:
         out["common_answer"] = {"answer": base_key, "gold": hit, "share": common[hit]}
     slots = []
@@ -300,6 +311,7 @@ def _u_sampling(obs: "Observation | None", case: Any, answer_fn: AnswerFn, agree
     why = _unavailable(obs, "self_consistency")
     if why is not None:
         return {"part": "sampling", "state": UNTESTED, "reason": why}
+    obs = _ran(obs)
     cid = str(case.id)
     gen = (obs.params or {}).get("gen_kwargs") or {}
     out: dict[str, Any] = {"part": "sampling", "action_id": obs.action_id, "gen_kwargs": gen}
@@ -334,6 +346,7 @@ def _u_reword(obs: "Observation | None", case: Any, answer_fn: AnswerFn, agree_f
     why = _unavailable(obs, "prompt_contrast (rewording)")
     if why is not None:
         return {"part": "reword", "state": UNTESTED, "reason": why}
+    obs = _ran(obs)
     cid = str(case.id)
     outputs = _outputs(obs)
     out: dict[str, Any] = {"part": "reword", "action_id": obs.action_id}
@@ -348,7 +361,7 @@ def _u_reword(obs: "Observation | None", case: Any, answer_fn: AnswerFn, agree_f
     valid = {s: a for s, a in variants.items() if a}
     stage0 = answer_fn(case, str(getattr(case, "observed", "") or ""))
     out.update(base_answer=base, answers=valid, invalid_controls=sorted(s for s in variants if s not in valid),
-               baseline_matches_stage0=bool(stage0) and agree_fn(case, stage0, base))
+               baseline_matches_stage0=bool(stage0 and agree_fn(case, stage0, base)))
     if not valid:
         return {**out, "state": UNTESTED,
                 "reason": f"no wrapper gave a readable answer (invalid controls: {out['invalid_controls']})"}
@@ -379,6 +392,7 @@ def _s_threshold(obs: "Observation | None", case: Any, answer_fn: AnswerFn, agre
     why = _unavailable(obs, "prompt_contrast (threshold)")
     if why is not None:
         return {"state": UNTESTED, "reason": why}
+    obs = _ran(obs)
     cid = str(case.id)
     outputs, scored = _outputs(obs), (obs.findings or {}).get("by_strategy") or {}
     variant = next((s for s in outputs if s != "baseline"), None)
@@ -398,6 +412,7 @@ def _measured_row(obs: "Observation | None", cid: str, analyzer: str, keys: tupl
     why = _unavailable(obs, analyzer)
     if why is not None:
         return {"state": UNTESTED, "reason": why}
+    obs = _ran(obs)
     row = obs.per_case().get(cid)
     if row is None:
         return {"state": UNTESTED, "action_id": obs.action_id, "reason": obs.missing.get(cid, "no per_case row")}
@@ -407,6 +422,7 @@ def _measured_row(obs: "Observation | None", cid: str, analyzer: str, keys: tupl
 def _s_patchscope(obs: "Observation | None", cid: str) -> dict[str, Any]:
     out = _measured_row(obs, cid, "patchscope", _PATCHSCOPE_FIELDS)
     if out["state"] == "measured":
+        obs = _ran(obs)
         out["target"] = (obs.params or {}).get("target")
         out["fidelity"] = (obs.fidelity or {}).get("status")
         # ranked first at some read layer before the last: formed, then not output
@@ -414,7 +430,7 @@ def _s_patchscope(obs: "Observation | None", cid: str) -> dict[str, Any]:
     return out
 
 
-def triage_cases(cases: Any, observations: "dict[str, Observation | StepEvidence]", *,
+def triage_cases(cases: Any, observations: "Mapping[str, Observation | StepEvidence]", *,
                  host_assumed_finish: bool,
                  answer_contract: bool, n_needs_counterfactual: bool = False,
                  answer_fn: "AnswerFn | None" = None, agree_fn: "AgreeFn | None" = None,

@@ -17,7 +17,7 @@ export default defineConfig([
       // Compiler, so the compiler-specific rules in `recommended` do not apply.
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "error",
-      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-explicit-any": "error",
     },
   },
 ]);

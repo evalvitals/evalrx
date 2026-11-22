@@ -48,6 +48,8 @@ anyio==4.15.1
     #   httpx2
     #   mcp
     #   py-key-value-aio
+    #   pydantic-ai-slim
+    #   pydantic-graph
     #   sse-starlette
     #   starlette
     #   watchfiles
@@ -208,6 +210,8 @@ gemma==4.0.1
     # via
     #   -r tools/colab/lock/tpu.in
     #   evalrx (pyproject.toml)
+genai-prices==0.2.5
+    # via pydantic-ai-slim
 gitdb==4.0.12
     # via gitpython
 gitpython==3.2.0
@@ -288,7 +292,9 @@ grain==0.2.18
 graphviz==0.21
     # via kauldron
 griffelib==2.3.2
-    # via fastmcp-slim
+    # via
+    #   fastmcp-slim
+    #   pydantic-ai-slim
 grpc-google-iam-v1==0.14.5
     # via
     #   google-cloud-resource-manager
@@ -331,7 +337,9 @@ httpx==0.28.1
 httpx2==2.13.1
     # via
     #   fastmcp-slim
+    #   genai-prices
     #   mcp
+    #   pydantic-ai-slim
 huggingface-hub==0.36.2
     # via datasets
 humanize==4.16.0
@@ -441,6 +449,8 @@ libclang==18.1.1
     # via tensorflow-cpu
 libtpu==0.0.21.1
     # via -r tools/colab/lock/tpu.in
+logfire-api==6.0.0
+    # via pydantic-graph
 mako==1.4.3
     # via alembic
 markdown==3.11
@@ -558,6 +568,7 @@ opentelemetry-api==1.45.1
     #   fastmcp-slim
     #   google-api-core
     #   mcp
+    #   pydantic-ai-slim
 opt-einsum==3.4.0
     # via
     #   jax
@@ -682,15 +693,22 @@ pydantic==2.14.0
     # via
     #   evalrx (pyproject.toml)
     #   fastmcp-slim
+    #   genai-prices
     #   google-cloud-aiplatform
     #   google-genai
     #   kubernetes
     #   mcp
     #   mcp-types
     #   openapi-pydantic
+    #   pydantic-ai-slim
+    #   pydantic-graph
     #   pydantic-settings
+pydantic-ai-slim==2.71.0
+    # via evalrx (pyproject.toml)
 pydantic-core==2.50.0
     # via pydantic
+pydantic-graph==2.71.0
+    # via pydantic-ai-slim
 pydantic-settings==2.15.0
     # via fastmcp-slim
 pydub==0.25.1
@@ -935,6 +953,8 @@ typing-inspection==0.4.4
     # via
     #   mcp
     #   pydantic
+    #   pydantic-ai-slim
+    #   pydantic-graph
     #   pydantic-settings
 uncalled-for==0.4.1
     # via fastmcp-slim

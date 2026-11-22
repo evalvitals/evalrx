@@ -60,12 +60,12 @@ class DiagnosticTracer:
         self.events: list[dict[str, Any]] = []
         self.trace_metadata: dict[str, Any] = {}
         self._start_time = time.time()
-        requested_mode = (mode or os.getenv("EVALRX_LANGFUSE_MODE", "auto")).strip().lower()
+        requested_mode = (mode or os.environ.get("EVALRX_LANGFUSE_MODE", "auto")).strip().lower()
         if requested_mode not in {"auto", "live", "offline"}:
             raise ValueError("EVALRX_LANGFUSE_MODE must be one of: auto, live, offline")
         self.mode = requested_mode
         self._langfuse_client = None
-        self._live_root = None          # root "chain" observation for the run
+        self._live_root: Any = None     # root "chain" observation for the run
         self._live_obs: dict[str, Any] = {}  # our span_id -> live observation wrapper
         self._warned: set[str] = set()
         # Every structured run-log event enters this durable queue before live
@@ -127,8 +127,8 @@ class DiagnosticTracer:
     def record_event(self, event: dict[str, Any], *, event_seq: int) -> None:
         """Queue one complete EvalRX event for durable Langfuse delivery.
 
-        This is called after the JSONL write has received its timestamp and
-        trace id.  The deterministic event id makes repeated process startup
+        This is called after the run logger has stamped the event with its
+        timestamp and trace id.  The deterministic event id makes repeated process startup
         and manual backfill safe.
         """
         artifact_refs = (
@@ -469,10 +469,10 @@ def _resolve_trace_id(run_dir: Path, fingerprint: str) -> str:
         except Exception:
             pass
     try:
-        from evalrx.reporting.run_events import read_v2_events
+        from evalrx.reporting.run_events import read_run_events
 
         start = next(
-            (event for event in read_v2_events(run_dir) if event.get("event") == "run_start"),
+            (event for event in read_run_events(run_dir) if event.get("event") == "run_start"),
             {},
         )
         if start.get("trace_id"):
@@ -672,13 +672,8 @@ def export_to_langfuse_bundle(run_dir: str | Path, out_json: str | Path | None =
             },
             "input": {"candidates": [s.get("name") for s in m5_f["selection"]]},
             "output": {
-                # Fix events written before PR #88 carry ``best`` as the candidate
-                # NAME, later ones as the candidate record: accept both.
-                "best_candidate": (
-                    (m5_f.get("best") or {}).get("name")
-                    if isinstance(m5_f.get("best"), dict) else (m5_f.get("best") or None)
-                ) or (m5_f.get("confirm") or {}).get("name"),
-                "confirm": m5_f.get("confirm"),
+                "best_candidate": (m5_f.get("best") or {}).get("name"),
+                "confirm": m5_f.get("best"),
             },
         })
         if m5_f.get("prompt_template"):
@@ -690,11 +685,11 @@ def export_to_langfuse_bundle(run_dir: str | Path, out_json: str | Path | None =
                 "model": "Repair Search Agent",
                 "prompt": "Synthesize targeted prompt patch based on diagnosed mechanism",
                 "completion": m5_f["prompt_template"],
-                "metadata": {"candidate_name": (m5_f.get("confirm") or {}).get("name")},
+                "metadata": {"candidate_name": (m5_f.get("best") or {}).get("name")},
             })
 
     # Global Key Evaluation Scores
-    cfm = m5_f.get("confirm") or {}
+    cfm = m5_f.get("best") or {}
     if cfm.get("n_baseline_correct") is not None and cfm.get("n_pairs"):
         scores.append({
             "name": "baseline_accuracy",
@@ -733,18 +728,18 @@ def export_to_langfuse_bundle(run_dir: str | Path, out_json: str | Path | None =
 def backfill_run_to_langfuse(run_dir: str | Path, *, dry_run: bool = False) -> dict[str, int | str]:
     """Queue an existing run for the same reliable Langfuse pipeline.
 
-    Existing ``event_seq`` values are preserved; older logs without one receive
-    their line order.  Re-running the command is safe because envelope IDs are
-    deterministic and the outbox primary key de-duplicates them.
+    Each event keeps its ``event_seq``.  Re-running the command is safe because
+    envelope IDs are deterministic and the outbox primary key de-duplicates
+    them.
     """
-    from evalrx.reporting.run_events import read_v2_events, resolve_v2_root
+    from evalrx.reporting.run_events import read_run_events, resolve_run_root
 
     root = Path(run_dir)
-    v2_root = resolve_v2_root(root)
+    v2_root = resolve_run_root(root)
     if v2_root is None:
         raise FileNotFoundError(f"No run bundle (run.json) found under {run_dir}")
     root = v2_root
-    records: list[dict[str, Any]] = read_v2_events(root)
+    records: list[dict[str, Any]] = read_run_events(root)
     if not records:
         return {"trace_id": "", "events": 0, "pending": 0, "published": 0}
 
@@ -761,8 +756,8 @@ def backfill_run_to_langfuse(run_dir: str | Path, *, dry_run: bool = False) -> d
         n_cases=int(run_start.get("n_cases") or 0),
         metadata=run_start,
     )
-    for fallback_seq, record in enumerate(records, start=1):
-        tracer.record_event(record, event_seq=int(record.get("event_seq") or fallback_seq))
+    for record in records:
+        tracer.record_event(record, event_seq=int(record["event_seq"]))
     pending_before = tracer.outbox.pending_count()
     tracer.flush()
     pending_after = tracer.outbox.pending_count()
@@ -814,7 +809,7 @@ def sync_to_langfuse_live(run_dir: str | Path) -> bool:
 
         obs_map: dict[str, Any] = {}
         for span in bundle["spans"]:
-            parent = obs_map.get(span.get("parent_id")) or root
+            parent: Any = obs_map.get(span.get("parent_id")) or root
             try:
                 obs = parent.start_observation(
                     name=span["name"],

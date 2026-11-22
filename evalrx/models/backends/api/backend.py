@@ -96,6 +96,7 @@ class APIModel(Model):
     def __init__(self, spec, runtime: RuntimeConfig) -> None:
         self.spec = spec
         self.runtime = runtime
+        self.concurrency = runtime.concurrency
         self._generate_fn = runtime.generate_fn
         self._chat_fn = runtime.chat_fn
         self._logprobs_fn = runtime.logprobs_fn

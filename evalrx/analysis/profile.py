@@ -7,8 +7,11 @@ statistics from evidence rather than column order.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
+
+import numpy as np
 
 
 @dataclass
@@ -57,6 +60,11 @@ class DatasetProfile:
     time_columns: list[str] = field(default_factory=list)
     grain: str = "unknown"
     warnings: list[str] = field(default_factory=list)
+    # Columns that look like the unit rows were cut from, found from the data
+    # rather than the column name; see :func:`suggest_group_columns`.
+    suggested_group_columns: list[dict[str, Any]] = field(default_factory=list)
+    # Columns that almost fully determine the outcome; see :func:`leakage_suspects`.
+    leakage_suspects: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -68,6 +76,8 @@ class DatasetProfile:
             "time_columns": self.time_columns,
             "grain": self.grain,
             "warnings": self.warnings,
+            "suggested_group_columns": self.suggested_group_columns,
+            "leakage_suspects": self.leakage_suspects,
         }
 
 
@@ -89,9 +99,227 @@ def _infer_role(name: str) -> str:
         return "outcome"
     if low in {"model", "source", "source_dir", "dataset", "split", "strategy", "group"}:
         return "group"
+    if low.endswith("_group") or low.startswith("group_"):
+        return "group"
     if low in {"time", "timestamp", "date", "datetime"} or low.endswith("_time"):
         return "time"
+    # Calendar words as whole name parts ("month_reported", "created_at",
+    # "report_date"), not as substrings, so "candidate" is not read as a date.
+    tokens = set(re.split(r"[^a-z0-9]+", low))
+    if tokens & _TIME_TOKENS or low.endswith("_at"):
+        return "time"
     return "predictor"
+
+
+_TIME_TOKENS = frozenset({"date", "datetime", "timestamp", "month", "year", "week", "quarter"})
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}(-\d{2})?([T ]\d{2}:\d{2}.*)?$")
+
+
+def _looks_like_dates(values: list[Any]) -> bool:
+    """True when nearly every non-null value is an ISO date or year-month string."""
+    strings = [v for v in values if isinstance(v, str) and v.strip()]
+    if len(strings) < 3 or len(strings) < 0.9 * sum(v is not None for v in values):
+        return False
+    hits = sum(1 for v in strings if _ISO_DATE.match(v.strip()))
+    return hits >= 0.9 * len(strings)
+
+
+def _numeric_outcome(values: list[Any]) -> "list[float | None] | None":
+    """The outcome as numbers, or None when it is not numeric or two-valued.
+
+    Booleans and numbers map to themselves. A two-valued string outcome maps
+    to 0/1 in sorted order; the direction does not matter to the callers,
+    which only measure agreement and association strength.
+    """
+    present = [v for v in values if v is not None]
+    if not present:
+        return None
+    if all(isinstance(v, (bool, int, float)) for v in present):
+        return [None if v is None else float(v) for v in values]
+    levels = sorted({str(v).strip().lower() for v in present})
+    if len(levels) != 2:
+        return None
+    return [None if v is None else float(levels.index(str(v).strip().lower()))
+            for v in values]
+
+
+def intraclass_correlation(groups: list[Any], y: list[float]) -> float | None:
+    """One-way ICC(1): the share of outcome variance that lies between groups.
+
+    Zero means rows of one group agree no more than unrelated rows; a value
+    near one means rows of a group are near-copies. Returns None when it is
+    not defined (a single group, no group with two rows, or no variance).
+    """
+    by_group: dict[Any, list[float]] = {}
+    for g, value in zip(groups, y):
+        by_group.setdefault(g, []).append(value)
+    k, n = len(by_group), len(y)
+    if k < 2 or n <= k:
+        return None
+    grand = sum(y) / n
+    ss_between = sum(len(v) * (sum(v) / len(v) - grand) ** 2 for v in by_group.values())
+    ss_within = sum(sum((x - sum(v) / len(v)) ** 2 for x in v) for v in by_group.values())
+    ms_between = ss_between / (k - 1)
+    ms_within = ss_within / (n - k)
+    n0 = (n - sum(len(v) ** 2 for v in by_group.values()) / n) / (k - 1)
+    denom = ms_between + (n0 - 1.0) * ms_within
+    if denom <= 0:
+        return None
+    return float((ms_between - ms_within) / denom)
+
+
+def suggest_group_columns(
+    rows: list[dict[str, Any]],
+    *,
+    outcome_col: str | None,
+    exclude: "set[str] | frozenset[str]" = frozenset(),
+    min_groups: int = 20,
+    min_repeat_share: float = 0.2,
+    min_icc: float = 0.1,
+) -> list[dict[str, Any]]:
+    """Columns that look like the unit several rows were cut from.
+
+    A candidate has many distinct values, repeats (at least *min_repeat_share*
+    of rows share their value with another row), and rows that share a value
+    agree on the outcome far more than chance (ICC at least *min_icc*). Such a
+    column should be passed as the group column: a row-level split would put
+    rows of one group on both sides, and intervals that treat rows as
+    independent would be too narrow.
+
+    Only string columns and integer id columns are considered; a float
+    column that repeats is a rounded measurement, not a sampling unit.
+    Returns the candidates sorted by ICC, largest first.
+    """
+    if not rows or not outcome_col:
+        return []
+    y_all = _numeric_outcome([r.get(outcome_col) for r in rows])
+    if y_all is None:
+        return []
+    names = sorted({str(k) for row in rows for k in row} - {outcome_col} - set(exclude))
+    out: list[dict[str, Any]] = []
+    for name in names:
+        pairs = [
+            (row.get(name), y) for row, y in zip(rows, y_all)
+            if y is not None and row.get(name) not in (None, "")
+        ]
+        if len(pairs) < 2 * min_groups:
+            continue
+        values = [v for v, _ in pairs]
+        is_string = all(isinstance(v, str) for v in values)
+        is_int_id = (
+            all(isinstance(v, int) and not isinstance(v, bool) for v in values)
+            and _infer_role(name) in ("id", "group")
+        )
+        if not (is_string or is_int_id):
+            continue
+        counts: dict[Any, int] = {}
+        for v in values:
+            counts[v] = counts.get(v, 0) + 1
+        if len(counts) < min_groups or len(counts) == len(values):
+            continue
+        repeat_share = sum(c for c in counts.values() if c > 1) / len(values)
+        if repeat_share < min_repeat_share:
+            continue
+        icc = intraclass_correlation(values, [y for _, y in pairs])
+        if icc is None or icc < min_icc:
+            continue
+        out.append({
+            "column": name,
+            "n_groups": len(counts),
+            "share_rows_in_repeated_groups": round(repeat_share, 4),
+            "icc": round(icc, 4),
+        })
+    out.sort(key=lambda d: (-d["icc"], d["column"]))
+    return out
+
+
+def _auc(scores: np.ndarray, y: np.ndarray) -> float | None:
+    """Rank AUC of *scores* for the binary *y* (ties get the average rank)."""
+    pos, neg = int(y.sum()), int((1 - y).sum())
+    if pos == 0 or neg == 0:
+        return None
+    order = np.argsort(scores, kind="mergesort")
+    ranks = np.empty(len(scores))
+    sorted_scores = scores[order]
+    i = 0
+    while i < len(scores):
+        j = i
+        while j + 1 < len(scores) and sorted_scores[j + 1] == sorted_scores[i]:
+            j += 1
+        ranks[order[i:j + 1]] = (i + j) / 2.0 + 1.0
+        i = j + 1
+    return float((ranks[y == 1].sum() - pos * (pos + 1) / 2.0) / (pos * neg))
+
+
+def leakage_suspects(
+    rows: list[dict[str, Any]],
+    *,
+    outcome_col: str | None,
+    exclude: "set[str] | frozenset[str]" = frozenset(),
+    min_rows: int = 20,
+    threshold: float = 0.98,
+) -> list[dict[str, Any]]:
+    """Columns that almost fully determine the outcome.
+
+    Such a column is usually the outcome under another name, or was written
+    after the outcome was known (a grader's note, a post-hoc flag). It would
+    "explain" everything and mean nothing, so it is reported for the user to
+    judge rather than silently used.
+
+    For a two-valued outcome a column is suspect when guessing the more common
+    outcome within each of its values is right at least *threshold* of the
+    time (columns with few distinct values), or when its rank AUC is that far
+    from 0.5 (numeric columns). For a numeric outcome it is suspect when the
+    absolute correlation reaches *threshold*. Columns whose values are nearly
+    unique per row are skipped: an id determines everything and tells nothing.
+    """
+    if not rows or not outcome_col:
+        return []
+    y_all = _numeric_outcome([r.get(outcome_col) for r in rows])
+    if y_all is None:
+        return []
+    binary = {v for v in y_all if v is not None} <= {0.0, 1.0}
+    names = sorted({str(k) for row in rows for k in row} - {outcome_col} - set(exclude))
+    out: list[dict[str, Any]] = []
+    for name in names:
+        pairs = [
+            (row.get(name), y) for row, y in zip(rows, y_all)
+            if y is not None and row.get(name) is not None
+        ]
+        if len(pairs) < min_rows:
+            continue
+        values = [v for v, _ in pairs]
+        y = np.asarray([t for _, t in pairs], dtype=float)
+        if float(y.std()) == 0.0:
+            continue
+        numeric = all(isinstance(v, (bool, int, float)) for v in values)
+        try:
+            n_distinct = len(set(values))
+        except TypeError:  # unhashable values (lists, dicts) are not predictors here
+            continue
+        base = max(float(y.mean()), 1.0 - float(y.mean())) if binary else None
+        if binary and n_distinct <= max(2, min(20, len(values) // 5)):
+            by_value: dict[Any, list[float]] = {}
+            for v, t in pairs:
+                by_value.setdefault(v, []).append(t)
+            right = sum(max(sum(ts), len(ts) - sum(ts)) for ts in by_value.values())
+            accuracy = right / len(pairs)
+            if accuracy >= threshold and base is not None and base <= 0.95:
+                out.append({"column": name, "measure": "accuracy_from_value",
+                            "value": round(accuracy, 4), "baseline": round(base, 4)})
+            continue
+        if not numeric or n_distinct < 2:
+            continue
+        x = np.asarray([float(v) for v in values if isinstance(v, (bool, int, float))])
+        if binary:
+            auc = _auc(x, y)
+            if auc is not None and max(auc, 1.0 - auc) >= threshold + (1.0 - threshold) / 2:
+                out.append({"column": name, "measure": "auc", "value": round(auc, 4)})
+        elif float(x.std()) > 0.0:
+            r = float(np.corrcoef(x, y)[0, 1])
+            if abs(r) >= threshold:
+                out.append({"column": name, "measure": "correlation", "value": round(r, 4)})
+    return out
 
 
 def _infer_dtype(values: list[Any]) -> str:
@@ -113,8 +341,19 @@ def _infer_dtype(values: list[Any]) -> str:
     return "mixed"
 
 
-def profile_records(records: Any, *, outcome_col: str | None = None) -> DatasetProfile:
+def profile_records(
+    records: Any,
+    *,
+    outcome_col: str | None = None,
+    group_cols: "list[str] | tuple[str, ...]" = (),
+    time_cols: "list[str] | tuple[str, ...]" = (),
+) -> DatasetProfile:
     """Profile a list/DataFrame-like object of row records.
+
+    ``group_cols`` and ``time_cols`` name columns whose role the caller knows;
+    they override the name heuristic, which only recognises a short list of
+    English names. A named column that is absent from the data is reported in
+    ``warnings`` instead of being ignored silently.
 
     ``outcome_col``, when given and present, overrides name-heuristic role
     inference: that column is forced to role ``"outcome"`` (and any other
@@ -148,6 +387,15 @@ def profile_records(records: Any, *, outcome_col: str | None = None) -> DatasetP
                 role = "predictor"
         else:
             role = _infer_role(name)
+        if role == "predictor" and _looks_like_dates(vals):
+            role = "time"
+        # An explicit role wins over anything inferred, except that the
+        # outcome column stays the outcome.
+        if role != "outcome":
+            if name in group_cols:
+                role = "group"
+            elif name in time_cols:
+                role = "time"
         unique_values = {str(v) for v in non_null_vals}
         numeric_vals = [
             float(v) for v in non_null_vals
@@ -176,6 +424,36 @@ def profile_records(records: Any, *, outcome_col: str | None = None) -> DatasetP
     outcome_columns = [c.name for c in columns.values() if c.role == "outcome"]
     group_columns = [c.name for c in columns.values() if c.role == "group"]
     time_columns = [c.name for c in columns.values() if c.role == "time"]
+    for kind, wanted in (("group", group_cols), ("time", time_cols)):
+        for name in wanted:
+            if name not in columns:
+                warnings.append(f"{kind} column {name!r} was named but is not in the data")
+
+    outcome_name = outcome_columns[0] if outcome_columns else None
+    # A column the caller already named as the group needs no suggestion. One
+    # that merely has a group-like name still does: the name alone does not
+    # make the split or the intervals use it.
+    suggested = suggest_group_columns(
+        rows, outcome_col=outcome_name, exclude=set(group_cols)
+    )
+    for s in suggested:
+        warnings.append(
+            f"column {s['column']!r} looks like the unit rows were cut from "
+            f"({s['n_groups']} groups, rows of one group share "
+            f"{s['icc']:.0%} of the outcome variance); name it as the group column "
+            "so the split and the intervals respect it"
+        )
+    suspects = leakage_suspects(
+        rows, outcome_col=outcome_name, exclude=set(id_columns)
+    )
+    for s in suspects:
+        if s["column"] in columns:
+            columns[s["column"]].leakage_suspect = True
+        warnings.append(
+            f"column {s['column']!r} almost fully determines the outcome "
+            f"({s['measure']}={s['value']}); check that it is not the outcome "
+            "itself or something recorded after it"
+        )
     grain = "case" if id_columns else "row"
     if id_columns and rows:
         id_col = id_columns[0]
@@ -192,6 +470,8 @@ def profile_records(records: Any, *, outcome_col: str | None = None) -> DatasetP
         time_columns=time_columns,
         grain=grain,
         warnings=warnings,
+        suggested_group_columns=suggested,
+        leakage_suspects=suspects,
     )
 
 

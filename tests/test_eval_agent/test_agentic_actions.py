@@ -6,16 +6,17 @@ fast and deterministically.
 
 from __future__ import annotations
 
-from evalrx.eval_agent.agentic.actions import (
+import pytest
+from pydantic import ValidationError
+
+from evalrx.eval_agent.loop.judge.actions import (
     Action,
-    ActionParseError,
     _fallback_action,
+    action_model,
     decide,
-    parse_action,
-    validate_json_shape,
 )
-from evalrx.eval_agent.agentic.board import EvidenceBoard
-from evalrx.eval_agent.agentic.tools import ToolOutcome, ToolRegistry, ToolSpec
+from evalrx.eval_agent.loop.judge.board import EvidenceBoard
+from evalrx.eval_agent.loop.judge.tools import ToolOutcome, ToolRegistry, ToolSpec
 
 
 def _registry() -> ToolRegistry:
@@ -34,77 +35,25 @@ def _registry() -> ToolRegistry:
 
 
 # ---------------------------------------------------------------------------
-# validate_json_shape
+# action_model
 # ---------------------------------------------------------------------------
 
-def test_validate_json_shape_passes_valid_object():
-    schema = {"type": "object", "required": ["a"], "properties": {"a": {"type": "string"}}}
-    assert validate_json_shape({"a": "x"}, schema) == []
+def test_action_model_accepts_a_registered_tool():
+    choice = action_model(_registry()).model_validate(
+        {"tool": "run_probe", "params": {"k": 1}, "rationale": "start with M1"}
+    )
+    assert (choice.tool, choice.params, choice.rationale) == ("run_probe", {"k": 1}, "start with M1")
 
 
-def test_validate_json_shape_flags_missing_required():
-    schema = {"type": "object", "required": ["a"], "properties": {}}
-    errors = validate_json_shape({}, schema)
-    assert any("missing required field 'a'" in e for e in errors)
-
-
-def test_validate_json_shape_flags_wrong_type():
-    schema = {"type": "object", "properties": {"a": {"type": "string"}}}
-    errors = validate_json_shape({"a": 5}, schema)
-    assert any("expected string" in e for e in errors)
-
-
-def test_validate_json_shape_flags_short_string():
-    schema = {"type": "string", "minLength": 3}
-    errors = validate_json_shape("ab", schema)
-    assert any("too short" in e for e in errors)
-
-
-# ---------------------------------------------------------------------------
-# parse_action
-# ---------------------------------------------------------------------------
-
-def test_parse_action_accepts_valid_json():
-    registry = _registry()
-    raw = '{"tool": "run_probe", "params": {}, "rationale": "need M1 first"}'
-    action = parse_action(raw, registry)
-    assert action.tool == "run_probe"
-    assert action.rationale == "need M1 first"
-    assert action.valid is True
-
-
-def test_parse_action_strips_markdown_fences():
-    registry = _registry()
-    raw = '```json\n{"tool": "stop", "params": {}, "rationale": "done"}\n```'
-    action = parse_action(raw, registry)
-    assert action.tool == "stop"
-
-
-def test_parse_action_rejects_non_json():
-    registry = _registry()
-    try:
-        parse_action("not json at all", registry)
-        raise AssertionError("expected ActionParseError")
-    except ActionParseError as exc:
-        assert "not valid JSON" in str(exc)
-
-
-def test_parse_action_rejects_missing_rationale():
-    registry = _registry()
-    try:
-        parse_action('{"tool": "run_probe", "params": {}}', registry)
-        raise AssertionError("expected ActionParseError")
-    except ActionParseError as exc:
-        assert any("rationale" in e for e in exc.errors)
-
-
-def test_parse_action_rejects_unknown_tool():
-    registry = _registry()
-    try:
-        parse_action('{"tool": "nonexistent", "rationale": "x"}', registry)
-        raise AssertionError("expected ActionParseError")
-    except ActionParseError as exc:
-        assert "unknown tool" in str(exc)
+@pytest.mark.parametrize("data", [
+    {"tool": "nonexistent", "rationale": "x"},
+    {"tool": "run_probe"},
+    {"tool": "run_probe", "rationale": ""},
+    {"tool": "run_probe", "rationale": "x", "params": []},
+])
+def test_action_model_rejects_unknown_tools_and_missing_fields(data):
+    with pytest.raises(ValidationError):
+        action_model(_registry()).model_validate(data)
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +123,7 @@ def test_decide_repairs_once_then_succeeds():
     registry = _registry()
     board = EvidenceBoard()
     judge = _StubJudge([
-        "garbage, not json",
+        '```json\n{"tool": "nonexistent", "rationale": "x"}\n```',
         '{"tool": "run_probe", "params": {}, "rationale": "retry worked"}',
     ])
 
@@ -184,6 +133,19 @@ def test_decide_repairs_once_then_succeeds():
     assert action.valid is True
     assert action.repair_attempts == 1
     assert len(judge.calls) == 2
+    assert "nonexistent" in judge.calls[1] and "run_probe" in judge.calls[1]
+
+
+def test_decide_falls_back_when_the_judge_raises():
+    class _Broken:
+        def generate(self, prompt, **kwargs):
+            raise RuntimeError("limit reached")
+
+    run_logger = _StubRunLogger()
+    action = decide(_Broken(), EvidenceBoard(), _registry(), run_logger=run_logger, step=0)
+    assert (action.tool, action.valid) == ("run_probe", False)
+    (call,) = run_logger.decisions[0]["judge_calls"]
+    assert "limit reached" in call["error"]
 
 
 def test_decide_falls_back_after_exhausting_repairs():

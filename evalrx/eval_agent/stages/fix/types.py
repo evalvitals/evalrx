@@ -9,7 +9,7 @@ from evalrx.eval_agent.stages.fix.tiers import FixTier
 
 if TYPE_CHECKING:
     from evalrx.core.case import FailureCase
-    from evalrx.eval_agent.run_context import Trial
+    from evalrx.eval_agent.runlog.context import Trial
 
 
 @dataclass
@@ -41,7 +41,7 @@ class FixCandidate:
                      cases it returns True for — a *conditional* fix.  When
                      ``None``, applicability is inferred structurally (a spec
                      that does not change a case's input is a no-op there).
-        trial:       Optional :class:`~evalrx.eval_agent.run_context.Trial`
+        trial:       Optional :class:`~evalrx.eval_agent.runlog.context.Trial`
                      — when set (a ``RunContext`` is in play), this candidate's
                      code, the sandbox it ran in, and its record/result all
                      live under ``trial.root`` instead of being scattered
@@ -177,7 +177,7 @@ class FixOutcome:
                     "source": v.candidate.source,
                     "payload": v.candidate.payload,
                     # Self-contained attempt folder (see RunContext.new_trial) —
-                    # None when no RunContext is in play (legacy flat layout).
+                    # None when no RunContext is in play.
                     "trial_root": (str(v.candidate.trial.root) if v.candidate.trial else None),
                     "n_pairs": v.n_pairs,
                     "n_baseline_correct": v.n_baseline_correct,

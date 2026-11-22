@@ -17,7 +17,7 @@ cmd=(
   --outcome-col yield_pct
   --out "$OUT_DIR"
   -q "What predicts yield_pct? Explore how temperature, pressure, and catalyst each relate to yield, how they relate to each other, and produce a variety of chart types."
-  --timeout-sec "${TIMEOUT_SEC:-300}"
+  --timeout-sec "${TIMEOUT_SEC:-900}"
 )
 
 if [[ -n "$CODER_MODEL" ]]; then

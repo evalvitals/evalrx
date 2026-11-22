@@ -31,6 +31,7 @@ from evalrx.eval_agent.stages.fix.proposal import (
 from evalrx.eval_agent.stages.fix.repair_catalog import discover_methods
 from evalrx.eval_agent.stages.fix.validation import Baseline
 from evalrx.eval_agent.stages.fix.verdict import recommend
+from tests.conftest import FakeModel
 
 # ── tiers ─────────────────────────────────────────────────────────────────────
 
@@ -213,11 +214,11 @@ def test_crop_case_bbox_no_bbox_is_noop_even_with_enhancement():
     assert np.asarray(out).mean() == np.asarray(img).mean()
 
 
-def test_run_pipeline_can_fix_textvqa_style_bbox_case():
+def test_run_pipelines_can_fix_textvqa_style_bbox_case():
     PIL = pytest.importorskip("PIL")
     import numpy as np
 
-    from evalrx.eval_agent.stages.fix.tools import PipelineSpec, run_pipeline
+    from evalrx.eval_agent.stages.fix.tools import PipelineSpec, run_pipelines
 
     img = PIL.Image.new("RGB", (100, 100), color=(220, 220, 220))
     for y in range(10, 14):
@@ -230,7 +231,7 @@ def test_run_pipeline_can_fix_textvqa_style_bbox_case():
         metadata={"answer_bbox_xyxy_norm": [0.8, 0.1, 0.84, 0.14]},
     )
 
-    class BBoxSensitiveModel:
+    class BBoxSensitiveModel(FakeModel):
         def generate(self, inputs, **kwargs):
             arr = np.asarray(inputs.image)
             dark = (arr[:, :, 0] < 80) & (arr[:, :, 1] < 80) & (arr[:, :, 2] < 80)
@@ -241,7 +242,7 @@ def test_run_pipeline_can_fix_textvqa_style_bbox_case():
         image_ops=[{"tool": "crop_case_bbox", "params": {"padding": 0.0, "min_size_frac": 0.08}}],
     )
 
-    assert run_pipeline(BBoxSensitiveModel(), case, spec, _label_score) is True
+    assert _label_score(case, run_pipelines(BBoxSensitiveModel(), [case], spec)[0].winner) is Label.PASS
 
 
 def test_separate_horizontal_bands_adds_visible_gaps():
@@ -326,11 +327,11 @@ def test_pipeline_spec_validation():
 
 
 def test_pipeline_passes_bounded_generation_kwargs():
-    from evalrx.eval_agent.stages.fix.tools import PipelineSpec, run_pipeline
+    from evalrx.eval_agent.stages.fix.tools import PipelineSpec, run_pipelines
 
     case = FailureCase(id="decode", inputs=Inputs(prompt="q"), expected="yes")
 
-    class DecodeBudgetModel:
+    class DecodeBudgetModel(FakeModel):
         def generate(self, inputs, **kwargs):
             return "yes" if kwargs.get("max_tokens") == 512 else "no"
 
@@ -342,7 +343,7 @@ def test_pipeline_passes_bounded_generation_kwargs():
     )
     assert spec is not None
     assert spec.generation_kwargs == {"max_tokens": 512}
-    assert run_pipeline(DecodeBudgetModel(), case, spec, _label_score) is True
+    assert _label_score(case, run_pipelines(DecodeBudgetModel(), [case], spec)[0].winner) is Label.PASS
 
 
 def test_pipeline_normalizes_zero_temperature_and_empty_stop():
@@ -363,11 +364,11 @@ def test_pipeline_normalizes_zero_temperature_and_empty_stop():
 
 
 def test_pipeline_self_refine_is_a_label_blind_reviewed_multicall_strategy():
-    from evalrx.eval_agent.stages.fix.tools import PipelineSpec, run_pipeline
+    from evalrx.eval_agent.stages.fix.tools import PipelineSpec, run_pipelines
 
     case = FailureCase(id="review", inputs=Inputs(prompt="What is 2 + 2?"), expected="yes")
 
-    class SequencedModel:
+    class SequencedModel(FakeModel):
         def __init__(self):
             self.prompts: list[str] = []
 
@@ -377,37 +378,37 @@ def test_pipeline_self_refine_is_a_label_blind_reviewed_multicall_strategy():
 
     model = SequencedModel()
     spec = PipelineSpec(name="review", strategy="self_refine")
-    assert run_pipeline(model, case, spec, _label_score) is True
+    assert _label_score(case, run_pipelines(model, [case], spec)[0].winner) is Label.PASS
     assert len(model.prompts) == 3
     assert "yes" not in "\n".join(model.prompts).lower()  # expected label never enters prompts
 
 
 def test_pipeline_preserves_non_image_modality_fields():
-    """run_pipeline's inner generate() used to rebuild a bare Inputs(prompt=...,
+    """run_pipelines used to rebuild a bare Inputs(prompt=...,
     image=...), silently dropping .video/.audio -- every strategy was
     unconditionally inapplicable on any non-image FailureCase (generate()
-    raising on the missing modality, every call returning "", run_pipeline
+    raising on the missing modality, every call returning "", the run
     returning None -> "no applicable scorable pair" for every case, the
     exact failure musicavqa_videollama2's real run hit)."""
-    from evalrx.eval_agent.stages.fix.tools import PipelineSpec, run_pipeline
+    from evalrx.eval_agent.stages.fix.tools import PipelineSpec, run_pipelines
 
     case = FailureCase(
         id="clip", inputs=Inputs(prompt="What instrument is heard?", video="clip.mp4"),
         expected="cello",
     )
 
-    class VideoRequiredModel:
+    class VideoRequiredModel(FakeModel):
         def generate(self, inputs, **kwargs):
             if getattr(inputs, "video", None) is None:
                 raise ValueError("requires Inputs.video")
             return "cello"
 
     spec = PipelineSpec(name="direct", strategy="direct")
-    assert run_pipeline(VideoRequiredModel(), case, spec, _label_score) is True
+    assert _label_score(case, run_pipelines(VideoRequiredModel(), [case], spec)[0].winner) is Label.PASS
 
 
 def test_pipeline_votes_on_task_declared_output_key_not_hidden_score():
-    from evalrx.eval_agent.stages.fix.tools import PipelineSpec, run_pipeline
+    from evalrx.eval_agent.stages.fix.tools import PipelineSpec, run_pipelines
 
     case = FailureCase(
         id="structured",
@@ -416,7 +417,7 @@ def test_pipeline_votes_on_task_declared_output_key_not_hidden_score():
         metadata={"output_key_pattern": r"FINAL:\s*(\d+)"},
     )
 
-    class Samples:
+    class Samples(FakeModel):
         def __init__(self):
             self.outputs = iter(["work FINAL: 4", "another FINAL: 4", "FINAL: 9"])
 
@@ -427,7 +428,7 @@ def test_pipeline_votes_on_task_declared_output_key_not_hidden_score():
         return "FINAL: 4" in output
 
     spec = PipelineSpec(name="vote", n_samples=3)
-    assert run_pipeline(Samples(), case, spec, four_is_correct) is True
+    assert four_is_correct(case, run_pipelines(Samples(), [case], spec)[0].winner) is True
 
 
 # ── fake models ───────────────────────────────────────────────────────────────
@@ -984,7 +985,7 @@ def test_chart_count_extract_gate_is_gold_free_and_excludes_color_questions():
 def test_l1_template_candidate_preserves_non_image_modality_fields():
     """The L1 template runner used to rebuild a bare Inputs(prompt=...,
     image=...), silently dropping .video/.audio -- identical bug to
-    run_pipeline's, in the sibling L1 (not L2) code path."""
+    run_pipelines', in the sibling L1 (not L2) code path."""
     case = FailureCase(
         id="clip", inputs=Inputs(prompt="What instrument is heard?", video="clip.mp4"),
         expected="cello", label=Label.FAIL,
@@ -1027,7 +1028,8 @@ def test_image_l1_candidates_start_with_visual_grounding_control():
 
     assert candidates[0].name == "visual_grounding"
     assert "visible evidence" in candidates[0].payload["prompt_template"]
-    assert FixAgent().validator.strategy(candidates[0])(BaselineFailsModel(), batch[0]) is True
+    scores = FixAgent().validator.scores(candidates[0], BaselineFailsModel(), batch)
+    assert scores[batch[0].id] is True
 
 
 def test_video_only_batch_is_treated_as_having_visual_content():
@@ -2065,8 +2067,10 @@ def test_min_tier_filters_cheaper_candidates_for_one_ladder_station():
 
     assert out.attempted
     assert {v.candidate.tier for v in out.attempted} == {FixTier.L2_SCAFFOLD}
-    assert len(judge.prompts) == 1
+    # One L2 request, sent back once because the answer held no JSON.
+    assert len(judge.prompts) == 2
     assert "L2" in judge.prompts[0]
+    assert "I refuse to answer in JSON." in judge.prompts[1]
 
 
 def test_no_rubric_cases_yield_recommendation_not_crash():
@@ -2109,12 +2113,12 @@ def test_broken_cases_counted_and_net_negative_not_fixed():
 
 
 def test_outcome_serializes_and_logs(tmp_path):
-    from evalrx.eval_agent import RunLoggerV2
+    from evalrx.eval_agent import RunLogger
 
     judge = ScriptedJudge(
         json.dumps([{"name": "careful", "prompt_template": "Look carefully. {prompt}"}])
     )
-    logger = RunLoggerV2(tmp_path / "logs", observability_mode="offline")
+    logger = RunLogger(tmp_path / "logs", observability_mode="offline")
     agent = FixAgent(judge=judge, max_tier="L1", run_logger=logger)
     out = agent.propose_and_validate(BaselineFailsModel(), _gold_yes_batch(), [_hyp("x")])
     d = out.to_dict()
@@ -2129,14 +2133,14 @@ def test_outcome_serializes_and_logs(tmp_path):
 
 
 def test_run_fix_on_loop_report():
-    from evalrx.eval_agent import VLDiagnoseLoop, VLDiagnoseReport
+    from evalrx.eval_agent import AutoDiagnoseReport, VLDiagnoseLoop
     from evalrx.eval_agent.hypothesis import HypothesisStatus
     from evalrx.eval_agent.stages.hypothesis_tester import HypothesisTestResult
     from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 
     h = _hyp("prompt phrasing underspecifies the task")
     h.status = HypothesisStatus.SUPPORTED
-    report = VLDiagnoseReport(
+    report = AutoDiagnoseReport(
         cycles=1,
         stopped_by="max_cycles",
         verified_hypotheses=[
@@ -2447,9 +2451,9 @@ class CodeWritingJudge(Model):
 
 def test_fix_agent_coded_candidate_fixes_and_logs(tmp_path):
     pytest.importorskip("PIL")
-    from evalrx.eval_agent import RunLoggerV2
+    from evalrx.eval_agent import RunLogger
 
-    logger = RunLoggerV2(tmp_path / "logs", observability_mode="offline")
+    logger = RunLogger(tmp_path / "logs", observability_mode="offline")
     agent = FixAgent(
         judge=CodeWritingJudge(), max_tier="L2", run_logger=logger, exec_timeout_sec=30
     )
@@ -3020,7 +3024,7 @@ def test_signature_distinguishes_candidates_sharing_kind_and_payload():
 
 def test_self_refine_offered_for_image_reasoning_tasks_not_yes_no():
     """self_refine/self_consistency_5/least_to_most were only ever proposed
-    for text-only cases, even though run_pipeline already threads the case
+    for text-only cases, even though run_pipelines already threads the case
     image through every call -- nothing about them is text-specific. A
     multi-step reasoning task (multiple_choice/exact_or_numeric/
     vqa_consensus) with an image should get self_refine and
@@ -3246,10 +3250,10 @@ def test_bridged_attend_enables_coded_l3a(tmp_path):
 
 def test_declarative_candidate_gets_record_and_result_but_no_workspace(tmp_path):
     """A template/spec candidate never touches a sandbox — its trial folder
-    never gets a workspace/ subdir. Under V2 there is no per-trial
-    record.md/result.json either (that was a V1-only artifact); the same
-    outcome data lives inline in M5/log.json's "fix" entry instead."""
-    from evalrx.eval_agent.run_context import RunContext
+    never gets a workspace/ subdir. There is no per-trial
+    record.md/result.json either; the outcome data lives inline in
+    M5/log.json's "fix" entry."""
+    from evalrx.eval_agent.runlog.context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
     judge = ScriptedJudge(
@@ -3284,11 +3288,11 @@ def test_deduped_candidate_in_round_two_leaves_no_trial_folder(tmp_path):
     """A judge that keeps proposing the SAME failing candidate is deduped
     before a trial is ever allocated for it — round 2 must not produce a
     second (duplicate) attempt. A declarative candidate's trial is never
-    materialized on disk at all under V2 (lazy, and record.md/result.json
-    are V1-only artifacts), so the dedup guarantee is checked against the
+    materialized on disk at all (it is lazy, and nothing writes a
+    record.md/result.json), so the dedup guarantee is checked against the
     returned attempt list and the inlined M5/log.json record instead of a
     directory listing."""
-    from evalrx.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.runlog.context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
     judge = ScriptedJudge(
@@ -3373,7 +3377,7 @@ print("FIX_PIPELINE_RESULT_JSON=" + json.dumps({"per_case": out}))
 
 def test_two_coded_fix_attempts_get_separate_trial_workspaces(tmp_path):
     pytest.importorskip("PIL")
-    from evalrx.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.runlog.context import RunContext
 
     ctx = RunContext(tmp_path / "run1")
     agent = FixAgent(
@@ -3409,9 +3413,8 @@ def test_two_coded_fix_attempts_get_separate_trial_workspaces(tmp_path):
     ctx.finalize()
     assert not runtime_root.exists()
 
-    # Each attempt's own outcome — not a shared/overwritten one. Under V2
-    # there's no per-trial record.md/result.json (V1-only); the same data is
-    # inlined per-candidate in M5/log.json's "fix" entry instead.
+    # Each attempt's own outcome — not a shared/overwritten one. It is
+    # inlined per-candidate in M5/log.json's "fix" entry.
     fix = json.loads((tmp_path / "run1" / "M5" / "log.json").read_text())["fix"][-1]
     coded_entries = [a for a in fix["attempted"] if a["kind"] == "code"]
     assert len(coded_entries) == 2
@@ -3460,17 +3463,16 @@ def test_a_template_case_that_cannot_render_scores_none_not_a_crash():
     from evalrx.core.case import FailureCase, Inputs, Label
     from evalrx.eval_agent.stages.fix.agent import FixAgent, FixCandidate
 
-    class _Boom:
+    class _Boom(FakeModel):
         def generate(self, *a, **k):
             raise RuntimeError("model down")
 
     agent = FixAgent()
     candidate = FixCandidate(tier=None, name="t", kind="template",
                              payload={"prompt_template": r"{prompt} ${~m}$"})
-    strategy = agent.validator.strategy(candidate)
     case = FailureCase(inputs=Inputs(prompt="q"), observed="o", expected="e",
                        label=Label.FAIL)
-    assert strategy(_Boom(), case) is None
+    assert agent.validator.scores(candidate, _Boom(), CaseBatch([case])) == {case.id: None}
 
 
 # ── repair the model, not the task: the frozen-model control ─────────────────
@@ -3870,9 +3872,9 @@ def test_a_coded_pipeline_that_reads_baseline_output_needs_no_repair_round(tmp_p
     the first attempt, the host states the support threshold it enforces, the
     guard anchors every case on its record, the frozen control still holds,
     and no repair round is spent."""
-    from evalrx.eval_agent import RunLoggerV2
+    from evalrx.eval_agent import RunLogger
 
-    logger = RunLoggerV2(tmp_path / "logs", observability_mode="offline")
+    logger = RunLogger(tmp_path / "logs", observability_mode="offline")
     judge = _BaselineOutputJudge()
     agent = FixAgent(
         judge=judge, max_tier="L2", run_logger=logger, exec_timeout_sec=30,
@@ -3904,7 +3906,7 @@ def test_coded_attempt_persists_guard_and_control_audit_files(tmp_path):
     record or reverted anything). Checked before finalize(): these live under
     RunContext's ephemeral runtime tree, which finalize() inlines and deletes,
     not under the run root itself."""
-    from evalrx.eval_agent.run_context import RunContext
+    from evalrx.eval_agent.runlog.context import RunContext
 
     ctx = RunContext(tmp_path / "run")
     agent = FixAgent(

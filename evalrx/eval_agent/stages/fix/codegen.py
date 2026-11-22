@@ -30,8 +30,8 @@ from evalrx.eval_agent.stages.probe_generator import _extract_code
 if TYPE_CHECKING:
     from evalrx.agent_runtime.cli_types import CliAgentConfig
     from evalrx.core.case import CaseBatch, FailureCase
-    from evalrx.core.model import Model
-    from evalrx.eval_agent.run_context import Trial
+    from evalrx.core.model import Judge, Model
+    from evalrx.eval_agent.runlog.context import Trial
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +104,7 @@ class PipelineCoder:
     def __init__(
         self,
         *,
-        judge: "Model | None",
+        judge: "Judge | None",
         cli_config: "CliAgentConfig | None",
         allow_codegen: bool,
         score: "Callable[[FailureCase, str], Optional[bool]]",
@@ -112,7 +112,6 @@ class PipelineCoder:
         run_context: "Any | None" = None,
         sandbox: "Any | None" = None,
         exec_timeout_sec: int = 600,
-        concurrency: int = 1,
         max_repair_rounds: int = 1,
         prewritten_code: str = "",
     ) -> None:
@@ -124,7 +123,6 @@ class PipelineCoder:
         self.run_context = run_context
         self.sandbox = sandbox
         self.exec_timeout_sec = exec_timeout_sec
-        self.concurrency = concurrency
         self.max_repair_rounds = max_repair_rounds
         self._prewritten_code = str(prewritten_code or "")
         self._last_repair_prompt = ""
@@ -333,7 +331,6 @@ class PipelineCoder:
             timeout_sec=self.exec_timeout_sec,
             enable_attend=bool(candidate.payload.get("enable_attend")),
             max_tokens_floor=max_tokens_floor,
-            concurrency=self.concurrency,
             consensus_min_support=int(candidate.payload.get("consensus_min_support", 0)),
             max_calls_per_case=int(candidate.payload.get("max_calls_per_case", 0)),
             call_logger=self.recorder.bridge_exchange,
@@ -362,7 +359,6 @@ class PipelineCoder:
                     timeout_sec=self.exec_timeout_sec,
                     enable_attend=bool(candidate.payload.get("enable_attend")),
                     max_tokens_floor=max_tokens_floor,
-                    concurrency=self.concurrency,
                     consensus_min_support=int(
                         candidate.payload.get("consensus_min_support", 0)
                     ),
@@ -542,8 +538,7 @@ class PipelineCoder:
 
         With a *trial* (a ``RunContext`` is in play), each candidate gets its
         own durable ``<trial>/workspace/`` — no cross-attempt overwriting.
-        Without one (legacy / no ``RunContext``), falls back to a single
-        shared sandbox for the agent's lifetime, exactly as before.
+        Without one, a single shared sandbox serves the agent's lifetime.
         """
         if trial is not None:
             return str(trial.workspace)

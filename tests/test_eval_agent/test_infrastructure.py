@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import textwrap
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -291,29 +290,6 @@ def test_jsonl_store_query_filter_by_status(tmp_path):
     supported = store.query(kind="hypotheses", status=HypothesisStatus.SUPPORTED)
     assert len(supported) == 1
     assert supported[0].statement == "s1"
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# SandboxFactory
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def test_create_sandbox_default_returns_experiment_sandbox(tmp_path):
-    from evalrx.agent_runtime.factory import SandboxFactoryConfig, create_sandbox
-    from evalrx.agent_runtime.sandbox import ExperimentSandbox
-
-    sandbox = create_sandbox(SandboxFactoryConfig(), tmp_path)
-    assert isinstance(sandbox, ExperimentSandbox)
-
-
-def test_create_sandbox_docker_fallback_returns_subprocess(tmp_path):
-    from evalrx.agent_runtime.factory import SandboxFactoryConfig, create_sandbox
-    from evalrx.agent_runtime.sandbox import ExperimentSandbox
-
-    # Patch Docker check to simulate unavailability
-    with patch("evalrx.agent_runtime.factory._try_create_docker_sandbox", return_value=None):
-        sandbox = create_sandbox(SandboxFactoryConfig(mode="docker"), tmp_path)
-    assert isinstance(sandbox, ExperimentSandbox)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

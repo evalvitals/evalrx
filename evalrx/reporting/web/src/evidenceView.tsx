@@ -1,6 +1,5 @@
 /** A stage's evidence: the stage list beside the selected stage's brief or full record. */
 
-import { stageCode } from "./reportAccess";
 import { ChevronRight } from "lucide-react";
 import type { ReportData } from "./types";
 import type { Navigate, Route } from "./route";
@@ -58,7 +57,7 @@ export function EvidenceView({
               key={item.id}
               onClick={() => show(item.id)}
             >
-              <span>{stageCode(item.code)}</span>
+              <span>{item.code}</span>
               <div>
                 <strong>{item.title}</strong>
                 <small>{item.status.replaceAll("-", " ")}</small>
@@ -71,7 +70,7 @@ export function EvidenceView({
           <header className="evidence-head">
             <div>
               <span className="section-kicker">
-                {stageCode(stage?.code)} · {stage?.status?.replaceAll("-", " ")}
+                {stage?.code} · {stage?.status?.replaceAll("-", " ")}
               </span>
               <h2>{stage?.title}</h2>
               <p className="lead-small">{stage?.purpose}</p>

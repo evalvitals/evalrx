@@ -106,8 +106,47 @@ doubled-`.model.` / no-`.model` / fused-experts traps.
 
 ```python
 model.generate(inputs, **kwargs) -> str
+model.generate_batch([inputs, ...], **kwargs) -> list[str]   # same order as the inputs
 model.forward(inputs, capture={...}, spec=None) -> Trace
 ```
+
+`generate_batch` is the call for several independent questions. Each backend
+answers it the fastest way it has: `hf_local` runs left-padded batches of
+`RuntimeConfig.batch_size` inputs (32 by default, halved on a CUDA
+out-of-memory error), and `vllm_offline` hands the engine the whole list. Any
+other model calls `generate` for each input, `Model.concurrency` at a time: 1 by
+default, `RuntimeConfig.concurrency` for the `api` backend, and whatever a
+`Model` subclass that calls an endpoint sets on itself. `try_generate_batch`
+returns an input's exception in its place, for a caller that must keep the other
+answers. `logprobs_batch` is the same call for `logprobs`.
+
+`hf_local` builds a batch by encoding every input on its own, exactly as a
+single call does, and stacking the encodings: token-level tensors are padded on
+the left, image and audio tensors are concatenated. A long list is encoded a
+window of four batches at a time, and inputs with and without an image batch
+separately. A text-only spec always batches. A multimodal family batches once it is listed in
+`BATCHED_MULTIMODAL_FAMILIES` (`models/backends/hf/model.py`), which means its
+batched answers were compared with one-at-a-time answers on a real checkpoint in
+float32 and came out identical; an unlisted family, and inputs whose media
+tensors do not stack, run one at a time.
+
+No stage owns a thread pool for the model under test. A stage hands over the
+questions that do not depend on each other and the model decides how many run
+at once.
+
+The decoding a model is deployed with lives in `RuntimeConfig.sampling`
+(`do_sample`, `temperature`, `top_p`, `top_k`). `hf_local` and `jax_local` apply
+it to every call that passes none of its own, so an analyzer that calls
+`generate` with no arguments probes the model under the settings its cases were
+labelled with.
+
+A sampling model can answer one case both ways, so one answer labels the case
+by chance. `CaseDiscoveryAgent(n_samples=k)` draws `k` answers per case in one
+batch and labels the case by their majority; `case.observed` is an answer that
+earned that label and `case.metadata["discovery_votes"]` holds the count. The
+benchmark runner uses five when the task samples and one when it decodes
+greedily (`--label-samples`). The fix stage's repeated baseline does not count
+`case.observed` among its samples, because that answer was chosen by the label.
 
 `forward` returns a `Trace`, which is the common carrier for captured internals
 such as tokens, token ids, attentions, hidden states, logits, and backend-specific
@@ -117,6 +156,32 @@ extras.
 
 `Analyzer` is the EvalRX analogue of an sklearn estimator. It has explicit
 constructor parameters, declares required capabilities, and returns a `Result`.
+
+An analyzer that asks the model several questions per case writes them as a
+per-case probe: a generator that yields an `Ask` wherever it needs answers and
+returns the case's row. `run_probes` advances every case's probe together and
+sends each round to `model.generate_batch`, so the code reads as one case at a
+time and runs as batches:
+
+```python
+from evalrx.core.analyzer import Analyzer, Ask, Probe, run_probes
+
+class MyProbe(Analyzer):
+    def _run(self, model, cases):
+        rows = run_probes(model, [self._probe_case(case) for case in cases])
+        ...
+
+    def _probe_case(self, case) -> Probe[dict]:
+        direct, reasoned = yield Ask([case.inputs, with_suffix(case.inputs, COT)])
+        (checked,) = yield Ask([follow_up(case.inputs, reasoned)])   # needs the answer above
+        return {"sample_id": case.id, ...}
+```
+
+To read the answer a case was labelled on, use `labelled_answers(model, cases)`:
+it returns `case.observed` and asks only for the cases that carry none. An
+analyzer that compares that answer against a re-ask under a changed prompt asks
+for a fresh control instead, because the labelled answer is the one the FAIL
+cases were selected on.
 
 ```python
 analyzer = SomeAnalyzer(**params)
@@ -180,7 +245,7 @@ core contracts described above. Two loops are available — the same M1-M4
 stages, two different orchestration strategies:
 
 ```text
-VLDiagnoseLoop  (loop.py — protocol-guided, stops on verified hypothesis)
+VLDiagnoseLoop  (loop/diagnose.py — protocol-guided, stops on verified hypothesis)
   ExperimentProtocol  ← user's NL description of what to investigate
        │
   M1 · ProbeAgent         detect model kind → run ranked analyzers;
@@ -193,7 +258,9 @@ VLDiagnoseLoop  (loop.py — protocol-guided, stops on verified hypothesis)
        │
   M5 · SurgeryAgent       called once post-loop on the best verified hypothesis
 
-AgenticDiagnoseLoop  (agentic/loop.py — judge-decided, same M1-M4 stages)
+The cycle above is the default policy, FixedOrderPolicy (loop/fixed.py).
+
+VLDiagnoseLoop(policy=JudgePolicy(judge))  (loop/judge/policy.py — judge-decided, same M1-M4 stages)
   A CLI judge picks the next tool (run_probe / run_stats / explore_data /
   cluster_failures / search_probes / propose_hypotheses / test_hypothesis /
   run_surgery / run_fix / stop) each turn from an EvidenceBoard, instead of a
@@ -207,8 +274,7 @@ The agent touches models only through the `Model` protocol and stores all
 evidence in a `Store`.
 
 `.run()` on both loops returns the same class, `AutoDiagnoseReport`
-(`loop_reports.py`; `VLDiagnoseReport` is a back-compat alias for the
-identical class). Each loop populates only the fields relevant to what it
+(`loop/report.py`). Each loop populates only the fields relevant to what it
 ran — see [Stage Input/Output Reference](stage_io.md#loop-level-output) for
 the full field table.
 
@@ -216,15 +282,25 @@ the full field table.
 
 ```text
 eval_agent/
-├── loop.py               VLDiagnoseLoop (current)
-├── loop_fix.py           run_fix orchestration: fix targets, tier ladder, EXPLORE→CONFIRM
-├── loop_reports.py       AutoDiagnoseReport (VLDiagnoseReport is an alias — all
-│                         both loops return this one unified report class)
-├── run_metadata.py       shared run-provenance + logging-wiring helpers
-├── agentic/              AgenticDiagnoseLoop — judge-decided M1-M4 (see below)
-├── run_context.py        RunContext, Trial — single owner of a run's output directory
-├── run_logger_v2.py       RunLoggerV2 — run.json + per-stage M<n>/log.json event log
-├── log_schema.py          published event JSON Schema
+├── loop/                 the diagnosis loop and who picks its next step
+│   ├── diagnose.py       VLDiagnoseLoop — configuration and the run phases
+│   ├── stages.py         Stages — runs and records M1, explore, M2, M3, M4 (no loop reference)
+│   ├── partition.py      split_cases — the EXPLORE / CONFIRM / TEST partition
+│   ├── state.py          Policy (next-step contract), RunState (what a run carries)
+│   ├── fixed.py          FixedOrderPolicy — M1→M4 cycles, the default
+│   ├── judge/            JudgePolicy — judge-decided M1-M4 (see below)
+│   ├── report.py         AutoDiagnoseReport — the one report class both policies return
+│   ├── fix.py            run_fix orchestration: fix targets, tier ladder, EXPLORE→CONFIRM
+│   └── metadata.py       shared run-provenance + logging-wiring helpers
+├── runlog/               a run's output directory and event log (README.md: the layout)
+│   ├── context.py        RunContext, Trial — single owner of a run's output directory
+│   ├── logger.py         RunLogger — run.json + per-stage M<n>/log.json event log
+│   ├── entries.py        what each logged event records, one pure function per event
+│   ├── files.py          atomic JSON writes, inlined sandbox workspaces, saved artifacts
+│   ├── tracing.py        each logged event mirrored into Langfuse
+│   ├── schema.py         published event JSON Schema (run_log.schema.json)
+│   ├── narration.py      live terminal narration of a run
+│   └── instrumentation.py  InstrumentedModel — logs each analyzer call to the model
 ├── hypothesis.py         Hypothesis, HypothesisStatus — shared across M3/M4/M5
 ├── store.py              Store / InMemoryStore / JsonlStore
 └── stages/               ← M1, M3, M4, M5 stage implementations (M2 lives in evalrx.analysis)
@@ -234,6 +310,7 @@ eval_agent/
     ├── diagnosis.py      M3  DiagnosisAgent, DiagnosisResult
     ├── surgery.py        M5  SurgeryAgent, InterventionResult
     ├── experiment_writer.py  M5  ExperimentWriter
+    ├── experiment_code.py    M5  reading + static checks of the code it writes
     ├── fix/              M5 (post-loop) tiered repair
     │   ├── agent.py       FixAgent — orchestrates the modules below
     │   ├── types.py       FixCandidate, FixValidation, FixOutcome, FixContext
@@ -421,8 +498,7 @@ Key properties:
   not timed out), preserving failure artefacts for debugging.
 
 `SandboxProtocol` is a structural type allowing transparent substitution of subprocess,
-Docker, SSH, or other backends.  `create_sandbox(SandboxFactoryConfig, workdir)` selects
-the backend from a `mode` string (`"subprocess"` default, `"docker"` with graceful fallback).
+Docker, SSH, or other backends; `ExperimentSandbox` is the one implementation shipped.
 
 ### Persistent store — `JsonlStore`
 
@@ -470,7 +546,7 @@ result.image_overlays(fig_dir, stem_prefix)                 # -> list[Path]
 lazy `Inputs.image` paths/URLs the same way the model's forward pass did
 (`transformers.image_utils.load_image`), so the overlay matches what was
 actually fed to the model. `image_overlays()` is a duck-typed hook:
-`RunLoggerV2` calls it on any `Result` that defines it and saves the PNGs
+`RunLogger` calls it on any `Result` that defines it and saves the PNGs
 into `M1/artifacts/` alongside the bare heatmaps, so overlays flow into the
 same artifact list a multimodal judge already receives — no per-analyzer
 wiring required.
@@ -481,7 +557,7 @@ wiring required.
 files, a logger buried under a `logs/` subdir, hand-built figure-dir paths,
 and M5 sandboxes living in ephemeral temp dirs deleted on success.  One
 `RunContext` owns the whole run root and hands every producer its
-subdirectory, always through `RunLoggerV2` (`evalrx/eval_agent/RUN_LOGGER_V2.md`) —
+subdirectory, always through `RunLogger` (`evalrx/eval_agent/runlog/README.md`) —
 there is no other logger to select:
 
 ```text
@@ -512,19 +588,18 @@ run provenance — `model`, `judge`, `git_commit` (falls back to the
 the example Docker images), `data_fingerprint` (an order-independent hash of
 the case batch, so two runs can be confirmed to use the same data) and
 `label_distribution` (the base PASS/FAIL/UNKNOWN counts the diagnosis is
-conditioned on). Nothing is externalized the way V1's `{"path", "n_items",
-"bytes"}` payload placeholder was — `stats_results`, `findings`, and every
-other per-event field are inlined verbatim in the stage's JSON document.
-`evalrx/reporting/run_events.py`'s `read_v2_events(root)` flattens `run.json`
+conditioned on). Nothing is externalized — `stats_results`, `findings`, and
+every other per-event field are inlined verbatim in the stage's JSON document.
+`evalrx/reporting/run_events.py`'s `read_run_events(root)` flattens `run.json`
 + every `M<n>/log.json` back into one ordered, flat event list (the same
 shape every downstream reader — dynamic report, HTML export, dashboard,
 Langfuse backfill — consumes), so most code never has to know about the
 per-stage bucketing directly:
 
 ```python
-from evalrx.reporting.run_events import read_v2_events
+from evalrx.reporting.run_events import read_run_events
 
-events = read_v2_events("run_dir")                          # run_dir or run_dir/logs
+events = read_run_events("run_dir")                          # run_dir or run_dir/logs
 diagnoses = [e for e in events if e["event"] == "diagnosis"]  # all judge outputs
 probes = [e for e in events if e["event"] == "probe"]          # M1 findings
 ```
@@ -537,8 +612,8 @@ jq '.probe[-1].findings' run_dir/M1/log.json  # latest M1 findings
 ```
 
 The event format is a **published JSON Schema** (Draft 2020-12), shipped as
-package data at `evalrx/eval_agent/run_log.schema.json` and built from
-`evalrx/eval_agent/log_schema.py` — so downstream parsers (in any language)
+package data at `evalrx/eval_agent/runlog/run_log.schema.json` and built from
+`evalrx/eval_agent/runlog/schema.py` — so downstream parsers (in any language)
 can validate an event instead of guessing field shapes. It's permissive by
 design: it pins the common envelope (`event`, `schema_version`, `ts`,
 `trace_id`, `stage`, `span_id`, `event_seq`), the per-event required fields
@@ -551,7 +626,7 @@ from evalrx.eval_agent import validate_event
 validate_event(event)  # raises jsonschema.ValidationError on a violation
 ```
 
-Set `EVALRX_VALIDATE_LOG=1` to have `RunLoggerV2` self-check every event it
+Set `EVALRX_VALIDATE_LOG=1` to have `RunLogger` self-check every event it
 writes against the schema and warn (never raise) on a violation — a CI/dev aid
 to catch a producer drifting from the contract. Both paths need the optional
 `jsonschema` dependency (`pip install evalrx[dev]`).
@@ -584,8 +659,8 @@ on first write, so a candidate discarded before producing anything (e.g. a
 deduped proposal) leaves no empty folder — a gap in the numbering honestly
 means "proposed, then discarded," not a missing record.  `ctx.new_workdir(label)`
 is the non-trial equivalent for sandboxes that don't belong to a numbered
-attempt (e.g. M1/M2 tool codegen). Under V2 there are no persisted trial
-folders at all — a trial's generated code/output is inlined into its stage's
+attempt (e.g. M1/M2 tool codegen). There are no persisted trial
+folders — a trial's generated code/output is inlined into its stage's
 JSON, and the sandbox it ran in lives under an ephemeral `ctx.runtime_root`
 tempdir that's deleted at `finalize()`, not `fixes/`/`experiments/`.
 
@@ -608,6 +683,16 @@ allowlist is one entry in `BUILTIN_SPECS` (the judge-less fallback list in
 `FixProposer._l2_candidates` is still separate). Give either a reader-facing
 sentence in `BUILTIN_DESCRIPTIONS`. A new candidate kind is one execution
 method on `CandidateValidator` plus its entry in the kind map.
+
+The validator asks the model in batches. The fresh baseline samples are one
+`try_generate_batch`, drawn once for a model and a set of cases and shared by
+every tier of the search; a template candidate is one; a spec (`run_pipelines`) runs
+every case and every sample of its strategy as probes, one round of generation
+per strategy step. A coded pipeline runs in a sandbox and reaches the model
+through a bridge: one host thread answers the calls that arrive together as one
+batch, so the coder is told to run one thread per case. Candidates that call a
+method on the model itself (registered repairs, visual search, internals, weight
+edits) run one case at a time, because they hook the model while it generates.
 
 
 ```text
@@ -661,7 +746,7 @@ evalrx.FailureCase
 evalrx.Result
 
 # Diagnosis stages and logging
-from evalrx.eval_agent import DiagnosisAgent, RunLoggerV2, StrategyProbe, SurgeryAgent
+from evalrx.eval_agent import DiagnosisAgent, RunLogger, StrategyProbe, SurgeryAgent
 
 # Protocol-guided diagnosis — VLDiagnoseLoop (M1→M2→M3→M4, M5 post-loop)
 from evalrx.eval_agent import (

@@ -64,7 +64,7 @@ def sliding_window_box(
         for top in range(scores.shape[0]):
             for left in range(scores.shape[1]):
                 scores[top, left] = relative_map[top : top + box_h, left : left + box_w].sum()
-        top, left = np.unravel_index(np.argmax(scores), scores.shape)
+        top, left = map(int, np.unravel_index(np.argmax(scores), scores.shape))
         neighbors = [
             float(scores[neighbor_top, neighbor_left])
             for neighbor_top, neighbor_left in (
@@ -75,8 +75,8 @@ def sliding_window_box(
         contrast = (float(scores[top, left]) - float(np.mean(neighbors))) / (box_w * box_h)
         candidates.append((contrast, (left, top), (box_w, box_h), bbox_size * ratio))
     _, (left, top), (box_w, box_h), selected_size = max(candidates, key=lambda item: item[0])
-    center_x = int(left * block_width + block_width * box_w / 2)
-    center_y = int(top * block_height + block_height * box_h / 2)
+    center_x: float = int(left * block_width + block_width * box_w / 2)
+    center_y: float = int(top * block_height + block_height * box_h / 2)
     half = selected_size // 2
     center_x = min(max(center_x, half), width - half)
     center_y = min(max(center_y, half), height - half)

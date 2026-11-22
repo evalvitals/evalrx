@@ -23,7 +23,7 @@ the triage reads answers out of them.
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from evalrx.eval_agent.probing.actions import (
     FAILED,
@@ -45,11 +45,12 @@ from evalrx.eval_agent.probing.metering import (
 if TYPE_CHECKING:
     from evalrx.core.analyzer import Analyzer
     from evalrx.core.case import CaseBatch
+    from evalrx.core.model import Model
 
 
 def gate(analyzer: "Analyzer", model: Any, cases: "CaseBatch") -> "str | None":
     """Why *analyzer* cannot run here, or ``None`` when its preconditions hold."""
-    have = getattr(model, "capabilities", frozenset()) or frozenset()
+    have: frozenset = getattr(model, "capabilities", frozenset()) or frozenset()
     missing = sorted(c.value for c in set(getattr(analyzer, "requires", ())) - set(have))
     if missing:
         return f"model lacks capabilities {missing}"
@@ -125,7 +126,7 @@ def execute(action: ProbeAction, action_id: str, attempt: int, analyzer: "Analyz
 
     target = model
     if run_logger is not None:
-        from evalrx.eval_agent.model_instrumentation import InstrumentedModel
+        from evalrx.eval_agent.runlog.instrumentation import InstrumentedModel
 
         target = InstrumentedModel(
             model, run_logger, cycle=0, analyzer=action.analyzer,
@@ -140,7 +141,7 @@ def execute(action: ProbeAction, action_id: str, attempt: int, analyzer: "Analyz
         if per_case:
             raw = _run_per_case(analyzer, metered, cases, tuple(keep_artifacts))
         else:
-            result = analyzer.run(metered, cases)
+            result = analyzer.run(cast("Model", metered), cases)  # a proxy, not a subclass
             raw = result.findings or {}
             if keep_artifacts:
                 raw = {**raw, "artifacts": _kept(result, tuple(keep_artifacts))}

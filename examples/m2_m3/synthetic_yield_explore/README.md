@@ -15,12 +15,13 @@ cd examples/m2_m3/synthetic_yield_explore && docker compose up
 Or directly (needs a local coding-agent CLI, e.g. `claude`):
 
 ```bash
-pip install -e ".[dashboard,viz]"
+pip install -e ".[viz]"
 bash run.sh
 ```
 
 Env overrides: `CODER_PROVIDER` (default `claude_code`), `CODER_MODEL`,
-`OUT_DIR` (default `outputs`), `TIMEOUT_SEC`.
+`OUT_DIR` (default `outputs`), `TIMEOUT_SEC` (default 900: with its skills the
+agent took longer than 300 s to write the analysis on 2026-11-20).
 
 ## What it demonstrates
 
@@ -47,7 +48,9 @@ From an actual run (temperature r=0.86 with yield, the strongest association):
      mass-transfer/gas-solubility limited across the operating window
      tested — pressure's true effect, if any, lies outside the range sampled.
 
-Open the dashboard to see the charts and hypothesis cards:
+Open the report to see the charts and hypothesis cards: `outputs/report.html`
+opens straight from disk, and `evalrx serve` (needs the `ui` extra,
+`pip install -e ".[ui]"`) shows it live:
 
 ```bash
 evalrx serve outputs

@@ -3,7 +3,7 @@
 
 Two input shapes, both real runs — nothing here invents numbers:
 
-* ``--run-dir DIR`` — a live RunLoggerV2 output (``logs/run.json`` +
+* ``--run-dir DIR`` — a live RunLogger output (``logs/run.json`` +
   ``logs/M*/log.json``). Every narrated line comes from the real
   ``LoopNarrator`` fed the logged records, exactly as
   ``examples/benchmark/tools/replay_narrate.py`` does, so durations are the
@@ -35,7 +35,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-# The narrator's own geometry (evalrx/eval_agent/narration.py), duplicated here
+# The narrator's own geometry (evalrx/eval_agent/runlog/narration.py), duplicated here
 # so a storyboard can be built without importing evalrx.
 LABEL_WIDTH = 12
 STAGE_LABELS = {"M1": "probe", "M2": "explore", "M3": "diagnose",
@@ -288,7 +288,7 @@ def from_run_dir(path: Path) -> dict[str, Any]:
     import sys
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    from evalrx.eval_agent.narration import LoopNarrator  # noqa: E402
+    from evalrx.eval_agent.runlog.narration import LoopNarrator  # noqa: E402
 
     logs = path / "logs" if (path / "logs" / "run.json").exists() else path
     run = json.loads((logs / "run.json").read_text())
@@ -328,7 +328,7 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     source = ap.add_mutually_exclusive_group(required=True)
     source.add_argument("--report", type=Path, help="exported report .html")
-    source.add_argument("--run-dir", type=Path, help="RunLoggerV2 run directory")
+    source.add_argument("--run-dir", type=Path, help="RunLogger run directory")
     source.add_argument("--transcript", type=Path,
                         help="saved terminal transcript of a narrated run")
     ap.add_argument("--out", type=Path, required=True, help="storyboard .json to write")

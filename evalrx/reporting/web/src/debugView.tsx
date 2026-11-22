@@ -1,7 +1,6 @@
 /** The raw agent event stream, for auditing a run step by step. */
 import { useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { stageCode } from "./reportAccess";
 import type { DebugEvent, ReportData } from "./types";
 import { DetailShell } from "./detail";
 
@@ -66,7 +65,7 @@ function EventRow({ event }: { event: DebugEvent }) {
       <span className="event-type">{event.event}</span>
       <div>
         <strong>
-          {stageCode(event.stage) || "RUN"}
+          {event.stage || "RUN"}
           {event.cycle !== undefined && event.cycle !== null ? ` · cycle ${event.cycle}` : ""}
         </strong>
         <p>{event.summary}</p>

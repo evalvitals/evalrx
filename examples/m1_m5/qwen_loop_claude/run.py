@@ -371,9 +371,8 @@ def _pick_agy_model() -> str:
     )
 
 
-# Claude judge candidates: the user's session model first (Fable), then
-# cheaper aliases. Probed in order; first responder wins.
-_CLAUDE_JUDGE_CANDIDATES = ("claude-fable-5", "sonnet", "haiku")
+# Claude judge candidates, probed in order; first responder wins.
+_CLAUDE_JUDGE_CANDIDATES = ("sonnet", "haiku")
 
 
 def _pick_claude_model() -> str:
@@ -492,7 +491,6 @@ def _run_smoke_test(args) -> None:
         HypothesisTester,
         RunContext,
         StatsAnalysisAgent,
-        StatsToolAgent,
         SurgeryAgent,
         VLDiagnoseLoop,
     )
@@ -519,7 +517,7 @@ def _run_smoke_test(args) -> None:
         model=model,
         protocol=protocol,
         probe_agent=_SmokeProbe(),
-        stats_agent=StatsAnalysisAgent(stats_tool_agent=StatsToolAgent(max_tools=3)),
+        stats_agent=StatsAnalysisAgent(),
         diagnosis_agent=_SmokeDiagnosisAgent(),
         hypothesis_tester=HypothesisTester(min_effect=0.05),
         surgery_agent=SurgeryAgent(),
@@ -755,12 +753,12 @@ def main() -> None:
     _m1_codegen = args.allow_codegen and not args.analysis_only
     if args.analyzers.strip():
         # Pinned analyzer list — deterministic M1 for reproducible experiments.
-        from evalrx.eval_agent import StrategyProbe
+        from evalrx.eval_agent import ModelKind, StrategyProbe
 
         pinned = [a.strip() for a in args.analyzers.split(",") if a.strip()]
         print(f"  M1 pinned analyzers: {pinned}")
         probe_agent = ProbeAgent(
-            probe=StrategyProbe(priority_override={k: pinned for k in ("vlm", "agent", "llm")}),
+            probe=StrategyProbe(priority_override={kind: pinned for kind in ModelKind}),
             judge=None,  # bypass LLM selection
             max_analyzers=len(pinned),
         )
@@ -865,7 +863,7 @@ def main() -> None:
     print(f"\n{'='*64}")
     print(f"LOOP RESULT  stopped_by={report.stopped_by}  cycles={report.cycles}")
     print(f"{'='*64}")
-    print(f"  total hypotheses proposed : {len(report.all_hypotheses)}")
+    print(f"  total hypotheses proposed : {len(report.final_hypotheses)}")
     print(f"  verified (protocol-consistent + statistically supported): "
           f"{len(report.verified_hypotheses)}")
     for vr in report.verified_hypotheses:

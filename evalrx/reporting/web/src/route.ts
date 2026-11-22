@@ -10,6 +10,7 @@
  *   #/evidence/m3           a stage's brief;  #/evidence/m3/full  its full record
  *   #/cases/<id>?split=E    the case studio, on one case and/or one partition
  *   #/debug                 the raw event log
+ *   #/compare/<id>          this run beside another one the server holds
  *
  * On a served report the hash also names the run (`?run=<id>`), so a reload
  * or a link reopens the run that was on screen, not the server's start-up run.
@@ -18,7 +19,8 @@ export type Route =
   | { view: "overview" }
   | { view: "evidence"; stage?: string; full?: boolean }
   | { view: "cases"; caseId?: string; split?: string }
-  | { view: "debug" };
+  | { view: "debug" }
+  | { view: "compare"; with?: string };
 
 export type Navigate = (route: Route, options?: { replace?: boolean; run?: string | null }) => void;
 
@@ -37,6 +39,7 @@ export function parseRoute(hash: string): Route {
     return { view, ...(rest[0] ? { caseId: rest[0] } : {}), ...(split !== null ? { split } : {}) };
   }
   if (view === "debug") return { view };
+  if (view === "compare") return { view, ...(rest[0] ? { with: rest[0] } : {}) };
   return { view: "overview" };
 }
 
@@ -52,6 +55,8 @@ export function routeHash(route: Route): string {
     }
     case "debug":
       return "#/debug";
+    case "compare":
+      return `#/compare${route.with ? `/${part(route.with)}` : ""}`;
     default:
       return "#/";
   }

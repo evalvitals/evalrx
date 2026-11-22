@@ -73,6 +73,10 @@ class HeadAttributionAnalyzer(Analyzer):
         "dla_linear_share": ("Linear-attention share", "Hybrid stacks only: share of all heads' absolute contribution written by the linear-attention (gated delta rule) layers rather than softmax attention."),
     }
 
+    target: str
+    top_k: int
+    max_cases: int
+
     def __init__(self, target: str = "prediction", top_k: int = 10, max_cases: int = 0) -> None:
         super().__init__(target=target, top_k=top_k, max_cases=max_cases)
 
@@ -94,7 +98,7 @@ class HeadAttributionAnalyzer(Analyzer):
         stack = decoder_stack(module)
         norm = get_final_norm(module)
         unembed = get_unembed(module)
-        projs = [out_proj(m) if m is not None else None for m in stack.mixers]
+        projs: list[Any] = [out_proj(m) if m is not None else None for m in stack.mixers]
         if any(p is None for p in projs):
             raise ValueError(f"{self.name}: some decoder layers have no recognised token mixer "
                              "with an output projection; head attribution would miss them.")

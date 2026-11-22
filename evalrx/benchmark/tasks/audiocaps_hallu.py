@@ -59,7 +59,8 @@ def download(out_dir: Path, limit: int = 300, seed: int = 20260814, scan_rows: i
     random.Random(seed).shuffle(order)
     order = order[: min(scan_rows, q_table.num_rows)]
     target = limit + max(0, val_limit)
-    rows, n_nomatch, n_dur = [], 0, 0
+    rows: list[dict] = []
+    n_nomatch, n_dur = 0, 0
     seen: set[str] = set()
     for row_index in order:
         if len(rows) >= target:

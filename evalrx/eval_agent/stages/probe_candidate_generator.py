@@ -32,7 +32,7 @@ from evalrx.eval_agent.prompts.probe_candidate_generator import PARAPHRASE_PROMP
 
 if TYPE_CHECKING:
     from evalrx.analysis.probe_search import ProbeNode
-    from evalrx.core.model import Model
+    from evalrx.core.model import Judge
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +77,7 @@ class VLMProbeCandidateGenerator:
     """
 
     seed_pool: CaseBatch
-    judge: "Model | None" = None
+    judge: "Judge | None" = None
     max_repairs: int = 1
 
     @property

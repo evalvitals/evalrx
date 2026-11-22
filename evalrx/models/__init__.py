@@ -10,6 +10,7 @@ constructed, and the capability set always reflects the chosen backend.
 from __future__ import annotations
 
 from dataclasses import replace
+from types import ModuleType
 from typing import Any
 
 from evalrx.config import ModelConfig
@@ -18,17 +19,15 @@ from evalrx.core.model import Model
 
 # Backend layer + agent loop (torch-free at import; heavy deps are lazy in build/load).
 from evalrx.core.tool import ChatTurn, Tool, ToolCall
-from evalrx.models import (
-    _moved,  # noqa: F401  (registers the pre-0.1.2 module paths: backends.hf_local, models.jax, ...)
-)
 from evalrx.models.agent import Agent, APIToolHandlerExecutor, ToolExecutor
 from evalrx.models.backends import BACKENDS, RuntimeConfig, call_vision_api_chat_fn
 from evalrx.models.base import BaseAgent
 from evalrx.models.compose import compose
 from evalrx.models.toolcodec import OpenAIToolCodec, QwenToolCodec, codec_for
 
-# Legacy concrete white-box model (now a thin deprecated alias) — optional on the
-# light, pure-API install (its module imports nothing heavy at top level).
+# The per-version white-box factories — optional on the light, pure-API
+# install (the module imports nothing heavy at top level).
+_whitebox: ModuleType | None
 try:
     from evalrx.models import whitebox as _whitebox  # noqa: F401
 except ImportError:  # pragma: no cover - light install
@@ -44,7 +43,6 @@ __all__ = [
     "compose",
     "RuntimeConfig",
     "BACKENDS",
-    "resolve_spec_key",
     "Agent",
     "ToolExecutor",
     "APIToolHandlerExecutor",
@@ -57,28 +55,6 @@ __all__ = [
     "call_vision_api_chat_fn",
 ]
 
-# Legacy name → canonical spec key.  Keeps old configs/code working.
-_SPEC_ALIASES: dict[str, str] = {
-    "qwen": "qwen2.5-7b-instruct",
-    "qwen2.5-7b": "qwen2.5-7b-instruct",
-}
-
-
-def resolve_spec_key(name: str) -> str:
-    """Resolve a spec key or legacy alias to a canonical :mod:`evalrx.specs` key."""
-    from evalrx.specs import REGISTRY
-
-    key = name.lower()
-    if key in REGISTRY:
-        return key
-    if key in _SPEC_ALIASES:
-        return _SPEC_ALIASES[key]
-    raise ValueError(
-        f"Unknown model {name!r}. Known specs: {sorted(REGISTRY)}; "
-        f"aliases: {sorted(_SPEC_ALIASES)}."
-    )
-
-
 def load(
     key: str,
     *,
@@ -89,12 +65,12 @@ def load(
 ) -> Model:
     """Build a model by spec key — the friendly one-liner.
 
-    ``evalrx.load("qwen2.5-7b-instruct")`` is the modern replacement for the
-    old ``QwenLLM()``.  It wraps ``compose(get_spec(key), backend, RuntimeConfig(**runtime))``
-    and negotiates capabilities up front (``want``).
+    ``evalrx.load("qwen2.5-7b-instruct")`` wraps
+    ``compose(get_spec(key), backend, RuntimeConfig(**runtime))`` and
+    negotiates capabilities up front (``want``).
 
     Args:
-        key:        Spec key or legacy alias (see :func:`resolve_spec_key`).
+        key:        A :mod:`evalrx.specs` key (see ``evalrx.list_specs()``).
         backend:    ``"hf_local"`` (internals) / ``"api"`` / ``"vllm_offline"``.
                     Forced to ``"api"`` for ``api_only`` (closed-weight) specs.
         want:       Capabilities the backend must provide (names or ``Capability``).
@@ -103,7 +79,7 @@ def load(
     """
     from evalrx.specs import get_spec
 
-    spec = get_spec(resolve_spec_key(key))
+    spec = get_spec(key)
     if checkpoint:
         spec = replace(spec, hf_repo=checkpoint)
     chosen = "api" if spec.api_only else backend

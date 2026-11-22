@@ -43,6 +43,7 @@ class CKAAnalyzer(Analyzer):
 
     name = "cka"
     requires = frozenset({Capability.HIDDEN_STATES})
+    single_case = True
     applies_to_modalities = frozenset({"text", "image"})
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:

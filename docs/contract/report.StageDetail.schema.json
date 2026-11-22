@@ -7,6 +7,73 @@
       "title": "CandidateSignalView",
       "type": "object"
     },
+    "ExploreAgentView": {
+      "additionalProperties": false,
+      "description": "What the explore coding agent left: the analysis it wrote and ran.\n\n``transcript`` is its CLI trajectory, cut to the report's budget; the run\ndirectory keeps the whole file.",
+      "properties": {
+        "code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Code"
+        },
+        "stdout": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Stdout"
+        },
+        "stderr": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Stderr"
+        },
+        "transcript": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Transcript"
+        },
+        "transcript_truncated": {
+          "title": "Transcript Truncated",
+          "type": "boolean"
+        },
+        "audit": {
+          "title": "Audit"
+        }
+      },
+      "required": [
+        "code",
+        "stdout",
+        "stderr",
+        "transcript",
+        "transcript_truncated",
+        "audit"
+      ],
+      "title": "ExploreAgentView",
+      "type": "object"
+    },
     "FigureView": {
       "additionalProperties": false,
       "description": "A chart the run saved, with the reading written for it.",
@@ -315,6 +382,16 @@
           "items": {},
           "title": "Recommended Tests",
           "type": "array"
+        },
+        "agent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExploreAgentView"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -327,7 +404,8 @@
         "observations",
         "caveats",
         "candidate_signals",
-        "recommended_tests"
+        "recommended_tests",
+        "agent"
       ],
       "title": "M2StageDetail",
       "type": "object"
@@ -346,16 +424,17 @@
           "title": "Hypotheses",
           "type": "array"
         },
-        "unparsed_proposals": {
-          "items": {
-            "$ref": "#/$defs/UnparsedProposal"
-          },
-          "title": "Unparsed Proposals",
-          "type": "array"
-        },
-        "agent_response": {
-          "title": "Agent Response",
-          "type": "string"
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
         },
         "candidate_signals": {
           "items": {
@@ -387,8 +466,6 @@
       "required": [
         "mode",
         "hypotheses",
-        "unparsed_proposals",
-        "agent_response",
         "candidate_signals",
         "recommended_tests",
         "evidence_figures",
@@ -1669,46 +1746,6 @@
         "table_names"
       ],
       "title": "TakeawayView",
-      "type": "object"
-    },
-    "UnparsedProposal": {
-      "additionalProperties": false,
-      "description": "A proposal recovered from the judge's raw reply after the parser\nrejected it. Shown for audit only; it never reached M4.",
-      "properties": {
-        "statement": {
-          "title": "Statement",
-          "type": "string"
-        },
-        "plain_statement": {
-          "title": "Plain Statement",
-          "type": "string"
-        },
-        "failure_mode": {
-          "title": "Failure Mode",
-          "type": "string"
-        },
-        "test_design": {
-          "title": "Test Design",
-          "type": "string"
-        },
-        "expected_association": {
-          "title": "Expected Association",
-          "type": "string"
-        },
-        "accepted_by_pipeline": {
-          "title": "Accepted By Pipeline",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "statement",
-        "plain_statement",
-        "failure_mode",
-        "test_design",
-        "expected_association",
-        "accepted_by_pipeline"
-      ],
-      "title": "UnparsedProposal",
       "type": "object"
     },
     "ValidationEventView": {

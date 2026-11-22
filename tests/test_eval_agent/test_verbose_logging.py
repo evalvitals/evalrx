@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 
 import evalrx
-from evalrx.eval_agent.loop import VLDiagnoseLoop
+from evalrx.eval_agent.loop.diagnose import VLDiagnoseLoop
 from evalrx.eval_agent.stages.fix.agent import FixAgent
 from evalrx.eval_agent.stages.protocol import ExperimentProtocol
 from evalrx.logging_utils import _MARKER_ATTR, TOP_LEVEL_LOGGER_NAME
@@ -57,17 +57,14 @@ def test_loop_stage_narration_is_actually_visible(capsys):
         VLDiagnoseLoop(
             model=FakeModel(), protocol=ExperimentProtocol(description="x"), verbose=True
         )
-        logging.getLogger("evalrx.eval_agent.loop").info("m1 probing started")
+        logging.getLogger("evalrx.eval_agent.loop.diagnose").info("m1 probing started")
         out = capsys.readouterr()
         assert "m1 probing started" in out.out
     finally:
         evalrx.disable_console_logging()
 
 
-# V1's console narration (_VerboseFormatter) rendered stats_plan/
-# corrected_rejections/etc. field-by-field, which is where this suite used
-# to guard against a real crash (an externalised {path, n_items, bytes}
-# stand-in iterated as if it were still the raw list — see git history for
-# the fix). RunLoggerV2's narration (_V2JsonFormatter.line) is a one-line
-# `[stage] event cycle=N` summary that never touches those fields, so that
-# bug class does not exist to regress here anymore.
+# RunLogger's narration (_EventLine.line) is a one-line
+# `[stage] event cycle=N` summary. It never renders stats_plan /
+# corrected_rejections field by field, so there is no per-field rendering to
+# guard here.

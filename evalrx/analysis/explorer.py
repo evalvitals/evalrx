@@ -59,7 +59,7 @@ from evalrx.analysis.prompts.explorer import (
 
 if TYPE_CHECKING:
     from evalrx.agent_runtime.cli_types import CliAgentConfig
-    from evalrx.core.model import Model
+    from evalrx.core.model import Judge, Model
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +122,7 @@ class CandidateSignal:
     effect: float | None = None
     ci: tuple[float, float] | None = None
     e_value: float | None = None
+    p_value: float | None = None   # host-computed (two_group); never self-declared
     reject: bool | None = None
     underpowered: bool = False
     host_adjudicated: bool = False
@@ -139,6 +140,7 @@ class CandidateSignal:
             "effect": self.effect,
             "ci": list(self.ci) if self.ci is not None else None,
             "e_value": self.e_value,
+            "p_value": self.p_value,
             "reject": self.reject,
             "underpowered": self.underpowered,
             "host_adjudicated": self.host_adjudicated,
@@ -245,7 +247,7 @@ class ExploratoryAnalysisAgent:
 
     def __init__(
         self,
-        judge: "Model | None" = None,
+        judge: "Judge | None" = None,
         inspector: "Model | None" = None,
         cli_config: "CliAgentConfig | None" = None,
         sandbox: ExperimentSandbox | None = None,
@@ -273,6 +275,8 @@ class ExploratoryAnalysisAgent:
 
                 cli_config = replace(cli_config, skills=bundled, allow_skills=True)
         self._cli_config = cli_config
+        # A sandbox made here is this agent's to remove; one passed in is not.
+        self._owns_sandbox = sandbox is None
         self._sandbox = sandbox or ExperimentSandbox(cleanup=False)
         self._timeout_sec = timeout_sec
         self._max_attempts = max(1, max_attempts)
@@ -287,14 +291,39 @@ class ExploratoryAnalysisAgent:
             self._cli_config is not None and self._cli_config.provider != "llm"
         )
 
+    def discard_sandbox(self) -> bool:
+        """Delete the temporary sandbox this agent created; True if it did.
+
+        The sandbox holds a full copy of the input data. Once the artifacts
+        have been copied to an output directory nothing reads it again, so it
+        should not be left in the system temp directory. A sandbox the caller
+        supplied is never touched.
+        """
+        if not self._owns_sandbox:
+            return False
+        workdir = Path(self._sandbox.workdir)
+        import tempfile
+
+        temp_root = Path(tempfile.gettempdir()).resolve()
+        if workdir.parent != temp_root or not workdir.name.startswith("evalrx_sandbox_"):
+            return False
+        shutil.rmtree(workdir, ignore_errors=True)
+        return not workdir.exists()
+
     def explore_records(
         self,
         records: Any,
         *,
         question: str = "Explore this dataset and surface the patterns that matter.",
         outcome_col: str | None = None,
+        group_col: str | None = None,
+        time_col: str | None = None,
     ) -> ExploratoryAnalysisReport:
         """Run local exploratory analysis over plain records.
+
+        ``group_col`` names the unit rows were cut from and ``time_col`` a
+        time column; both override the name heuristics in the data profile the
+        explorer is shown.
 
         ``outcome_col`` optionally names the target/label column explicitly
         (e.g. M1 always passes ``"label"``). When omitted, the outcome (if
@@ -303,7 +332,9 @@ class ExploratoryAnalysisAgent:
         having a FAIL/PASS split forced onto them.
         """
         rows = _records_to_rows(records)
-        profile = _profile_rows(rows, outcome_col=outcome_col)
+        profile = _profile_rows(
+            rows, outcome_col=outcome_col, group_col=group_col, time_col=time_col
+        )
         self._write_input(rows)
         return self._run_explore_loop(
             question, profile, lambda: self._write_code(question, profile)
@@ -318,6 +349,8 @@ class ExploratoryAnalysisAgent:
         max_files: int = 200,
         include_tool_calls: bool = False,
         outcome_col: str | None = None,
+        group_col: str | None = None,
+        time_col: str | None = None,
     ) -> ExploratoryAnalysisReport:
         """Run exploratory analysis directly over *path* (a file or directory).
 
@@ -340,16 +373,28 @@ class ExploratoryAnalysisAgent:
                 max_files=max_files,
                 include_tool_calls=include_tool_calls,
                 outcome_col=outcome_col,
+                group_col=group_col,
+                time_col=time_col,
             )
         else:
+            load_info: dict[str, Any] = {}
             rows = load_records_from_path(
                 path,
                 max_rows=max_rows,
                 max_files=max_files,
                 include_tool_calls=include_tool_calls,
+                info=load_info,
             )
-            report = self.explore_records(rows, question=question, outcome_col=outcome_col)
+            report = self.explore_records(
+                rows, question=question, outcome_col=outcome_col,
+                group_col=group_col, time_col=time_col,
+            )
             report.data_profile.setdefault("loaded_rows", len(rows))
+            warning = truncation_warning(load_info, max_rows)
+            if warning:
+                report.data_profile.setdefault("available_rows", load_info.get("n_available"))
+                if warning not in report.caveats:
+                    report.caveats.append(warning)
         report.data_profile.setdefault("source_path", str(Path(path)))
         report.data_profile.setdefault("folder_scan", folder_scan)
         return report
@@ -363,13 +408,22 @@ class ExploratoryAnalysisAgent:
         max_files: int,
         include_tool_calls: bool,
         outcome_col: str | None,
+        group_col: str | None = None,
+        time_col: str | None = None,
     ) -> ExploratoryAnalysisReport:
         raw_input_dir = self._copy_raw_input(path, max_files=max_files, include_tool_calls=include_tool_calls)
         profile: dict[str, Any] = {"folder_scan": folder_scan, "raw_input_dir": raw_input_dir}
+        if group_col:
+            profile["group_columns"] = [group_col]
+        if time_col:
+            profile["time_columns"] = [time_col]
         return self._run_explore_loop(
             question,
             profile,
-            lambda: self._write_code_raw_folder(question, folder_scan, raw_input_dir, outcome_col),
+            lambda: self._write_code_raw_folder(
+                question, folder_scan, raw_input_dir, outcome_col,
+                group_col=group_col, time_col=time_col,
+            ),
         )
 
     def _copy_raw_input(self, path: str | Path, *, max_files: int, include_tool_calls: bool) -> str:
@@ -552,8 +606,7 @@ class ExploratoryAnalysisAgent:
         )
 
     def _write_input(self, rows: list[dict[str, Any]]) -> None:
-        path = Path(self._sandbox.workdir) / RECORDS_FILENAME
-        path.write_text(json.dumps(rows, default=str), encoding="utf-8")
+        self._sandbox.put(RECORDS_FILENAME, json.dumps(rows, default=str))
 
     def _write_code(self, question: str, profile: dict[str, Any]) -> tuple[str, str]:
         prompt = _GENERATE_PROMPT_RECORDS.format(
@@ -573,6 +626,9 @@ class ExploratoryAnalysisAgent:
         folder_scan: dict[str, Any],
         raw_input_dir: str,
         outcome_col: str | None,
+        *,
+        group_col: str | None = None,
+        time_col: str | None = None,
     ) -> tuple[str, str]:
         outcome_hint = (
             f'- the caller named "{outcome_col}" as the target/outcome column — '
@@ -580,6 +636,18 @@ class ExploratoryAnalysisAgent:
             "of any other auto-detection heuristic you might otherwise apply\n"
             if outcome_col else ""
         )
+        if group_col:
+            outcome_hint += (
+                f'- the caller named "{group_col}" as the GROUP column: rows that '
+                "share its value were cut from the same source item and are not "
+                "independent. Keep it in your tidy table, count groups as well as "
+                "rows, and do not treat it as an ordinary predictor\n"
+            )
+        if time_col:
+            outcome_hint += (
+                f'- the caller named "{time_col}" as the TIME column — keep it in '
+                "your tidy table and check for drift along it\n"
+            )
         prompt = _GENERATE_PROMPT_RAW_FOLDER.format(
             question=question,
             input_filename=RECORDS_FILENAME,
@@ -815,25 +883,53 @@ def load_records_from_path(
     max_rows: int = 2000,
     max_files: int = 200,
     include_tool_calls: bool = False,
+    info: "dict[str, Any] | None" = None,
 ) -> list[dict[str, Any]]:
-    """Load a bounded sample of JSON/JSONL records from a file or directory."""
+    """Load a bounded sample of JSON/JSONL records from a file or directory.
+
+    At most *max_rows* rows are returned, spread evenly over the files. Pass a
+    dict as *info* to learn what was left out: it receives ``n_loaded``,
+    ``n_available`` (rows in all the files that were read), ``n_files`` and
+    ``truncated``. Rows are taken from the start of each file, so a truncated
+    load is not a random sample.
+    """
     root = Path(path)
     files, _ = _discover_json_files(root, max_files=max_files, include_tool_calls=include_tool_calls)
     per_file_limit = max(1, max_rows // max(1, len(files)))
     rows: list[dict[str, Any]] = []
+    n_available = 0
     for file_path in files:
-        n_from_file = 0
-        for row in _load_json_records(file_path):
+        file_rows = _load_json_records(file_path)
+        n_available += len(file_rows)
+        if len(rows) >= max_rows:
+            if info is None:
+                break
+            continue  # only counting what the cap left out
+        for row in file_rows[:per_file_limit]:
             flat = _flatten_record(row)
             flat["_source_file"] = str(file_path)
             flat["_source_dir"] = file_path.parent.name
             rows.append(flat)
-            n_from_file += 1
             if len(rows) >= max_rows:
-                return rows
-            if n_from_file >= per_file_limit:
                 break
+    if info is not None:
+        info.update(
+            n_loaded=len(rows), n_available=n_available, n_files=len(files),
+            truncated=len(rows) < n_available,
+        )
     return rows
+
+
+def truncation_warning(info: "dict[str, Any]", max_rows: int) -> str:
+    """One sentence saying how many rows the cap dropped, or '' if none."""
+    if not info.get("truncated"):
+        return ""
+    return (
+        f"only {info.get('n_loaded')} of {info.get('n_available')} rows were loaded "
+        f"(the limit is {max_rows} rows, split evenly over {info.get('n_files')} "
+        "file(s) and taken from the start of each); the rest were not analysed, "
+        "and the loaded rows are not a random sample. Raise --max-rows to include them."
+    )
 
 
 _RECORD_LIST_KEYS = ("cases", "records", "results", "rows", "items", "data", "examples", "samples")
@@ -950,6 +1046,8 @@ def _profile_rows(
     rows: list[dict[str, Any]],
     *,
     outcome_col: str | None = None,
+    group_col: str | None = None,
+    time_col: str | None = None,
     sample_size: int = 5,
 ) -> dict[str, Any]:
     """Profile rows for the explorer prompt, including outcome-kind detection.
@@ -959,7 +1057,11 @@ def _profile_rows(
     the prompt can adapt to binary / categorical / continuous / no-outcome
     data instead of always assuming a FAIL/PASS split.
     """
-    profile = profile_records(rows, outcome_col=outcome_col)
+    profile = profile_records(
+        rows, outcome_col=outcome_col,
+        group_cols=[group_col] if group_col else (),
+        time_cols=[time_col] if time_col else (),
+    )
     outcome = describe_outcome(profile)
     numeric_columns = [
         c.name for c in profile.columns.values()
@@ -980,6 +1082,11 @@ def _profile_rows(
         "id_columns": profile.id_columns,
         "group_columns": profile.group_columns,
         "time_columns": profile.time_columns,
+        # The unit rows were cut from, when the caller named one. Rows that
+        # share it are not independent evidence.
+        "unit_column": group_col,
+        "suggested_group_columns": profile.suggested_group_columns,
+        "leakage_suspects": profile.leakage_suspects,
         "outcome": outcome,
         "warnings": profile.warnings,
         "sample_rows": rows[:sample_size],

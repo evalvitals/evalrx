@@ -5,7 +5,7 @@ so the description was free to drift from the thing described — which is the
 failure it was written to prevent, one level up.  This module is the missing
 half: every M1-M5 stage runs its result through the matching wire model and
 writes the validated JSON under ``<run>/contract/``, so a frontend reads ONE
-shape per stage instead of re-deriving it from ``run_log.jsonl`` with defensive
+shape per stage instead of re-deriving it from the run log with defensive
 ``.get(x) or y`` chains.
 
 Two rules govern everything here.
@@ -29,13 +29,14 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, cast
 
 from evalrx.contract.common import (
     SCHEMA_VERSION,
     CaseBatchRef,
     CaseBatchWire,
     FailureCaseWire,
+    StageName,
     StageState,
     StageStatus,
     WireModel,
@@ -57,6 +58,7 @@ from evalrx.contract.m2 import (
 )
 from evalrx.contract.m3 import DiagnosisOutput, HypothesisWire
 from evalrx.contract.m4 import (
+    EvidenceSource,
     HypothesisTestOutput,
     HypothesisTestResultWire,
     TestEvidence,
@@ -95,7 +97,7 @@ def _scalar(value: Any) -> bool:
 # ---------------------------------------------------------------------------
 
 def envelope(
-    stage: str, *, trace_id: str, cycle: int = 0,
+    stage: StageName, *, trace_id: str, cycle: int = 0,
     state: StageState = StageState.SUCCEEDED,
     reason: str | None = None, duration_sec: float | None = None,
 ) -> dict[str, Any]:
@@ -207,7 +209,7 @@ def _readable_model(recorded: Any, live: Any) -> str:
 
 def model_ref(model: Any, *, backend: str | None = None) -> ModelRef:
     """Build the :class:`ModelRef` carried on M1's output."""
-    caps = getattr(model, "capabilities", frozenset()) or frozenset()
+    caps: Iterable[Any] = getattr(model, "capabilities", frozenset()) or frozenset()
     return ModelRef(
         name=model_name(model),
         backend=backend or getattr(getattr(model, "runtime", None), "backend", None),
@@ -387,13 +389,6 @@ def from_stats_report(
             summary=str(_val(r, "summary", "") or ""),
             details=dict(_val(r, "details", {}) or {}),
         )
-        # `stats_results` (typed StatsToolResult verdicts), NOT the similarly
-        # named `stats_tool_results` -- which is a legacy JSON-safe *summary*
-        # shape keyed by `name`, so preferring it and then filtering on `tool`
-        # dropped every result. A live run shipped M2 with zero statistics
-        # beside corrected_rejections.n_tested=16, and both are valid states on
-        # their own, so nothing downstream could tell that the payload was empty
-        # because of a field mix-up rather than because nothing was tested.
         for r in (_val(report, "stats_results", []) or [])
         if _val(r, "tool", None)
     ]
@@ -465,7 +460,7 @@ def from_diagnosis(
             # substituting a plausible directive here would make it read as
             # routable to every downstream reader.
             test_design=str(_val(h, "test_design", "") or "").strip(),
-            status=_enum(_val(h, "status")) or "proposed",
+            status=_enum(_val(h, "status")) or "proposed",  # type: ignore[arg-type]  # pydantic validates; pydantic.mypy plugin not enabled
             parent_id=_val(h, "parent_id"),
             metadata=dict(_val(h, "metadata", {}) or {}),
         ))
@@ -506,15 +501,15 @@ def from_test_results(
             status = "inconclusive"
         rows.append(HypothesisTestResultWire(
             hypothesis_id=hypothesis_id(hyp),
-            status=status,
+            status=status,  # type: ignore[arg-type]  # pydantic validates; pydantic.mypy plugin not enabled
             test_name=str(_val(tr, "test_name", "") or "unknown"),
             effect_size=_val(tr, "effect_size"),
             confidence=float(_val(tr, "confidence", 0.0) or 0.0),
-            evidence_grade=grade,
+            evidence_grade=grade,  # type: ignore[arg-type]  # pydantic validates; pydantic.mypy plugin not enabled
             is_consistent_with_protocol=consistent,
             verdict=str(_val(tr, "verdict", "") or ""),
             evidence=TestEvidence(
-                source=(ev.get("source")
+                source=(cast(EvidenceSource, ev.get("source"))
                         if ev.get("source") in _EVIDENCE_SOURCES else "none"),
                 chosen_tool=ev.get("chosen_tool"),
                 routed_by=str(ev.get("routed_by", "") or ""),
@@ -643,7 +638,7 @@ def from_intervention(
     return InterventionOutput(
         **envelope("m5_surgery", trace_id=trace_id, cycle=cycle, duration_sec=duration_sec),
         hypothesis_id=hypothesis_id(hyp),
-        hypothesis_status=_enum(_val(result, "status")) or "inconclusive",
+        hypothesis_status=_enum(_val(result, "status")) or "inconclusive",  # type: ignore[arg-type]  # pydantic validates; pydantic.mypy plugin not enabled
         strategy=_val(result, "strategy", "passive_correlation") or "passive_correlation",
         fixed=bool(_val(result, "fixed", False)),
         confidence_score=float(_val(result, "confidence_score", 0.0) or 0.0),
@@ -736,7 +731,7 @@ def from_fix_outcome(
             "not_executed" if _val(v, "exec_error", None) else "no_effect"
         )
         attempts.append(FixAttemptWire(
-            tier=_tier(_val(cand, "tier", "L1")),
+            tier=_tier(_val(cand, "tier", "L1")),  # type: ignore[arg-type]  # pydantic validates; pydantic.mypy plugin not enabled
             name=str(_val(cand, "name", "") or "candidate"),
             headline=_headline(cand),
             kind=_val(cand, "kind"), source=_val(cand, "source"),
@@ -753,7 +748,7 @@ def from_fix_outcome(
             n_model_independent=int(_val(v, "n_model_independent", 0) or 0),
             effect=_val(v, "effect"), e_value=_val(v, "e_value"),
             reject=bool(_val(v, "reject", False)),
-            verdict=verdict,
+            verdict=verdict,  # type: ignore[arg-type]  # pydantic validates; pydantic.mypy plugin not enabled
             summary=str(_val(v, "summary", "") or ""),
         ))
     # The selection phase's audit rows: name/tier/n_pairs/n_fixed/n_broken/
@@ -762,7 +757,7 @@ def from_fix_outcome(
     # reader could mistake for confirmation.
     selection = [
         FixAttemptWire(
-            tier=_tier(row.get("tier")),
+            tier=_tier(row.get("tier")),  # type: ignore[arg-type]  # pydantic validates; pydantic.mypy plugin not enabled
             name=str(row.get("name") or "candidate"),
             headline=" ".join(str(row.get("headline") or "").split())[:300],
             n_pairs=int(row.get("n_pairs") or 0),
@@ -813,7 +808,7 @@ def from_fix_outcome(
             break
     return FixOutput(
         **envelope("m5_fix", trace_id=trace_id, cycle=cycle, duration_sec=duration_sec),
-        max_tier=_tier(_val(outcome, "max_tier", "L1")),
+        max_tier=_tier(_val(outcome, "max_tier", "L1")),  # type: ignore[arg-type]  # pydantic validates; pydantic.mypy plugin not enabled
         routed=[{str(k): str(v) for k, v in dict(r).items()}
                 for r in (_val(outcome, "routed", []) or []) if isinstance(r, dict)],
         attempted=attempts,
@@ -907,7 +902,8 @@ def write_index(root: "str | Path", *, trace_id: str = "") -> Path:
     """
     directory = Path(root) / CONTRACT_DIR
     directory.mkdir(parents=True, exist_ok=True)
-    payloads, invalid = [], []
+    payloads: list[dict[str, Any]] = []
+    invalid: list[dict[str, Any]] = []
     for path in sorted(directory.glob("*.json")):
         if path.name == "index.json":
             continue

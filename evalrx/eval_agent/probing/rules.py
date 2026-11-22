@@ -219,10 +219,11 @@ def layer_state(layer: Layer, evidence: dict[str, StepEvidence], fail_ids: list[
     unless the model cannot run them (the battery records that when it settles).
     """
     blocked = blocked or {}
+    pending = pending or {}
     if not fail_ids:
         return {"rule_id": layer.rule_id, "state": "no_cases"}
     for name in layer.served_by:
-        if name in (pending or {}) and gate(pending[name][0], pending[name][1]) is None:
+        if name in pending and gate(pending[name][0], pending[name][1]) is None:
             step, sample_ids = pending[name]
             ev = evidence.get(name)
             return {"rule_id": layer.rule_id, "state": "open", "step": step, "battery": True,
@@ -236,7 +237,8 @@ def layer_state(layer: Layer, evidence: dict[str, StepEvidence], fail_ids: list[
     for name in layer.served_by:
         ev = evidence.get(name)
         obs = next((o for cid in fail_ids if ev is not None and (o := ev.for_case(cid)) is not None), None)
-        tried.append({"key": name, "status": ",".join(ev.statuses_on(fail_ids)) if obs is not None else "not run",
+        tried.append({"key": name,
+                      "status": ",".join(ev.statuses_on(fail_ids)) if ev is not None and obs is not None else "not run",
                       "battery": True, **({"reason": obs.error} if obs is not None and obs.error else {})})
     for step in layer.candidates:
         ev = evidence.get(step.name)

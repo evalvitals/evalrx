@@ -46,20 +46,24 @@ def test_scan_picks_last_error(tmp_path):
     assert "UNAUTHENTICATED" in _scan_agy_log(str(log))
 
 
-def test_startup_stderr_takes_priority_over_background_auth_log(monkeypatch):
-    from pathlib import Path
-    from subprocess import CompletedProcess
+def test_startup_stderr_takes_priority_over_background_auth_log(tmp_path):
+    import stat
 
     import pytest
 
     from evalrx.agent_runtime.judges import agy
 
-    def fail(cmd, **kwargs):
-        path = Path(cmd[cmd.index('--log-file') + 1])
-        path.write_text('E1005 12:00:00 a.go:1] doRefreshQuota: skipped (not logged in)\n')
-        return CompletedProcess(cmd, 1, stdout='', stderr='invalid model selection: unsupported model')
-
-    monkeypatch.setattr(agy.subprocess, 'run', fail)
+    # A fake agy: writes a misleading background auth line to its log file,
+    # then fails at startup with the real reason on stderr.
+    binary = tmp_path / "agy"
+    binary.write_text(
+        "#!/bin/sh\n"
+        'while [ "$1" != "--log-file" ]; do shift; done\n'
+        "echo 'E1005 12:00:00 a.go:1] doRefreshQuota: skipped (not logged in)' > \"$2\"\n"
+        "echo 'invalid model selection: unsupported model' >&2\n"
+        "exit 1\n"
+    )
+    binary.chmod(binary.stat().st_mode | stat.S_IXUSR)
     with pytest.raises(RuntimeError, match='invalid model selection') as exc:
-        agy.AgyModel(binary_path='/bin/false').generate('OK')
+        agy.AgyModel(binary_path=str(binary)).generate('OK')
     assert 'not logged in' not in str(exc.value)

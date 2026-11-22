@@ -432,10 +432,12 @@ M1-to-fix chain on one cell per modality with `--backend jax_local`.
   existing hooks, but it touches `fix_internals`, which has a large test
   suite. Recommendation: yes, in phase 2, behind the current
   `visual_embedding_boost` test expectations.
-- **Concurrency.** `--concurrency` is honoured only for the endpoint backend.
-  A JAX in-process model wants batching instead; an optional
-  `generate_batch` on the adapter, used by `CaseDiscoveryAgent` when present,
-  is the natural later addition and is out of scope here.
+- **Concurrency.** `--concurrency` is the number of requests in flight against
+  an API backend. A JAX in-process model wants batching instead:
+  `Model.generate_batch` is now the call every stage uses, the fix stage
+  included, and the JAX model still answers it one input at a time
+  (`Model.concurrency` stays 1, so it is never entered from two threads). A batched `generate` on the adapter is
+  the natural later addition and is out of scope here.
 
 ## 8. Out of scope
 
@@ -454,10 +456,9 @@ What exists in the repo:
 - `evalrx/models/backends/jax/`: `protocol.py` (the contract above),
   `boundary.py` (jax -> CPU torch, bf16 bit-exact; a torch RMSNorm rebuilt
   from the JAX norm), `adapters/gemma.py` (the reference adapter: text, image
-  and audio inputs). The pre-0.1.2 `evalrx/models/jax/` paths are deprecated
-  aliases.
+  and audio inputs).
 - `evalrx/models/_media.py`: image / audio resolution shared by `hf_local`
-  and `jax_local` (moved out of `hf_local.py`, whose private names stay bound).
+  and `jax_local`.
 - `evalrx/models/backends/jax/backend.py`: `JaxLocalModel` / `JaxLocalBackend`,
   registered as `BACKENDS["jax_local"]`; `evalrx.wrap_jax(adapter)` mirrors
   `wrap()`.

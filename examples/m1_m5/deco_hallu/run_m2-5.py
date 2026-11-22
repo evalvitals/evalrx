@@ -38,7 +38,7 @@ def main() -> None:
     ap.add_argument("--max-cycles", type=int, default=1,
                     help="only one M1 pass was frozen, so default 1 cycle")
     ap.add_argument("--skip-m5", action="store_true")
-    ap.add_argument("--judge-model", default=run.CFG.get("judge_model", "claude-opus-4-8"))
+    ap.add_argument("--judge-model", default=run.JUDGE_MODEL)
     ap.add_argument("--judge-effort", default=run.CFG.get("judge_effort", "low"))
     ap.add_argument("--backend", default="claude", choices=["claude", "codex", "agy"],
                     help="coder backend for M2/M5/fix codegen (default claude)")
@@ -73,7 +73,7 @@ def main() -> None:
     from evalrx.eval_agent import (
         ExperimentWriterConfig,
         FixAgent,
-        RunLoggerV2,
+        RunLogger,
         SurgeryAgent,
         VLDiagnoseLoop,
     )
@@ -110,7 +110,7 @@ def main() -> None:
         n_obs = len(explore_report.get("observations") or [])
         print(f"feeding explore context to M3: {n_charts} chart(s), {n_obs} observation(s)")
 
-    run_logger = RunLoggerV2(run_dir=OUT / "logs_m2_5", narrate=True)
+    run_logger = RunLogger(run_dir=OUT / "logs_m2_5", narrate=True)
     loop = VLDiagnoseLoop(
         model=model,
         probe_agent=ReplayProbeAgent(state),          # M1 short-circuited

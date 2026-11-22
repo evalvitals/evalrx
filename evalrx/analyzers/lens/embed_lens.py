@@ -116,6 +116,16 @@ class EmbedLensAnalyzer(Analyzer):
         "el_query_sim": ("Question-word grounding", "Best cosine similarity of the case's own question words (not the task template's) to any media token."),
     }
 
+    layer: 'int | float'
+    top_k: int
+    recurring_frac: float
+    min_images: int
+    norm_ratio: float
+    vocab_chunk: int
+    reference: 'CaseBatch | None'
+    reference_media: int
+    max_cases: int
+
     def __init__(self, layer: "int | float" = 0, top_k: int = 5, recurring_frac: float = 0.5,
                  min_images: int = 3, norm_ratio: float = 4.0, vocab_chunk: int = 32768,
                  reference: "CaseBatch | None" = None, reference_media: int = 16,
@@ -156,7 +166,8 @@ class EmbedLensAnalyzer(Analyzer):
             """Top-k cosine neighbours of *x* ``(n, dim)``: ``(sims, ids)``, each ``(n, k)``."""
             x = x.float().to(table.device)
             x = x / x.norm(dim=-1, keepdim=True).clamp(min=1e-12)
-            best_s = best_i = None
+            best_s = None
+            best_i: Any = None  # set together with best_s
             for start in range(0, table.shape[0], max(1, self.vocab_chunk)):
                 block = table[start:start + self.vocab_chunk].float()
                 sims = (x @ block.T) / row_norms[start:start + self.vocab_chunk]
@@ -180,13 +191,14 @@ class EmbedLensAnalyzer(Analyzer):
 
         def reference_recurring() -> "tuple[set, Counter, int]":
             """Recurring top-1 ids over the reference's first distinct media, cached on the model."""
+            reference = list(self.reference or [])
             key = (layer, self.recurring_frac, self.min_images, self.reference_media,
-                   tuple(str(c.id) for c in self.reference))
+                   tuple(str(c.id) for c in reference))
             cache = module.__dict__.setdefault("_evalrx_embed_lens_reference", {})
             if key not in cache:
                 counts: Counter = Counter()
                 seen: set = set()
-                for ref in self.reference:
+                for ref in reference:
                     if len(seen) >= self.reference_media:
                         break
                     with torch.no_grad(), residual_hooks(model, capture={layer: None}, analyzer=self.name) as res:
@@ -265,7 +277,7 @@ class EmbedLensAnalyzer(Analyzer):
                 "el_frac_high_norm": round(sum(per_token[case.id]["high_norm"]) / len(media), 4),
             }
             if grounding:
-                best_word = max(grounding, key=grounding.get)
+                best_word = max(grounding, key=grounding.__getitem__)
                 row["el_prompt_best_word"] = best_word
                 row["el_prompt_best_sim"] = grounding[best_word]
             rows.append(row)
@@ -282,7 +294,7 @@ class EmbedLensAnalyzer(Analyzer):
         for row in rows:
             sims = {w: s for w, s in prompt_sims[row["sample_id"]].items() if w in query[row["sample_id"]]}
             if sims:
-                row["el_query_word"] = max(sims, key=sims.get)
+                row["el_query_word"] = max(sims, key=lambda w: sims[w])
                 row["el_query_sim"] = sims[row["el_query_word"]]
         recurring: set = set()
         if self.reference is not None:

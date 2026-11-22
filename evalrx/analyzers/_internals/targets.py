@@ -112,7 +112,7 @@ def answer_variants(tokenizer: Any, text: "str | None") -> frozenset:
         for spelled in (form, " " + form):
             tid = first_token_id(tokenizer, spelled)
             piece = decode_word(tokenizer, tid) if tid is not None else None
-            if piece is not None and piece.strip() and form.startswith(piece.strip()):
+            if tid is not None and piece is not None and piece.strip() and form.startswith(piece.strip()):
                 ids.add(int(tid))
     return frozenset(ids)
 

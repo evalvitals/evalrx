@@ -59,7 +59,7 @@ def hann_blur_waveform(waveform: Any, sample_rate: int, window_ms: float) -> Any
     global amplitude", Section 3.2).
 
     ``waveform`` is a 1-D mono float32 numpy array (matches
-    ``hf_local._resolve_audio``'s contract). Returns the blurred waveform at
+    ``evalrx.models._media.resolve_audio``'s contract). Returns the blurred waveform at
     the same length and sample rate — it is re-encoded through the SAME
     processor path as the original audio, not treated specially downstream.
     """

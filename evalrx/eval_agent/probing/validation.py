@@ -460,7 +460,7 @@ def group_phenomena(family: list[IssueRecord], results: dict[str, dict[str, Any]
     """Connected groups of a route's reading issues whose validation values go together (see the module
     docstring); a route signal, or a reading without validation values, is a phenomenon of its own.
     Returns the phenomena and every within-route correlation computed (joined or not)."""
-    links = []
+    links: list[dict[str, Any]] = []
     readings = [i for i in family if i.kind == "reading" and i.issue_id in per_case]
     for n, a in enumerate(readings):
         for b in readings[n + 1:]:
@@ -583,7 +583,7 @@ def validate(model: Any, discovery: "CaseBatch", validation: "CaseBatch", famili
     fail_rate = sum(1 for c in discovery if getattr(getattr(c, "label", None), "value", None) == "fail") / max(1, n_disc)
     plan = plan_validation(family, list(reports.values()), n_validation=len(validation),
                            discovery_fail_rate=fail_rate, level=level)
-    frozen = {"version": VALIDATION_VERSION, "alpha": ALPHA, "k": k, "level": level,
+    frozen: dict[str, Any] = {"version": VALIDATION_VERSION, "alpha": ALPHA, "k": k, "level": level,
               "test": "one-sided at alpha/K on the claimed side of each issue (and of each primary prediction)",
               "family": [i.to_dict() for i in family], "plan": plan,
               "arms": {arm: [i.issue_id for i in issues] for arm, issues in families.items()},
@@ -629,22 +629,22 @@ def validate(model: Any, discovery: "CaseBatch", validation: "CaseBatch", famili
         fail_ids = route_fail_ids(records, issue.route, layer.case_filter if layer is not None else None)
         controls = matched_controls(records, fail_ids, rank_of)[0]
         row: dict[str, Any] = {"n_route_fail": len(fail_ids), "n_controls": len(controls)}
-        step = steps.get(issue.step)
-        if step is None:
+        issue_step = steps.get(issue.step)
+        if issue_step is None:
             results[issue.issue_id] = {**row, "verdict": "unavailable", "reason": f"no step {issue.step!r}"}
             continue
         if len(fail_ids) < MIN_N or len(controls) < MIN_N:
             results[issue.issue_id] = {**row, "verdict": "unavailable",
                                        "reason": f"fewer than {MIN_N} route FAIL cases or controls"}
             continue
-        record = run.run_step(step, [*fail_ids, *controls], kind="validation", revision=0, route=issue.route)
-        ev = run.evidence.get(step.name)
+        record = run.run_step(issue_step, [*fail_ids, *controls], kind="validation", revision=0, route=issue.route)
+        ev = run.evidence.get(issue_step.name)
         if ev is None or not ev.chunks or ev.refused() is not None:
             why = ("refused by its own fidelity check" if ev is not None and ev.refused() is not None else
                    (record or {}).get("reason") or (record or {}).get("error") or "not run")
             results[issue.issue_id] = {**row, "verdict": "unavailable", "reason": str(why)}
             continue
-        measured[(issue.route, step.name)] = (fail_ids, controls)
+        measured[(issue.route, issue_step.name)] = (fail_ids, controls)
         metric = Metric(issue.reading, "", issue.band, issue.metric_kind)
         values = {cid: follow_up_values(ev, run.by_id[cid], answer_fn, agree_fn) for cid in (*fail_ids, *controls)}
         o = outcome(values, fail_ids, controls, metric, level=level)

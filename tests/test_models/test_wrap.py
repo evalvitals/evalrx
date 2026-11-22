@@ -280,3 +280,250 @@ def test_hf_local_generate_treats_max_tokens_as_max_new_tokens_alias():
     assert recorder.captured["temperature"] == 0.7
     assert recorder.captured["stop_strings"] == ["DONE"]
     assert recorder.captured["tokenizer"] is m._hf[1]
+
+
+class _PaddingTokenizer(FakeTokenizer):
+    pad_token_id = 0
+
+
+class _RecordingLM(nn.Module):
+    """Appends one token to each row: 100 + the row's prompt length."""
+
+    def __init__(self):
+        super().__init__()
+        self.param = nn.Parameter(torch.zeros(1))
+        self.calls: list[dict] = []
+
+    def generate(self, **kwargs):
+        self.calls.append(kwargs)
+        ids = kwargs["input_ids"]
+        mask = kwargs.get("attention_mask", torch.ones_like(ids))
+        return torch.cat([ids, 100 + mask.sum(dim=1, keepdim=True)], dim=1)
+
+
+def test_hf_local_generate_batch_pads_longest_first_and_keeps_input_order():
+    m = evalrx.wrap(FakeCausalLM(), FakeTokenizer())
+    m.runtime.batch_size = 2
+    lm = _RecordingLM()
+    m._hf = (lm, _PaddingTokenizer())
+
+    out = m.generate_batch(["one", "one two three", "one two"], max_new_tokens=5)
+
+    assert out == ["t101", "t103", "t102"]                   # answers follow the inputs
+    first, second = lm.calls                                 # longest first
+    assert first["input_ids"].tolist() == [[1, 2, 3], [0, 1, 2]]   # padded on the left
+    assert first["attention_mask"].tolist() == [[1, 1, 1], [0, 1, 1]]
+    assert second["input_ids"].tolist() == [[1]]
+    assert all(call["max_new_tokens"] == 5 for call in lm.calls)
+
+
+def test_hf_local_batches_a_multimodal_spec_by_stacking_single_encodings(monkeypatch):
+    spec = ModelSpec(key="fake-vlm", family="fake", model_type="qwen3_5", hf_repo="",
+                     auto_class="AutoModelForImageTextToText", processor_class="AutoProcessor",
+                     vision=VisionSpec(image_token_id_attr="image_token_id"))
+    m = HFLocalModel(spec, RuntimeConfig(max_new_tokens=4))
+    lm = _RecordingLM()
+
+    class Processor:
+        tokenizer = _PaddingTokenizer()
+
+    def encode(inputs, model, processor):
+        n = len(inputs.prompt.split())
+        enc = {"input_ids": torch.arange(1, n + 1).unsqueeze(0),
+               "attention_mask": torch.ones(1, n, dtype=torch.long),
+               "pixel_values": torch.full((inputs.image, 3), float(n))}  # one row per patch
+        return enc, [], [], None
+
+    m._hf = (lm, Processor())
+    monkeypatch.setattr(m, "_encode_vlm", encode)
+
+    out = m.generate_batch([Inputs(prompt="a b", image=2), Inputs(prompt="a b c d", image=1),
+                            Inputs(prompt="a", image=3)])
+
+    assert out == ["t102", "t104", "t101"]
+    (call,) = lm.calls
+    assert call["input_ids"].tolist() == [[1, 2, 3, 4], [0, 0, 1, 2], [0, 0, 0, 1]]
+    # Per-patch rows stay flat, in the order of the batch rows.
+    assert call["pixel_values"][:, 0].tolist() == [4.0, 2.0, 2.0, 1.0, 1.0, 1.0]
+
+
+def test_hf_local_runs_inputs_one_at_a_time_when_their_media_do_not_stack(monkeypatch):
+    spec = ModelSpec(key="fake-vlm", family="fake", model_type="qwen3_5", hf_repo="",
+                     auto_class="AutoModelForImageTextToText", processor_class="AutoProcessor",
+                     vision=VisionSpec(image_token_id_attr="image_token_id"))
+    m = HFLocalModel(spec, RuntimeConfig(max_new_tokens=4))
+    lm = _RecordingLM()
+
+    class Processor:
+        tokenizer = _PaddingTokenizer()
+
+    def encode(inputs, model, processor):
+        enc = {"input_ids": torch.tensor([[1, 2]]),
+               "pixel_values": torch.zeros(1, 3, inputs.image, inputs.image)}  # per-input size
+        return enc, [], [], None
+
+    m._hf = (lm, Processor())
+    monkeypatch.setattr(m, "_encode_vlm", encode)
+
+    out = m.generate_batch([Inputs(prompt="a b", image=4), Inputs(prompt="a b", image=8)])
+
+    assert out == ["t102", "t102"]
+    assert [call["input_ids"].shape[0] for call in lm.calls] == [1, 1]
+
+
+def test_hf_local_batches_inputs_with_and_without_an_image_separately(monkeypatch):
+    spec = ModelSpec(key="fake-vlm", family="fake", model_type="qwen3_5", hf_repo="",
+                     auto_class="AutoModelForImageTextToText", processor_class="AutoProcessor",
+                     vision=VisionSpec(image_token_id_attr="image_token_id"))
+    m = HFLocalModel(spec, RuntimeConfig(max_new_tokens=4))
+    lm = _RecordingLM()
+
+    class Processor:
+        tokenizer = _PaddingTokenizer()
+
+    def encode(inputs, model, processor):
+        n = len(inputs.prompt.split())
+        enc = {"input_ids": torch.arange(1, n + 1).unsqueeze(0)}
+        if inputs.image is not None:
+            enc["pixel_values"] = torch.zeros(1, 3)
+        return enc, [], [], None
+
+    m._hf = (lm, Processor())
+    monkeypatch.setattr(m, "_encode_vlm", encode)
+
+    out = m.generate_batch([Inputs(prompt="a", image=1), Inputs(prompt="a b"),
+                            Inputs(prompt="a b c", image=1), Inputs(prompt="a b c d")])
+
+    assert out == ["t101", "t102", "t103", "t104"]
+    assert [("pixel_values" in call, call["input_ids"].shape[0]) for call in lm.calls] == [
+        (True, 2), (False, 2)]
+
+
+def test_hf_local_encodes_a_long_list_a_window_at_a_time():
+    m = evalrx.wrap(FakeCausalLM(), FakeTokenizer())
+    m.runtime.batch_size = 2
+    events: list[str] = []
+
+    class Tok(_PaddingTokenizer):
+        def __call__(self, text, return_tensors="pt"):
+            events.append("encode")
+            return super().__call__(text, return_tensors)
+
+    class LM(_RecordingLM):
+        def generate(self, **kwargs):
+            events.append(f"generate{kwargs['input_ids'].shape[0]}")
+            return super().generate(**kwargs)
+
+    m._hf = (LM(), Tok())
+
+    out = m.generate_batch(["one"] * 20)
+
+    assert out == ["t101"] * 20
+    # Eight encodings, their four batches, then the next eight: never all twenty at once.
+    assert events[:12] == ["encode"] * 8 + ["generate2"] * 4
+    assert events.count("encode") == 20 and events.count("generate2") == 10
+
+
+def test_hf_local_does_not_batch_a_multimodal_family_that_was_not_checked(monkeypatch):
+    spec = ModelSpec(key="fake-vlm", family="fake", model_type="some_new_vlm", hf_repo="",
+                     auto_class="AutoModelForImageTextToText", processor_class="AutoProcessor",
+                     vision=VisionSpec(image_token_id_attr="image_token_id"))
+    m = HFLocalModel(spec, RuntimeConfig(max_new_tokens=4))
+    lm = _RecordingLM()
+
+    class Processor:
+        tokenizer = _PaddingTokenizer()
+
+    def encode(inputs, model, processor):
+        return ({"input_ids": torch.tensor([[1, 2]]), "pixel_values": torch.zeros(1, 3)},
+                [], [], None)
+
+    m._hf = (lm, Processor())
+    monkeypatch.setattr(m, "_encode_vlm", encode)
+
+    assert m.generate_batch([Inputs(prompt="a b", image=1)] * 3) == ["t102"] * 3
+    assert [call["input_ids"].shape[0] for call in lm.calls] == [1, 1, 1]
+
+
+def test_hf_local_logprobs_batch_ends_each_row_at_its_own_stop_token():
+    m = evalrx.wrap(FakeCausalLM(), FakeTokenizer())
+
+    class Out:
+        # Row 0 stops after one token (7 = end of sequence) and is padded.
+        sequences = torch.tensor([[1, 2, 7, 0], [0, 1, 5, 6]])
+        scores = (torch.zeros(2, 16), torch.zeros(2, 16))
+
+    class LM(nn.Module):
+        generation_config = type("G", (), {"eos_token_id": 7})()
+
+        def __init__(self):
+            super().__init__()
+            self.param = nn.Parameter(torch.zeros(1))
+
+        def generate(self, **kwargs):
+            assert kwargs["output_scores"] and not kwargs["do_sample"]
+            return Out()
+
+    m._hf = (LM(), _PaddingTokenizer())
+
+    first, second = m.logprobs_batch(["one two", "one"])
+
+    assert [t.token for t in first] == ["t7"]
+    assert [t.token for t in second] == ["t5", "t6"]
+
+
+def test_hf_local_uses_the_runtime_sampling_unless_the_call_passes_its_own():
+    m = evalrx.wrap(FakeCausalLM(), FakeTokenizer())
+    m.runtime.sampling = {"do_sample": True, "temperature": 0.6, "top_p": 0.95}
+    lm = _RecordingLM()
+    m._hf = (lm, FakeTokenizer())
+
+    m.generate(Inputs(prompt="hi"))
+    assert {k: lm.calls[-1][k] for k in ("do_sample", "temperature", "top_p")} == {
+        "do_sample": True, "temperature": 0.6, "top_p": 0.95}
+
+    m.generate(Inputs(prompt="hi"), temperature=1.0)
+    assert lm.calls[-1]["temperature"] == 1.0 and lm.calls[-1]["do_sample"] is True
+
+    m.generate(Inputs(prompt="hi"), do_sample=False)     # greedy: no sampling knobs reach HF
+    assert lm.calls[-1]["do_sample"] is False
+    assert not {"temperature", "top_p"} & set(lm.calls[-1])
+
+
+def test_vllm_offline_hands_the_engine_every_prompt_at_once(monkeypatch):
+    import sys
+    import types
+
+    from evalrx.models.backends.vllm_offline import VLLMOfflineModel
+
+    class SamplingParams:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    monkeypatch.setitem(sys.modules, "vllm", types.SimpleNamespace(SamplingParams=SamplingParams))
+
+    class Engine:
+        def __init__(self):
+            self.calls: list[tuple[list[str], dict]] = []
+
+        def get_tokenizer(self):
+            return FakeTokenizer()
+
+        def generate(self, prompts, params):
+            self.calls.append((list(prompts), params.kwargs))
+            completion = lambda p: types.SimpleNamespace(  # noqa: E731
+                text=p.upper(), token_ids=[len(p)], logprobs=[{len(p): -0.5, 99: -2.0}])
+            return [types.SimpleNamespace(outputs=[completion(p)]) for p in prompts]
+
+    spec = ModelSpec(key="fake-lm", family="fake", model_type="fake", hf_repo="",
+                     auto_class="AutoModelForCausalLM", processor_class="AutoTokenizer")
+    m = VLLMOfflineModel(spec, RuntimeConfig(max_new_tokens=8))
+    m._llm = engine = Engine()
+
+    assert m.generate_batch(["ab", "cde"], do_sample=False) == ["AB", "CDE"]
+    rows = m.logprobs_batch(["ab", "cde"], top_k=2)
+
+    assert [prompts for prompts, _ in engine.calls] == [["ab", "cde"], ["ab", "cde"]]
+    assert engine.calls[1][1]["logprobs"] == 2
+    assert [[(t.token, t.logprob) for t in row] for row in rows] == [[("t2", -0.5)], [("t3", -0.5)]]
+    assert rows[0][0].top == {"t2": -0.5, "t99": -2.0}

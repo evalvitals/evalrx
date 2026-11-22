@@ -157,6 +157,11 @@ class AttentionAnalyzer(Analyzer):
         "media_mass_mid": ("Attention on image/audio", "Share of the final prompt position's attention that lands on image/audio tokens, averaged over heads and the middle half of the layers; low = the answer position barely reads the media."),
     }
 
+    layer: int
+    head: int | str
+    top_k: int
+    max_cases: int
+
     def __init__(self, layer: int = -1, head: int | str = "mean", top_k: int = 10,
                  max_cases: int = 0) -> None:
         super().__init__(layer=layer, head=head, top_k=top_k, max_cases=max_cases)

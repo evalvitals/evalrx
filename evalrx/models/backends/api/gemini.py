@@ -1,6 +1,6 @@
 """Built-in Gemini client — chat_fn / generate_fn / logprobs_fn factories for APIModel.
 
-The mirror of :mod:`openai_compat` on Google's official ``google-genai`` SDK,
+The mirror of :mod:`evalrx.models.backends.api.openai` on Google's official ``google-genai`` SDK,
 so a closed-weight Gemini model rides the same ``api`` backend as a served
 open model::
 

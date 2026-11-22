@@ -6,10 +6,9 @@ them and matches them to a model by capability::
     registry.analyzers.list()                  # ["attention", "token_entropy", ...]
     registry.analyzers.compatible_with(model)  # [AttentionAnalyzer, ...]
 
-Model *identity* lives in :mod:`evalrx.specs` (``ModelSpec``), not here;
-``registry.models`` is a deprecated shim that delegates to it.  This is what
-makes the package programmatically explorable rather than something you have to
-read source code to use.
+Model *identity* lives in :mod:`evalrx.specs` (``ModelSpec``), not here.  This
+is what makes the package programmatically explorable rather than something you
+have to read source code to use.
 """
 
 from __future__ import annotations
@@ -80,61 +79,15 @@ class AnalyzerRegistry(_Registry["Analyzer"]):
         return sorted(name for name, cls in self._items.items() if self._matches(cls, model))
 
 
-class _DeprecatedModelRegistry(_Registry["Model"]):
-    """Deprecated shim: model identity now lives in :mod:`evalrx.specs`.
-
-    ``registry.models`` is kept so older code keeps working, but it delegates to
-    the spec registry and warns.  Use ``evalrx.list_specs()`` /
-    ``evalrx.get_spec()`` (or ``evalrx.load`` / ``compose``) instead.
-    """
-
-    @staticmethod
-    def _warn() -> None:
-        import warnings
-
-        warnings.warn(
-            "registry.models is deprecated; model identity now lives in "
-            "evalrx.specs (use evalrx.list_specs() / get_spec(), or "
-            "evalrx.load / compose to build a model).",
-            DeprecationWarning,
-            stacklevel=3,
-        )
-
-    def list(self) -> list[str]:
-        self._warn()
-        from evalrx.specs import list_specs
-
-        return list_specs()
-
-    def has(self, name: str) -> bool:
-        self._warn()
-        from evalrx.specs import REGISTRY
-
-        return name.lower() in REGISTRY
-
-    def get(self, name: str):  # returns a ModelSpec, not a class
-        self._warn()
-        from evalrx.specs import get_spec
-
-        return get_spec(name.lower())
-
-
 class Registry:
-    """Top-level namespace bundling the model and analyzer registries."""
+    """Top-level namespace for the analyzer registry."""
 
     def __init__(self) -> None:
-        # Model identity is the spec registry's job now; this is a back-compat shim.
-        self.models: _DeprecatedModelRegistry = _DeprecatedModelRegistry("model")
         self.analyzers: AnalyzerRegistry = AnalyzerRegistry("analyzer")
 
 
 # Singleton used across the package.
 registry = Registry()
-
-
-def register_model(name: str):
-    """Class decorator registering a model under *name*."""
-    return registry.models.register(name)
 
 
 def register_analyzer(name: str):

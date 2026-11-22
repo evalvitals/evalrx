@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from evalrx.core.capability import Capability
 from evalrx.models.whitebox import qwen as qmod
 from evalrx.models.whitebox import qwen_omni as qomnimod
@@ -53,11 +51,3 @@ def test_factory_names_exposed():
     for name in ["qwen3_omni_30b_a3b_instruct", "qwen3_omni_30b_a3b_captioner"]:
         assert name in qomnimod.__all__ and callable(getattr(qomnimod, name))
 
-
-def test_legacy_shims_still_work_with_deprecation():
-    with pytest.warns(DeprecationWarning):
-        m = qmod.QwenLLM()
-    assert m.spec.key == "qwen2.5-7b-instruct"
-    with pytest.warns(DeprecationWarning):
-        vm = qvlmod.QwenVL()
-    assert vm.spec.key == "qwen2.5-vl-7b-instruct" and vm.spec.is_vlm

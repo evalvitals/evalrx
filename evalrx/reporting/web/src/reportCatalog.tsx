@@ -22,7 +22,7 @@ import type { Chart, ReportData, Stage } from "./types";
 import { ZoomableImage } from "./lightbox";
 import { CaseStudySheet as CaseStudySection } from "./caseStudy";
 import { LoopFigureView } from "./loopFigure";
-import { chartValue, outcomeColors, stageCode } from "./reportAccess";
+import { chartValue, outcomeColors } from "./reportAccess";
 
 const ids = z.array(z.string()).optional();
 export const reportCatalog = defineCatalog(schema, {
@@ -36,7 +36,6 @@ export const reportCatalog = defineCatalog(schema, {
       description: "At most three evidence findings",
     },
     ChartGrid: { props: z.object({ chartIds: ids }), description: "At most two evidence charts" },
-    OutcomeCard: { props: z.object({}), description: "What was learned and whether repair worked" },
     CasePreview: { props: z.object({ caseIds: ids }), description: "Representative model I/O" },
     CaseStudySheet: {
       props: z.object({}),
@@ -82,7 +81,7 @@ function StageNode({ data }: NodeProps<Node<{ stage: Stage }>>) {
   return (
     <div className={`stage-node stage-${stage.status}`}>
       <Handle type="target" position={Position.Left} />
-      <div className="stage-code">{stageCode(stage.code)}</div>
+      <div className="stage-code">{stage.code}</div>
       <strong>{stage.title}</strong>
       <small>{stage.status.replaceAll("-", " ")}</small>
       <Handle type="source" position={Position.Right} />
@@ -187,7 +186,10 @@ export const { registry } = defineRegistry(reportCatalog, {
       return (
         <section className={`setting-hero${hero ? " has-figure" : ""}`}>
           <div className="eyebrow eyebrow-title">
-            <CircleDot size={14} /> {data.setting.model} model's diagnosis and fixing recipe report
+            <CircleDot size={14} />{" "}
+            {data.setting.kind === "explore"
+              ? "Exploratory analysis report"
+              : `${data.setting.model} model's diagnosis and fixing recipe report`}
           </div>
           <p className="lead">{data.setting.question}</p>
           {hero && (
@@ -204,7 +206,8 @@ export const { registry } = defineRegistry(reportCatalog, {
             in the agent that drove them — named when the run recorded it,
             never guessed. */}
           <p className="setting-line">
-            Evaluated on dataset <strong>{data.setting.dataset}</strong>.
+            {data.setting.kind === "explore" ? "Explored " : "Evaluated on dataset "}
+            <strong>{data.setting.dataset}</strong>.
             {data.setting.diagnosed_by && (
               <>
                 {" "}
@@ -315,10 +318,6 @@ export const { registry } = defineRegistry(reportCatalog, {
         </section>
       );
     },
-    // Dropped from the page (2026-09-10): it restated the loop figure's health
-    // card. Layouts published before then still name it, so it renders nothing
-    // rather than failing as an unknown type.
-    OutcomeCard: () => null,
     CasePreview: ({ props }) => {
       const data = useReport();
       const navigate = useContext(NavContext);

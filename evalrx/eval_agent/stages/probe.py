@@ -199,36 +199,9 @@ _SLOT_PRIORITY: dict[str, list[str]] = {
         "path_patching",                           # which heads carry it to the answer
         "logprob_entropy", "self_consistency",
     ],
-    "text": [],   # filled below from the legacy LLM list
-}
-
-# Back-compat view: ``StrategyProbe(priority_override=...)`` and the docs are
-# written against ModelKind keys.  Composition is the default path; an override
-# still selects one list by kind, exactly as before.
-_PRIORITY: dict[str, list[str]] = {
-    ModelKind.VLM: [
-        "pope", "chair",                          # hallucination metrics
-        "attention_knockout",                     # white-box: is the image READ at all?
-        "attention", "attention_rollout",          # where is the model looking?
-        "attention_sink",                          # sink collapse?
-        "attention_sensitivity",                   # would looking more help?
-        "attention_temperature",                   # ... or looking more sharply / more broadly?
-        "prompt_contrast",                         # are failures prompt-repairable?
-        "mm_shap",                                # text vs image reliance
-        "gradcam", "generic_attention",            # which image regions the answer depends on
-        "embed_lens",                              # what the image tokens mean at the LLM input
-        "causal_trace",                            # where the image's effect hands off
-        "attribution_patching",                    # ... estimated at every layer and token
-        "path_patching",                           # which heads carry it to the answer
-        "logprob_entropy", "self_consistency",
-    ],
-    ModelKind.AGENT: [
-        "loop_detect", "ignored_obs",             # behavioral heuristics
-        "first_error_judge", "trajectory_rubric", # LLM-judge localisation + classification
-        "counterfactual", "reliability_probe",    # re-run probes: step perturbation, pass@k
-        "tool_shap",                              # re-run probe: tool-subset Shapley
-    ],
-    ModelKind.LLM: [
+    # Every model has a prompt, so this is the floor every composition ends
+    # with rather than a peer of the media slots.
+    "text": [
         # Hygiene first: both produce confounds that mimic every mechanism
         # column below, so a finding read before them is not interpretable.
         "answer_extraction_audit",                # is the FAIL label real or a parse miss?
@@ -258,20 +231,6 @@ _PRIORITY: dict[str, list[str]] = {
     ],
 }
 
-# text IS the legacy LLM list: every model has a prompt, so this is the floor
-# every composition starts from rather than a peer of the media slots.
-_SLOT_PRIORITY["text"] = _PRIORITY[ModelKind.LLM]
-
-# Slots each ModelKind stands for, in composition order. Only the back-compat
-# ``_PRIORITY`` view and ``detect_kind`` read this; ``select`` uses the batch.
-_KIND_SLOTS: dict[str, tuple[str, ...]] = {
-    ModelKind.AGENT: ("agent", "text"),
-    ModelKind.AVLM:  ("audio", "image", "text"),
-    ModelKind.ALM:   ("audio", "text"),
-    ModelKind.VLM:   ("image", "text"),
-    ModelKind.LLM:   ("text",),
-}
-
 
 def _compose(slots: "Iterable[str]") -> "list[str]":
     """Concatenate the slot lists in ranking order, first occurrence wins.
@@ -284,12 +243,6 @@ def _compose(slots: "Iterable[str]") -> "list[str]":
     for slot in slots:
         ordered.extend(_SLOT_PRIORITY.get(slot, ()))
     return list(dict.fromkeys(ordered))
-
-
-# ALM / AVLM complete the back-compat view; they never had an entry because the
-# enum had no member for them.
-for _kind, _slots in _KIND_SLOTS.items():
-    _PRIORITY.setdefault(_kind, _compose(_slots))
 
 
 def get_analyzer_catalog(model: "Model") -> dict[str, str]:
@@ -321,8 +274,9 @@ class StrategyProbe:
     """Selects analyzers appropriate for a given model.
 
     Args:
-        priority_override: Replaces the built-in per-kind priority tables
-            (keyed by ``ModelKind``).  Useful for domain-specific orderings.
+        priority_override: A table keyed by ``ModelKind`` that replaces the
+            ranking composed from ``_SLOT_PRIORITY``.  It is an allowlist as
+            well as an ordering.
     """
 
     def __init__(self, priority_override: dict[str, list[str]] | None = None) -> None:

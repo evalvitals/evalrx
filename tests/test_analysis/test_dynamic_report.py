@@ -6,10 +6,10 @@ import os
 
 def test_publish_report_contract_and_case_records(tmp_path):
     from evalrx.core import CaseBatch, FailureCase, Label
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.dynamic import load_published_report, publish_report
 
-    logger = RunLoggerV2(tmp_path)
+    logger = RunLogger(tmp_path)
     logger.log_run_start({
         "model": "demo-model", "benchmark_name": "demo-set", "n_cases": 1,
         "label_distribution": {"fail": 1},
@@ -39,10 +39,10 @@ def test_report_agent_repairs_once_then_validates():
     valid = {
         "root": "page",
         "elements": {
-            "page": {"type": "ReportPage", "props": {}, "children": ["hero", "journey", "outcome"]},
+            "page": {"type": "ReportPage", "props": {}, "children": ["hero", "journey", "findings"]},
             "hero": {"type": "SettingHero", "props": {}},
             "journey": {"type": "Journey", "props": {}},
-            "outcome": {"type": "OutcomeCard", "props": {}},
+            "findings": {"type": "FindingGrid", "props": {}},
         },
     }
 
@@ -61,10 +61,10 @@ def test_report_agent_repairs_once_then_validates():
 
 
 def test_invalid_agent_output_falls_back(tmp_path):
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.dynamic import load_published_report, publish_report
 
-    logger = RunLoggerV2(tmp_path)
+    logger = RunLogger(tmp_path)
     logger.log_run_start({"model": "demo", "n_cases": 0})
     logger.close()
 
@@ -83,11 +83,11 @@ def test_dynamic_api_filters_and_serves_spa(tmp_path):
     from fastapi.testclient import TestClient
 
     from evalrx.core import CaseBatch, FailureCase, Label
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.dynamic import publish_report
     from evalrx.reporting.server import create_app
 
-    logger = RunLoggerV2(tmp_path)
+    logger = RunLogger(tmp_path)
     logger.log_run_start({"model": "demo", "n_cases": 2})
     logger.log_cases(CaseBatch([
         FailureCase.from_prompt("alpha", id="a", label=Label.FAIL),
@@ -109,7 +109,7 @@ def test_runs_panel_lists_and_opens_sibling_experiments(tmp_path):
     from fastapi.testclient import TestClient
 
     from evalrx.core import CaseBatch, FailureCase, Label
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.dynamic import publish_report
     from evalrx.reporting.server import create_app
 
@@ -118,7 +118,7 @@ def test_runs_panel_lists_and_opens_sibling_experiments(tmp_path):
     run_a = tmp_path / "exp_a" / "outputs" / "logs"
     run_b = tmp_path / "exp_b" / "outputs" / "logs"
     for run, model in ((run_a, "model-a"), (run_b, "model-b")):
-        logger = RunLoggerV2(run)
+        logger = RunLogger(run)
         logger.log_run_start({"model": model, "benchmark_name": "demo", "n_cases": 1})
         logger.log_cases(CaseBatch([FailureCase.from_prompt("q", id="c1", label=Label.FAIL)]))
         # discover_runs' marker is run.json + at least one M<n>/log.json.
@@ -166,11 +166,11 @@ def test_an_uploaded_run_gets_its_own_id_and_an_empty_server_names_no_run(tmp_pa
     from fastapi.testclient import TestClient
 
     from evalrx.core import CaseBatch, FailureCase, Label
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.server import create_app
 
     run = tmp_path / "shared" / "logs"
-    logger = RunLoggerV2(run)
+    logger = RunLogger(run)
     logger.log_run_start({"model": "uploaded-model", "n_cases": 1})
     logger.log_cases(CaseBatch([FailureCase.from_prompt("q", id="c1", label=Label.FAIL)]))
     logger.log_stage_skipped("M1", "no_signal")
@@ -210,7 +210,7 @@ def test_runs_listing_keeps_the_most_recent_past_the_display_limit(tmp_path, mon
     from fastapi.testclient import TestClient
 
     from evalrx.core import CaseBatch, FailureCase, Label
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting import server as server_mod
 
     monkeypatch.setattr(server_mod, "RUNS_DISPLAY_LIMIT", 2)
@@ -218,13 +218,13 @@ def test_runs_listing_keeps_the_most_recent_past_the_display_limit(tmp_path, mon
     runs = []
     for i, stamp in enumerate(stamps):
         run = tmp_path / f"exp_{i}" / "outputs" / "logs"
-        logger = RunLoggerV2(run)
+        logger = RunLogger(run)
         logger.log_cases(CaseBatch([FailureCase.from_prompt("q", id="c1", label=Label.FAIL)]))
         # discover_runs' marker is run.json + at least one M<n>/log.json.
         logger.log_stage_skipped("M1", "no_signal")
         logger.close()
         # _run_mtime takes the max mtime across run.json and every M<n>/log.json
-        # (RunLoggerV2 flushes an empty doc for every stage at close(), not
+        # (RunLogger flushes an empty doc for every stage at close(), not
         # just the one actually used) — stamp every file, or an untouched
         # stage's real write time wins regardless.
         for f in run.rglob("*"):
@@ -242,11 +242,11 @@ def test_runs_listing_keeps_the_most_recent_past_the_display_limit(tmp_path, mon
 
 def test_runs_discovery_does_not_descend_into_a_found_runs_data_dir(tmp_path):
     from evalrx.core import CaseBatch, FailureCase, Label
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.server import discover_runs
 
     run = tmp_path / "exp" / "outputs" / "logs"
-    logger = RunLoggerV2(run)
+    logger = RunLogger(run)
     logger.log_cases(CaseBatch([FailureCase.from_prompt("q", id="c1", label=Label.FAIL)]))
     logger.log_stage_skipped("M1", "no_signal")
     logger.close()
@@ -263,46 +263,97 @@ def test_runs_discovery_does_not_descend_into_a_found_runs_data_dir(tmp_path):
 
 def test_external_case_media_is_copied_into_durable_run(tmp_path):
     from evalrx.core import CaseBatch, FailureCase, Inputs
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
-    from evalrx.reporting.run_events import read_v2_events
+    from evalrx.eval_agent.runlog.logger import RunLogger
+    from evalrx.reporting.run_events import read_run_events
 
     media = tmp_path / "source.wav"
     media.write_bytes(b"RIFF-fake-audio")
     run = tmp_path / "run"
-    logger = RunLoggerV2(run)
+    logger = RunLogger(run)
     logger.log_cases(CaseBatch([
         FailureCase(inputs=Inputs(prompt="listen", audio=str(media)), id="audio-1"),
     ]))
     logger.close()
 
-    events = [e for e in read_v2_events(run) if e.get("event") == "case_record"]
+    events = [e for e in read_run_events(run) if e.get("event") == "case_record"]
     path = run / events[0]["media_paths"][0]
     assert path.parent == run / "media"
     assert path.read_bytes() == b"RIFF-fake-audio"
 
 
-def test_unparsed_m3_response_is_recovered_for_audit_only():
-    from evalrx.reporting.dynamic import _recover_unparsed_hypotheses
+def _report_of_cases(tmp_path, cases):
+    from evalrx.core import CaseBatch
+    from evalrx.eval_agent.runlog.logger import RunLogger
+    from evalrx.reporting.dynamic import build_report_data
 
-    response = """HYPOTHESIS: Formatting causes the failure.
-PLAIN_STATEMENT: The answer changes when formatting changes.
-FAILURE_MODE: brittleness
-TEST: flip_rate HIGHER on failing cases
-EXPECTED_ASSOCIATION: higher_on_failures"""
-    proposals = _recover_unparsed_hypotheses(response)
-    assert proposals[0]["statement"] == "Formatting causes the failure."
-    assert proposals[0]["accepted_by_pipeline"] is False
+    run = tmp_path / "run"
+    logger = RunLogger(run)
+    logger.log_run_start({"model": "demo", "n_cases": len(cases)})
+    logger.log_cases(CaseBatch(cases))
+    logger.close()
+    return build_report_data(run)
+
+
+def test_each_media_slot_is_paired_with_its_own_copy(tmp_path):
+    from evalrx.core import FailureCase, Inputs
+
+    image = tmp_path / "scene.png"
+    image.write_bytes(b"fake-png")
+    audio = tmp_path / "clip.wav"
+    audio.write_bytes(b"RIFF-fake-audio")
+    data = _report_of_cases(tmp_path, [
+        FailureCase(inputs=Inputs(prompt="both", image=str(image), audio=str(audio)), id="both"),
+    ])
+
+    by_kind = {item["kind"]: item["path"] for item in data["media"]}
+    assert by_kind["image"].startswith("media/") and by_kind["image"].endswith("_scene.png")
+    assert by_kind["audio"].startswith("media/") and by_kind["audio"].endswith("_clip.wav")
+    assert len(data["cases"][0]["media_ids"]) == 2
+
+
+def test_a_slot_the_logger_could_not_copy_does_not_take_another_slots_copy(tmp_path):
+    from evalrx.core import FailureCase, Inputs
+
+    audio = tmp_path / "clip.wav"
+    audio.write_bytes(b"RIFF-fake-audio")
+    missing = str(tmp_path / "gone.png")
+    data = _report_of_cases(tmp_path, [
+        FailureCase(inputs=Inputs(prompt="one", image=missing, audio=str(audio)), id="one"),
+    ])
+
+    by_kind = {item["kind"]: item["path"] for item in data["media"]}
+    assert by_kind["image"] == missing
+    assert by_kind["audio"].endswith("_clip.wav")
+
+
+def test_case_choices_and_task_come_from_the_case_metadata(tmp_path):
+    from evalrx.core import FailureCase
+
+    data = _report_of_cases(tmp_path, [
+        FailureCase.from_prompt("mc", id="mc", metadata={
+            "task": "multiple_choice_letter", "category": "Reasoning",
+            "choices": ["A", "B"], "options": ["(A) cat", "(B) dog"],
+        }),
+        FailureCase.from_prompt("numeric", id="numeric", metadata={"task": "exact_or_numeric"}),
+        FailureCase.from_prompt("bare", id="bare"),
+    ])
+
+    cases = {case["id"]: case for case in data["cases"]}
+    assert cases["mc"]["choices"] == ["(A) cat", "(B) dog"]
+    assert cases["mc"]["task"] == "Reasoning"
+    assert cases["numeric"]["choices"] == [] and cases["numeric"]["task"] == "exact_or_numeric"
+    assert cases["bare"]["choices"] == [] and cases["bare"]["task"] == ""
 
 
 def test_m1_examples_are_logged_and_reconstructed_from_case_evidence(tmp_path):
     from evalrx.core import CaseBatch, FailureCase, Label, Result
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.dynamic import build_report_data
 
     case = FailureCase.from_prompt(
         "Choose the animal", id="case-1", expected="cat", observed="dog", label=Label.FAIL,
     )
-    logger = RunLoggerV2(tmp_path)
+    logger = RunLogger(tmp_path)
     logger.log_run_start({"model": "demo", "n_cases": 1})
     logger.log_cases(CaseBatch([case]))
     logger.log_probe(0, {"format_check": Result(
@@ -318,36 +369,12 @@ def test_m1_examples_are_logged_and_reconstructed_from_case_evidence(tmp_path):
     assert example["check_result"]["answer flipped"] == 1
 
 
-def test_legacy_m4_example_is_labeled_as_an_aggregate_validation_test():
-    from evalrx.reporting.dynamic import _m4_examples
-
-    example = _m4_examples([{
-        "hypothesis": "Formatting causes the failure.", "status": "refuted",
-        "effect_size": -0.5, "verdict": "The independent test refuted it.",
-        "evidence": {"chosen_tool": "signal_label_assoc", "ci": [-0.7, -0.2]},
-    }], {}, [])
-    assert example[0]["kind"] == "validation_test"
-    assert "full validation set" in example[0]["plain_reading"]
-
-
 def test_report_uses_plain_language_for_internal_signal_names():
-    from evalrx.reporting.dynamic import _plain_signal
+    from evalrx.reporting.plain_labels import _plain_signal
 
     label = _plain_signal("format_sensitivity.format_flip_rate")
     assert "answer order" in label.lower()
     assert "format_sensitivity" not in label
-
-
-def test_indexed_media_can_be_served_from_the_adjacent_example_data_dir(tmp_path):
-    from evalrx.reporting.server import _resolve_indexed_media
-
-    root = tmp_path / "example" / "outputs" / "logs"
-    root.mkdir(parents=True)
-    media = tmp_path / "example" / "data" / "clip.wav"
-    media.parent.mkdir()
-    media.write_bytes(b"RIFF-fake-audio")
-
-    assert _resolve_indexed_media(root, str(media)) == media.resolve()
 
 
 def test_explicit_run_log_wins_over_a_nested_logs_subrun(tmp_path):
@@ -362,10 +389,10 @@ def test_explicit_run_log_wins_over_a_nested_logs_subrun(tmp_path):
 def test_read_only_run_can_be_served_without_publishing(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
 
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.server import create_app
 
-    logger = RunLoggerV2(tmp_path)
+    logger = RunLogger(tmp_path)
     logger.log_run_start({"model": "read-only-demo", "n_cases": 0})
     logger.close()
     monkeypatch.setattr("evalrx.reporting.server.report_is_current", lambda _root: False)
@@ -380,50 +407,30 @@ def test_read_only_run_can_be_served_without_publishing(tmp_path, monkeypatch):
     assert payload["data"]["setting"]["model"] == "read-only-demo"
 
 
-def test_a_pre_ref_run_still_numbers_its_repairs_the_emitters_way():
-    """The AVLM run's stored payload predates `ref`, and must still be readable.
+def test_case_media_is_served_from_the_copy_inside_the_run(tmp_path):
+    from fastapi.testclient import TestClient
 
-    Left to itself the frontend numbers each list from one, so the frozen
-    candidate is #1 on its card and whatever position it happened to occupy in
-    the sweep — two numbers, one repair, nothing on screen connecting them.
-    """
-    from evalrx.reporting.dynamic import _backfill_repair_identity
+    from evalrx.core import CaseBatch, FailureCase, Inputs
+    from evalrx.eval_agent.runlog.logger import RunLogger
+    from evalrx.reporting.server import create_app
 
-    payload = {
-        "selection": [
-            {"name": "visual_grounding", "tier": "L1"},
-            {"name": "audio_evidence_then_answer", "tier": "L1"},
-            {"name": "coded_pipeline", "tier": "L2"},
-        ],
-        "attempted": [{"name": "coded_pipeline", "tier": "L2"}],
-    }
-    _backfill_repair_identity(payload)
+    source = tmp_path / "data" / "clip.wav"
+    source.parent.mkdir()
+    source.write_bytes(b"RIFF-fake-audio")
+    run = tmp_path / "run"
+    logger = RunLogger(run)
+    logger.log_run_start({"model": "demo", "n_cases": 1})
+    logger.log_cases(CaseBatch([
+        FailureCase(inputs=Inputs(prompt="listen", audio=str(source)), id="audio-1"),
+    ]))
+    logger.close()
+    source.unlink()  # the run is read where the producer's file is not
 
-    assert [r["ref"] for r in payload["selection"]] == ["R1", "R2", "R3"]
-    # Same repair, same number, in both lists.
-    assert [r["ref"] for r in payload["attempted"]] == ["R3"]
-    # The host authored two of these three and can say what they do.
-    assert payload["selection"][0]["headline"].startswith("Tells the model to read")
-    assert payload["selection"][2]["headline"].startswith("Runs a short program")
-    # The judge invented the middle one under a prompt that never asked for a
-    # description, so nothing is invented on its behalf now.
-    assert payload["selection"][1]["headline"] == ""
-
-
-def test_backfill_never_overwrites_what_the_producer_wrote():
-    from evalrx.reporting.dynamic import _backfill_repair_identity
-
-    payload = {
-        "selection": [
-            {"name": "coded_pipeline", "tier": "L2", "ref": "R9",
-             "headline": "Re-asks the model and takes the majority answer."},
-        ],
-        "attempted": [],
-    }
-    _backfill_repair_identity(payload)
-
-    assert payload["selection"][0]["ref"] == "R9"
-    assert payload["selection"][0]["headline"].startswith("Re-asks the model")
+    with TestClient(create_app(run)) as client:
+        run_id = client.get("/api/session").json()["run"]["id"]
+        media = client.get(f"/api/runs/{run_id}/report").json()["data"]["media"]
+        response = client.get(f"/api/runs/{run_id}/media/{media[0]['id']}")
+    assert response.status_code == 200 and response.content == b"RIFF-fake-audio"
 
 
 def test_stage_figures_embed_everywhere_they_are_cited(tmp_path):
@@ -452,19 +459,19 @@ def test_stage_figures_embed_everywhere_they_are_cited(tmp_path):
 
 
 def _v2_run_with_explore_snapshot(tmp_path, report: dict, figure_names: list[str]):
-    """A V2 run whose explore step left its workdir to be inlined on the event."""
+    """A run whose explore step left its workdir to be inlined on the event."""
     from types import SimpleNamespace
 
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.runlog.logger import RunLogger
 
-    # Not beside logs/: a sibling explore/ would be read as a V1 layout.
+    # Not beside logs/: the logger inlines it from the runtime tree.
     workdir = tmp_path / "sandbox" / "explore"
     (workdir / "figures").mkdir(parents=True)
     for name in figure_names:
         (workdir / "figures" / name).write_bytes(b"\x89PNG fake " + name.encode())
     (workdir / "exploratory_report.json").write_text(json.dumps(report), encoding="utf-8")
     run_dir = tmp_path / "logs"
-    logger = RunLoggerV2(run_dir, observability_mode="offline")
+    logger = RunLogger(run_dir, observability_mode="offline")
     logger.log_run_start({"model": "demo-model", "benchmark_name": "demo-set", "n_cases": 1, "protocol": {}})
     explorer_report = SimpleNamespace(
         ok=True, charts=[], observations=list(report.get("observations") or []),
@@ -477,7 +484,7 @@ def _v2_run_with_explore_snapshot(tmp_path, report: dict, figure_names: list[str
 
 
 def test_v2_explore_snapshot_links_takeaways_to_the_charts_they_cite(tmp_path):
-    # RunLoggerV2 writes no explore/ directory: the explorer's report is inlined
+    # RunLogger writes no explore/ directory: the explorer's report is inlined
     # on the explore event and its figures are copied into M2/artifacts/ under
     # hashed names. The published M2 record used to be built from the event's
     # observation sentences (which cite nothing) over figures named by their
@@ -542,11 +549,11 @@ def test_v2_explore_snapshot_links_takeaways_to_the_charts_they_cite(tmp_path):
 def test_v2_explore_event_without_a_snapshot_report_still_renders_its_sentences(tmp_path):
     # A run recorded before the snapshot carried the report (or one whose
     # report was over the inline cap) keeps the sentence-level fallback.
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.dynamic import build_report_data
 
     run_dir = tmp_path / "logs"
-    logger = RunLoggerV2(run_dir, observability_mode="offline")
+    logger = RunLogger(run_dir, observability_mode="offline")
     logger.log_run_start({"model": "demo-model", "benchmark_name": "demo-set", "n_cases": 1, "protocol": {}})
     logger._append_stage("M2", "explore", {
         "cycle": 0, "ok": True, "observations": ["Every long reply failed; short ones were mixed."],
@@ -564,7 +571,7 @@ def test_v2_explore_event_without_a_snapshot_report_still_renders_its_sentences(
 
 
 def test_cases_repaired_metric_reads_the_m5_confirmation():
-    from evalrx.reporting.dynamic import _metrics
+    from evalrx.reporting.report_summary import _metrics
 
     run = {"n_cases": 128, "label_distribution": {"fail": 38}}
     raw = {"m4": {"results": [{}, {}, {}]}}
@@ -589,14 +596,28 @@ def test_cases_repaired_metric_reads_the_m5_confirmation():
     assert {m["id"]: m["value"] for m in _metrics(run, raw, [{"status": "fail"}], idle)}["fixed"] == 0
 
 
+def test_the_repair_list_reports_the_same_m5_result_as_the_header_tile():
+    """The loop figure reads `repairs`; it said "0 fixed" beside a tile of 21."""
+    from evalrx.reporting.report_summary import _cases_repaired, _repairs
+
+    raw = {"m5_fix": {"ran": True, "fixed": False, "confirm": {}}}
+    unwon = {"ran": True, "fixed": False, "confirmation": {},
+             "candidates": [{"name": "read_off_marks", "n_fixed": 21, "n_broken": 6, "effect": 0.117}]}
+    [repair] = _repairs(raw, unwon)
+    assert (repair["title"], repair["fixed_cases"], repair["broken_cases"]) == ("read_off_marks", 21, 6)
+    assert repair["effect"] == 0.117
+    assert _cases_repaired([], unwon) == repair["fixed_cases"]
+    assert _repairs({"m5_fix": {"ran": False}}, unwon) == []
+
+
 def test_m5_confirmation_joins_the_winning_candidate_the_logger_recorded(tmp_path):
     from types import SimpleNamespace
 
     from evalrx.core import CaseBatch, FailureCase, Label
-    from evalrx.eval_agent.run_logger_v2 import RunLoggerV2
+    from evalrx.eval_agent.runlog.logger import RunLogger
     from evalrx.reporting.dynamic import build_report_data
 
-    logger = RunLoggerV2(tmp_path, observability_mode="offline")
+    logger = RunLogger(tmp_path, observability_mode="offline")
     logger.log_run_start({
         "model": "demo-model", "benchmark_name": "demo-set", "n_cases": 2,
         "label_distribution": {"fail": 2},
@@ -608,7 +629,7 @@ def test_m5_confirmation_joins_the_winning_candidate_the_logger_recorded(tmp_pat
     ]))
     winner = {"name": "malformed_choice_consensus", "tier": "L2", "n_pairs": 128,
               "n_fixed": 25, "n_broken": 0, "effect": 0.5, "fixed": True, "verdict": "fixed"}
-    # RunLoggerV2 writes `best` as the whole candidate, not its name.
+    # RunLogger writes `best` as the whole candidate, not its name.
     logger.log_fix(SimpleNamespace(to_dict=lambda: {"attempted": [winner], "best": dict(winner), "fixed": True}))
     logger.close()
 
@@ -618,3 +639,295 @@ def test_m5_confirmation_joins_the_winning_candidate_the_logger_recorded(tmp_pat
     assert (m5["confirmation"]["n_fixed"], m5["confirmation"]["n_broken"]) == (25, 0)
     assert m5["best"]["name"] == "malformed_choice_consensus"
     assert {m["id"]: m["value"] for m in data["metrics"]}["fixed"] == 25
+    # The repair list the loop figure reads, not the per-case repair outcomes;
+    # it counts the same 25 as the tile.
+    assert data["repairs"] == [{
+        "id": "repair-1", "fixed": True, "title": "malformed_choice_consensus",
+        "effect": 0.5, "fixed_cases": 25, "broken_cases": 0,
+    }]
+
+
+def _explore_output(root, *, hypotheses=True):
+    root.mkdir(parents=True, exist_ok=True)
+    report = {
+        "question": "Does batch temperature predict yield?",
+        "plain_question": "Which batch setting goes with low yield?",
+        "ok": True,
+        "observations": ["Hot batches yield less."],
+        "takeaways": [],
+        "hypotheses": [{"statement": "Heat lowers yield."}] if hypotheses else [],
+    }
+    (root / "exploratory_report.json").write_text(json.dumps(report), encoding="utf-8")
+    return root
+
+
+def test_an_explore_output_is_its_own_report(tmp_path):
+    """`evalrx explore` / run-codebase write no run log, only their report."""
+    from evalrx.reporting.dynamic import build_report_data
+    from evalrx.reporting.run_data import resolve_run_dirs
+
+    root = _explore_output(tmp_path / "explore")
+    assert resolve_run_dirs(root)[1] == root
+
+    data = build_report_data(root)
+    status = {stage["id"]: stage["status"] for stage in data["stages"]}
+    assert status["m1"] == "not-run"
+    assert status["m2"] == status["m3"] == "completed"
+    assert data["setting"]["question"] == "Which batch setting goes with low yield?"
+    assert data["stage_detail"]["m3"]["hypotheses"]
+
+    without = build_report_data(_explore_output(tmp_path / "bare", hypotheses=False))
+    assert {s["id"]: s["status"] for s in without["stages"]}["m3"] == "not-run"
+
+
+def test_a_fused_output_reads_as_an_explore_report(tmp_path):
+    """A fused run writes FusedReport.to_dict(): no takeaways or hypotheses."""
+    from evalrx.analysis.fused_pipeline import FusedReport, FusedSignal
+    from evalrx.reporting.dynamic import build_report_data
+
+    report = FusedReport(
+        question="Which signal goes with hallucination?", ok=True,
+        observations=["Diffuse attention goes with false yes."],
+        candidate_signals=[FusedSignal(name="attn_entropy", source="explorer", reject=True)],
+        conclusion="attn_entropy held up on the confirm split.",
+    )
+    (tmp_path / "fused_report.json").write_text(json.dumps(report.to_dict()), encoding="utf-8")
+
+    data = build_report_data(tmp_path)
+    status = {stage["id"]: stage["status"] for stage in data["stages"]}
+    assert (status["m2"], status["m3"]) == ("completed", "not-run")
+    assert data["setting"]["kind"] == "explore"
+    assert data["setting"]["question"] == "Which signal goes with hallucination?"
+    m2 = data["stage_detail"]["m2"]
+    assert m2["observations"] == ["Diffuse attention goes with false yes."]
+    assert m2["candidate_signals"][0]["name"] == "attn_entropy"
+
+
+def test_a_loop_run_beside_an_explore_report_stays_a_loop_run(tmp_path):
+    from evalrx.eval_agent.runlog.logger import RunLogger
+    from evalrx.reporting.dynamic import build_report_data
+
+    _explore_output(tmp_path)
+    logger = RunLogger(tmp_path, observability_mode="offline")
+    logger.log_run_start({"model": "demo-model", "protocol": {}, "n_cases": 1})
+    logger.close()
+    assert build_report_data(tmp_path)["setting"]["kind"] == "loop"
+
+
+def test_the_explore_agent_code_reaches_the_m2_record(tmp_path):
+    from evalrx.reporting.dynamic import build_report_data
+
+    root = _explore_output(tmp_path)
+    (root / "analysis.py").write_text("print('hi')\n", encoding="utf-8")
+    (root / "agent_raw_output.txt").write_text("x" * 200_005, encoding="utf-8")
+    agent = build_report_data(root)["stage_detail"]["m2"]["agent"]
+    assert agent["code"] == "print('hi')\n"
+    assert len(agent["transcript"]) == 200_000 and agent["transcript_truncated"]
+    assert build_report_data(_explore_output(tmp_path / "bare"))["stage_detail"]["m2"]["agent"] is None
+
+
+def test_a_rerun_explore_output_invalidates_its_cached_report(tmp_path):
+    from evalrx.reporting.dynamic import publish_report, report_is_current
+
+    root = _explore_output(tmp_path)
+    publish_report(root)
+    assert report_is_current(root)
+    later = (root / "report" / "report_spec.json").stat().st_mtime + 5
+    os.utime(root / "exploratory_report.json", (later, later))
+    assert not report_is_current(root)
+
+
+def test_write_report_notes_a_missing_renderer_instead_of_failing(tmp_path, monkeypatch, capsys):
+    import evalrx.reporting.static_export as static_export
+
+    def _missing(*_args, **_kwargs):
+        raise FileNotFoundError("Packaged report renderer is missing")
+
+    monkeypatch.setattr(static_export, "export_static_report", _missing)
+    assert static_export.write_report(_explore_output(tmp_path)) is None
+    assert "report.html not written" in capsys.readouterr().out
+
+
+def test_static_export_escapes_script_terminators(tmp_path):
+    """Run text must not be able to close the bootstrap script block."""
+    from pathlib import Path
+
+    import pytest
+
+    import evalrx.reporting.static_export as static_export
+
+    if not (Path(static_export.__file__).with_name("web_dist") / "index.html").exists():
+        pytest.skip("report renderer not built")
+    root = _explore_output(tmp_path)
+    payload = "</script><script>globalThis.pwned = true</script>"
+    report = json.loads((root / "exploratory_report.json").read_text())
+    report["plain_question"] = payload
+    (root / "exploratory_report.json").write_text(json.dumps(report), encoding="utf-8")
+
+    page = static_export.export_static_report(root).read_text(encoding="utf-8")
+    assert payload not in page
+    assert "\\u003c/script" in page
+
+
+def test_report_reads_model_m1_and_m4_status(tmp_path):
+    from evalrx.eval_agent.runlog.logger import RunLogger
+    from evalrx.reporting.run_data import extract_run_data
+
+    logger = RunLogger(tmp_path, observability_mode="offline")
+    logger.log_run_start({"model": "new", "protocol": {}, "n_cases": 1})
+    logger._append_stage("M1", "probe", {"cycle": 0, "analyzers": ["new_probe"]})
+    logger._append_stage("M4", "surgery", {
+        "module": "m4", "status": "supported", "fixed": False, "confidence_score": 0.8,
+        "evidence": {
+            "m4_test_name": "association", "m4_effect_size": 0.3,
+            "m4_verdict": "supported by held-out evidence", "m4_evidence_grade": "causal",
+        },
+    })
+    logger.close()
+
+    data = extract_run_data(tmp_path)
+    assert data["run"]["raw_model"] == "new"
+    assert data["m1"]["analyzers"] == ["new_probe"]
+    assert data["m4"]["results"][0]["status"] == "supported"
+
+
+def test_langfuse_bundle_export(tmp_path):
+    from evalrx.eval_agent.runlog.logger import RunLogger
+    from evalrx.observability import export_to_langfuse_bundle
+
+    logger = RunLogger(tmp_path / "run", observability_mode="offline")
+    logger.log_run_start({"model": "demo-model", "protocol": {}, "n_cases": 1})
+    logger.close()
+
+    out_json = tmp_path / "langfuse_trace.json"
+    bundle = export_to_langfuse_bundle(tmp_path / "run", out_json)
+    assert {"trace", "spans", "scores"} <= set(bundle)
+    assert json.loads(out_json.read_text(encoding="utf-8"))["trace"]["name"].startswith("EvalRX:")
+
+
+def test_serve_opens_an_explore_output_and_its_figures(tmp_path):
+    """`evalrx serve <explore out>`: the report and the charts it cites."""
+    import shutil
+    from pathlib import Path
+
+    from fastapi.testclient import TestClient
+
+    from evalrx.reporting.server import create_app
+
+    reference = Path(__file__).resolve().parents[2] / "examples/m2_m3/synthetic_yield_explore/reference_output"
+    root = tmp_path / "explore"
+    shutil.copytree(reference, root, ignore=shutil.ignore_patterns("report", "report.html"))
+
+    with TestClient(create_app(root)) as client:
+        run = client.get("/api/session").json()["run"]
+        data = client.get(f"/api/runs/{run['id']}/report").json()["data"]
+        assert data["setting"]["kind"] == "explore"
+        figures = data["stage_detail"]["m2"]["figures"]
+        assert figures
+        figure = client.get(f"/api/runs/{run['id']}/artifact", params={"path": figures[0]["path"]})
+        assert figure.status_code == 200
+        assert figure.headers["content-type"] == "image/png"
+
+
+def test_a_run_is_finished_once_its_logger_closes(tmp_path):
+    from evalrx.eval_agent.runlog.logger import RunLogger
+    from evalrx.reporting.dynamic import build_report_data
+    from evalrx.reporting.server import _compile_report
+
+    logger = RunLogger(tmp_path, observability_mode="offline")
+    logger.log_run_start({"model": "demo-model", "protocol": {}, "n_cases": 1})
+    assert build_report_data(tmp_path)["setting"]["finished"] is False
+    logger._append_stage("M1", "probe", {"cycle": 0, "analyzers": ["a"]})
+    setting = build_report_data(tmp_path)["setting"]
+    assert setting["finished"] is False and setting["last_event_at"]
+    # A run still being written is compiled in memory, not published into it.
+    _, envelope = _compile_report(tmp_path)
+    assert envelope["generated_by"]["mode"] == "deterministic-live"
+    assert not (tmp_path / "report").exists()
+
+    logger.close()
+    assert build_report_data(tmp_path)["setting"]["finished"] is True
+    _compile_report(tmp_path)
+    assert (tmp_path / "report" / "report_data.json").exists()
+
+
+def test_follow_run_streams_updates_until_the_run_ends(tmp_path):
+    from evalrx.eval_agent.runlog.logger import RunLogger
+    from evalrx.reporting.server import RunRegistry, follow_run
+
+    logger = RunLogger(tmp_path, observability_mode="offline")
+    logger.log_run_start({"model": "demo-model", "protocol": {}, "n_cases": 1})
+    runs = RunRegistry()
+    key = runs.register(tmp_path)
+    steps = iter([
+        lambda: None,  # nothing new: a keep-alive comment
+        lambda: logger._append_stage("M1", "probe", {"cycle": 0, "analyzers": ["a"]}),
+        logger.close,
+    ])
+    frames = list(follow_run(runs, key, sleep=lambda _sec: next(steps)()))
+
+    assert frames[0].startswith(": waiting")
+    assert [f.split("\n")[0] for f in frames[1:]] == ["event: update", "event: update", "event: done"]
+    assert runs.get(key).data["setting"]["finished"] is True
+
+
+def test_follow_run_ends_at_once_for_a_finished_run_and_yields_to_a_reconnect(tmp_path):
+    from evalrx.eval_agent.runlog.logger import RunLogger
+    from evalrx.reporting.server import RunRegistry, follow_run
+
+    logger = RunLogger(tmp_path / "done", observability_mode="offline")
+    logger.log_run_start({"model": "demo-model", "protocol": {}, "n_cases": 1})
+    logger.close()
+    runs = RunRegistry()
+    assert list(follow_run(runs, runs.register(tmp_path / "done"))) == ["event: done\ndata: {}\n\n"]
+
+    live = RunLogger(tmp_path / "live", observability_mode="offline")
+    live.log_run_start({"model": "demo-model", "protocol": {}, "n_cases": 1})
+    frames = list(follow_run(runs, runs.register(tmp_path / "live"), max_sec=4, sleep=lambda _sec: None))
+    # No `done`: the stream just ends, and EventSource reconnects on its own.
+    assert frames == [": waiting\n\n", ": waiting\n\n"]
+
+
+def test_finalize_leaves_run_end_last_after_the_fix_step(tmp_path):
+    from types import SimpleNamespace
+
+    from evalrx.eval_agent.runlog.context import RunContext
+    from evalrx.reporting.dynamic import build_report_data
+    from evalrx.reporting.run_events import read_run_events
+
+    ctx = RunContext(tmp_path / "run", observability_mode="offline")
+    ctx.logger.log_run_start({"model": "demo-model", "protocol": {}, "n_cases": 1})
+    ctx.logger._append_stage("M1", "probe", {"cycle": 0, "analyzers": ["a"]})
+    ctx.logger._append_run("loop_end", {"cycles": 1})
+    # M5's fix step logs after loop_end: the run is not over yet.
+    assert build_report_data(ctx.root)["setting"]["finished"] is False
+    ctx.logger.log_fix(SimpleNamespace(to_dict=lambda: {"attempted": [], "best": None, "fixed": False}))
+    ctx.finalize()
+
+    events = read_run_events(ctx.root)
+    assert events[-1]["event"] == "run_end"
+    assert build_report_data(ctx.root)["setting"]["finished"] is True
+
+
+def test_a_second_logger_in_the_same_directory_is_followed_until_it_ends(tmp_path):
+    from evalrx.eval_agent.runlog.logger import RunLogger
+    from evalrx.reporting.server import RunRegistry, follow_run
+
+    first = RunLogger(tmp_path, observability_mode="offline")
+    first.log_run_start({"model": "first", "protocol": {}, "n_cases": 1})
+    for _ in range(5):
+        first._append_stage("M1", "probe", {"cycle": 0, "analyzers": ["a"]})
+    first.close()
+
+    # The second run restarts event_seq below the first run's stale M1 log.
+    second = RunLogger(tmp_path, observability_mode="offline")
+    second.log_run_start({"model": "second", "protocol": {}, "n_cases": 1})
+    runs = RunRegistry()
+    key = runs.register(tmp_path)
+    assert runs.get(key).data["setting"]["finished"] is False
+    steps = iter([
+        lambda: second._append_stage("M2", "analysis", {"cycle": 0, "findings": []}),
+        second.close,
+    ])
+    frames = list(follow_run(runs, key, sleep=lambda _sec: next(steps)()))
+    assert [f.split("\n")[0] for f in frames] == ["event: update", "event: update", "event: done"]

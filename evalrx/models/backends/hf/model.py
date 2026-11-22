@@ -19,15 +19,16 @@ lazily so this module imports on a torch-free install.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from contextlib import nullcontext
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from evalrx.core.capability import Capability, CapabilityError
 from evalrx.core.case import Inputs
 from evalrx.core.model import Model, TokenLogprob, Trace
 from evalrx.core.spec import AttnSemantics
 from evalrx.core.tool import ChatTurn
-from evalrx.models._media import AUDIO_SAMPLE_RATE, resolve_audio, resolve_image
+from evalrx.models._media import AUDIO_SAMPLE_RATE, resolve_audio
 from evalrx.models.backends.base import Backend, RuntimeConfig
 from evalrx.models.backends.hf._util import (  # noqa: F401
     _check_audio_duration,
@@ -36,12 +37,24 @@ from evalrx.models.backends.hf._util import (  # noqa: F401
     _populate_audio_extras,
     _populate_vision_extras,
     _read_nested_attr,
+    collate_encodings,
     media_encoders_without_grad,
 )
 from evalrx.models.backends.hf.decoding import ContrastiveDecodingMixin
 from evalrx.models.backends.hf.specialists import SpecialistRepairsMixin
 
 logger = logging.getLogger(__name__)
+
+_R = TypeVar("_R")
+
+#: Multimodal families whose batched answers were checked against one input at
+#: a time on a real checkpoint (float32, greedy, images or clips of different
+#: sizes: identical text on every input, logprobs within 1e-3). A stacked batch
+#: that a family's ``generate`` reads wrongly would give plausible wrong
+#: answers rather than an error, so any other multimodal family runs one input
+#: at a time until it is checked and added here.
+BATCHED_MULTIMODAL_FAMILIES = frozenset(
+    {"qwen2_vl", "qwen2_5_vl", "qwen3_vl", "qwen3_5", "qwen2_audio"})
 
 # capability -> HF forward flag
 _CAPTURE_FLAGS = {
@@ -50,19 +63,13 @@ _CAPTURE_FLAGS = {
 }
 
 
-# Media resolution lives in evalrx.models._media (shared with jax_local); the
-# private names stay bound here for existing callers and tests.
-_resolve_image = resolve_image
-_resolve_audio = resolve_audio
-
-
 class HFLocalModel(ContrastiveDecodingMixin, SpecialistRepairsMixin, Model):
     """A locally-loaded HF model, constructed from a :class:`ModelSpec`."""
 
     def __init__(self, spec, runtime: RuntimeConfig) -> None:
         self.spec = spec
         self.runtime = runtime
-        self._hf = None  # (model, processor) — lazy
+        self._hf: tuple[Any, Any] | None = None  # (model, processor) — lazy
         self._ifcd_editors: dict[str, Any] = {}
         self._detect_engines: dict[str, Any] = {}
         self._audio_text_engines: dict[tuple[str, str], Any] = {}
@@ -188,7 +195,7 @@ class HFLocalModel(ContrastiveDecodingMixin, SpecialistRepairsMixin, Model):
                 kwargs.setdefault("return_audio", False)
             return original_generate(*args, **kwargs)
 
-        _generate_without_talker._evalrx_talker_suppressed = True
+        setattr(_generate_without_talker, "_evalrx_talker_suppressed", True)
         model.generate = _generate_without_talker
 
     @staticmethod
@@ -356,16 +363,102 @@ class HFLocalModel(ContrastiveDecodingMixin, SpecialistRepairsMixin, Model):
 
     # -- interface -----------------------------------------------------
     def generate(self, inputs: Any, **kwargs) -> str:
+        return self.generate_batch([inputs], **kwargs)[0]
+
+    def generate_batch(self, inputs: Sequence[Any], **kwargs) -> list[str]:
+        """Answers in padded batches of ``runtime.batch_size`` inputs."""
         import torch
 
         model, processor = self._loaded
         tok = getattr(processor, "tokenizer", processor)
+        decoding = self._decoding(tok, kwargs)
+
+        def run(enc: Any) -> list[str]:
+            with torch.no_grad():
+                out = model.generate(**enc, **decoding)
+            return [tok.decode(_new_tokens(row, prompt), skip_special_tokens=True)
+                    for row, prompt in zip(out, enc["input_ids"])]
+
+        return self._in_batches(list(inputs), run)
+
+    def _in_batches(self, inputs: list[Any], run: "Callable[[Any], list[_R]]") -> "list[_R]":
+        """*run* on left-padded batches of *inputs*; results in input order.
+
+        Every input is encoded on its own, the way a single call encodes it,
+        and the encodings are stacked (:func:`collate_encodings`), so text and
+        multimodal specs take the same path. Inputs are taken a window of four
+        batches at a time, so the encodings alive at once stay bounded however
+        long the list is (one ``vl_shap`` case asks for hundreds of masked
+        images). Within a window, inputs that carry the same tensors (with an
+        image, without one) batch together, longest first so a batch pads
+        little. On a CUDA out-of-memory error the batch is halved and the run
+        continues. Encodings that cannot be stacked (media tensors of different
+        shapes) run one input at a time, and so does a multimodal family
+        outside :data:`BATCHED_MULTIMODAL_FAMILIES`.
+        """
+        import torch
+
+        model, processor = self._loaded
+        tok = getattr(processor, "tokenizer", processor)
+        stacks = (not self.spec.needs_multimodal_encode
+                  or self.spec.model_type in BATCHED_MULTIMODAL_FAMILIES)
+        size = max(1, int(self.runtime.batch_size)) if stacks else 1
+        window = 4 * size
+        results: "list[Any]" = [None] * len(inputs)
+        for offset in range(0, len(inputs), window):
+            encodings = {offset + i: self._encode_any(item)
+                         for i, item in enumerate(inputs[offset:offset + window])}
+            alike: "dict[frozenset[str], list[int]]" = {}
+            for index, enc in encodings.items():
+                alike.setdefault(frozenset(enc), []).append(index)
+            for group in alike.values():
+                group.sort(key=lambda i: -encodings[i]["input_ids"].shape[1])
+                stackable, start = True, 0
+                while start < len(group):
+                    rows = group[start:start + (size if stackable else 1)]
+                    batch = encodings[rows[0]]
+                    if len(rows) > 1:
+                        if tok.pad_token_id is None:
+                            tok.pad_token = tok.eos_token
+                        batch = collate_encodings([encodings[i] for i in rows], tok.pad_token_id)
+                        if batch is None:
+                            logger.info("%s: these inputs do not stack into one batch; "
+                                        "running them one at a time", self.spec.key)
+                            stackable = False
+                            continue
+                    try:
+                        outputs = run(batch)
+                    except torch.cuda.OutOfMemoryError:
+                        if len(rows) == 1:
+                            raise
+                        del batch
+                        torch.cuda.empty_cache()
+                        size = len(rows) // 2
+                        logger.warning("%s: out of memory at this batch size; continuing "
+                                       "with %d", self.spec.key, size)
+                        continue
+                    for i, output in zip(rows, outputs):
+                        results[i] = output
+                    start += len(rows)
+        return results
+
+    def _encode_any(self, inputs: Any) -> Any:
+        """One input's encoding (a batch of one) on the model's device."""
+        model, processor = self._loaded
         if self.spec.needs_multimodal_encode:
             enc, _, _, _ = self._encode_vlm(inputs, model, processor)
         else:
-            prompt = self._as_prompt(inputs)
-            enc = self._encode(prompt)
+            enc = self._encode(self._as_prompt(inputs))
         enc.pop("token_type_ids", None)  # some VLM processors emit this; generate() rejects it
+        return enc
+
+    def _decoding(self, tok: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """``model.generate`` keyword arguments for one call.
+
+        The call's own *kwargs* win over ``runtime.sampling``, the decoding the
+        model is deployed with.
+        """
+        kwargs = {**self.runtime.sampling, **kwargs}
         # "max_tokens" is the OpenAI-style name FixAgent's judge-proposed L2
         # PipelineSpecs use (see fix_tools._safe_generation_kwargs and the
         # _L2_PROMPT schema); transformers' generate() only recognises
@@ -383,53 +476,64 @@ class HFLocalModel(ContrastiveDecodingMixin, SpecialistRepairsMixin, Model):
         # two controls that Hugging Face does not accept verbatim instead of
         # letting run_pipeline swallow a ValueError and report 0 coverage.
         temperature = kwargs.get("temperature")
-        if temperature is not None:
-            if float(temperature) <= 0.0:
-                kwargs.pop("temperature", None)
-                kwargs["do_sample"] = False
-                kwargs.pop("top_p", None)
-                kwargs.pop("top_k", None)
-            else:
-                kwargs.setdefault("do_sample", True)
+        if kwargs.get("do_sample") is False or (temperature is not None and float(temperature) <= 0.0):
+            kwargs["do_sample"] = False
+            for name in ("temperature", "top_p", "top_k"):
+                kwargs.pop(name, None)
+        elif temperature is not None:
+            kwargs.setdefault("do_sample", True)
         stop = kwargs.pop("stop", None)
         if stop:
             kwargs["stop_strings"] = stop
             kwargs["tokenizer"] = tok
-        with torch.no_grad():
-            out = model.generate(**enc, max_new_tokens=max_new, **kwargs)
-        new = _new_tokens(out[0], enc["input_ids"][0])
-        return tok.decode(new, skip_special_tokens=True)
+        return {"max_new_tokens": max_new, **kwargs}
 
     def logprobs(
         self, inputs: Any, max_new_tokens: int = 64, top_k: int = 5, **kwargs
     ) -> list[TokenLogprob]:
         """Per-output-token logprobs via greedy generate with output_scores."""
+        return self.logprobs_batch([inputs], max_new_tokens=max_new_tokens, top_k=top_k)[0]
+
+    def logprobs_batch(
+        self, inputs: Sequence[Any], max_new_tokens: int = 64, top_k: int = 5, **kwargs
+    ) -> list[list[TokenLogprob]]:
+        """:meth:`logprobs` in padded batches of ``runtime.batch_size`` inputs."""
         import torch
 
         model, processor = self._loaded
         tok = getattr(processor, "tokenizer", processor)
-        if self.spec.needs_multimodal_encode:
-            enc, _, _, _ = self._encode_vlm(inputs, model, processor)
-        else:
-            enc = self._encode(self._as_prompt(inputs))
-        enc.pop("token_type_ids", None)
-        with torch.no_grad():
-            out = model.generate(
-                **enc,
-                max_new_tokens=max_new_tokens,
-                do_sample=False,
-                output_scores=True,
-                return_dict_in_generate=True,
-            )
-        gen_ids = _new_tokens(out.sequences[0], enc["input_ids"][0]).tolist()
-        result: list[TokenLogprob] = []
-        for i, score in enumerate(out.scores):
-            lp = torch.log_softmax(score[0].float(), dim=-1)
-            tid = gen_ids[i]
-            topk = torch.topk(lp, min(top_k, lp.shape[-1]))
-            top = {tok.decode([int(j)]): float(v) for v, j in zip(topk.values, topk.indices)}
-            result.append(TokenLogprob(token=tok.decode([tid]), logprob=float(lp[tid]), top=top))
-        return result
+        stop = getattr(getattr(model, "generation_config", None), "eos_token_id", None)
+        stop_ids = set(stop) if isinstance(stop, (list, tuple)) else {stop}
+
+        def run(enc: Any) -> list[list[TokenLogprob]]:
+            with torch.no_grad():
+                out = model.generate(
+                    **enc,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=False,
+                    output_scores=True,
+                    return_dict_in_generate=True,
+                )
+            rows: list[list[TokenLogprob]] = []
+            for row, prompt in enumerate(enc["input_ids"]):
+                gen_ids = _new_tokens(out.sequences[row], prompt).tolist()
+                # A row that stopped before the others is padded after its
+                # end-of-sequence token; its answer ends with that token.
+                ended = next((i + 1 for i, tid in enumerate(gen_ids) if tid in stop_ids),
+                             len(gen_ids))
+                result: list[TokenLogprob] = []
+                for i, score in enumerate(out.scores[:ended]):
+                    lp = torch.log_softmax(score[row].float(), dim=-1)
+                    tid = gen_ids[i]
+                    topk = torch.topk(lp, min(top_k, lp.shape[-1]))
+                    top = {tok.decode([int(j)]): float(v)
+                           for v, j in zip(topk.values, topk.indices)}
+                    result.append(
+                        TokenLogprob(token=tok.decode([tid]), logprob=float(lp[tid]), top=top))
+                rows.append(result)
+            return rows
+
+        return self._in_batches(list(inputs), run)
 
     def chat(self, messages: list, tools=None) -> ChatTurn:
         """Tool-aware turn via the model's chat template.
@@ -535,7 +639,7 @@ class HFLocalModel(ContrastiveDecodingMixin, SpecialistRepairsMixin, Model):
         audios: list = []
         if self.spec.audio is not None and audio is not None:
             raw_audios = list(audio) if isinstance(audio, (list, tuple)) else [audio]
-            audios = [_resolve_audio(a) for a in raw_audios]
+            audios = [resolve_audio(a) for a in raw_audios]
             # Audio blocks precede the text block, matching the image/video
             # convention above; order must match the ``audio=`` list below.
             content = [{"type": "audio"} for _ in audios] + content

@@ -10,10 +10,10 @@ from __future__ import annotations
 import os
 import pathlib
 import shutil
-import subprocess
 import tempfile
-import warnings
 from pathlib import Path
+
+from evalrx.agent_runtime.judges._cli import read_reply, run_cli
 
 
 class CodexModel:
@@ -84,32 +84,11 @@ class CodexModel:
                 cmd += ["--model", self._model]
             if self._effort:
                 cmd += ["-c", f'model_reasoning_effort="{self._effort}"']
-            try:
-                proc = subprocess.run(
-                    cmd,
-                    input=prompt_text,
-                    capture_output=True,
-                    timeout=self._timeout_sec,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    env={**os.environ},
-                )
-            except subprocess.TimeoutExpired as exc:
-                raise RuntimeError(
-                    f"CodexModel: codex timed out after {self._timeout_sec}s"
-                ) from exc
-
-            output = output_path.read_text(encoding="utf-8", errors="replace").strip() if output_path.is_file() else ""
-            if proc.returncode != 0 and not output:
-                reason = (proc.stderr or proc.stdout or "").strip()[-500:]
-                raise RuntimeError(f"CodexModel: codex exited {proc.returncode}: {reason}")
-            if not output:
-                warnings.warn(
-                    "CodexModel: codex returned an empty response; the caller will fall back to a non-LLM path.",
-                    stacklevel=2,
-                )
-            return output
+            name = f"CodexModel: {Path(self._binary).name}"
+            run = run_cli(name, cmd, cwd=Path(workspace), timeout_sec=self._timeout_sec,
+                          stdin_text=prompt_text)
+            output = output_path.read_text(encoding="utf-8", errors="replace") if output_path.is_file() else ""
+            return read_reply(name, run, output)
         finally:
             shutil.rmtree(workspace, ignore_errors=True)
 
