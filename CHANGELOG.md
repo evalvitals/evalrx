@@ -526,83 +526,72 @@ never fired and M1 read every case as fully consistent. A call that names a temp
 temperature alone (`backends.base.call_sampling`, used by `hf_local`, `jax_local` and
 `vllm_offline`); a call that names neither keeps the deployed decoding.
 
-### Changed — probing after the 0.2.0 reorganisation and the batch calls
+### Added — a triage controller as an opt-in M1 (`--m1-policy triage_active`)
 
-The triage follows the package's new layout (`loop.partition.split_cases` for the
-EXPLORE/CONFIRM split, `runlog.instrumentation` for per-call logs; the triage entry
-sits beside the steps `runner.run` was split into, and its validation source is
-labelled by the same Stage 0 step as the pool). `prompt_contrast` and
-`modality_ablation` ask in batches like the other generation analyzers; a
-counterfactual swap asks the unablated questions first, since the donor depends on
-their answers. `self_consistency` keeps one `generate` call per sample: under its
-seed a case's samples are then the same draws whatever the backend's batch size.
-The triage's call meter counts `generate_batch` / `try_generate_batch` /
-`logprobs_batch` per input, under `generate` and `logprobs`; unmetered, a batched
-step would have read as one that ran without calling the model. The probing
-package and the analyzers it extended now pass the package's type check.
+An alternative to the judge-selected M1, in `evalrx/eval_agent/triage/` (not
+`evalrx/probing/`, the probe catalog the judge-driven M1 calls). The default
+`--m1-policy judge` is unchanged; `docs/agentic_benchmark.md` describes a run.
 
-### Changed — probing: dead code removed, `compare` has a CLI
+After Stage 0 and the loop's own EXPLORE/CONFIRM split, a host-side controller
+draws a matched, nested sample of FAIL cases and PASS controls from EXPLORE and
+runs a fixed battery on it exactly as written (no backfill, no case cap, no
+generated probes). Each FAIL case is put on routes by label-free checks: H (the
+output or its grading is suspect), N (the answer ignores the media, tested with a
+counterfactual swap), U (the answer moves under re-sampling and rewording), S (a
+stable error: every check ran and none fired) and X (a check is missing). Answers
+are compared under the task's own tolerance (`tasks.same_answer`), not graded
+against gold, and every reading on a card compares FAIL with matched PASS cases
+on the model's own answer.
 
-Removed what later code had superseded: `Ledger.spent` / `spent_wall_sec` (the budget
-is charged by `_Run.charged`), `StepEvidence.sec_per_case` (costs come from
-`scoring.step_cost`), the `run_triage_mvp0` alias (tests call `run_triage`) and the
-sampler's `_rank` alias. `python -m evalrx.eval_agent.probing.compare <a.json> <b.json>`
-prints two arms' reports side by side (`--json` for the diff). A layer that narrows its
-route's cases (X1) states its filter in its state (`case_filter`), where only the rule's
-source had carried it. Stale strings updated: the package and controller docstrings no
-longer describe MVP-2, `--m1-policy` says when a judge is built and that CONFIRM reaches
-only the validator, and `evalsmith/probing/probing_design_mix.md` has a current status
-header and a list of the remaining gaps between the design and the implementation.
-`POLICY_VERSION` stays `mvp2-0`: it is part of every action identity, and a bump would
-re-execute every stored observation.
+The controller then decides one action at a time between doubling the sample
+(up to `--triage-max-fail`, while a route's signal is uncertain or a cohort is
+small) and the routes' follow-ups. `--triage-scheduler scored` (default) takes
+the candidate with the highest value per cost, `U = q·[D + T + C − R]₊ / (c + ε)`,
+and gives a share of the spending (`--triage-explore-share`) to steps the value
+never takes; `rules` runs fixed rounds over the routes' layers instead. Steps
+run in chunks (`--triage-chunk`) and are priced at their own measured cost, so
+`--triage-budget-sec` / `--triage-budget-usd` are overshot by at most one chunk.
+With `--triage-explanations judge` the chain's judge proposes competing
+explanations per route, each with predictions code checks against the readings;
+the conflicts between live explanations give the value its D.
 
-### Changed — the triage compares answers under the task's tolerance
+Every action is recorded with why it ran, what it cost and whether its
+measurement can be trusted (`<run>/probing/`: `selection_trace.jsonl`,
+`cost_ledger.jsonl`, `observations/`, `triage_report*.{json,md}`). Outcomes are
+typed (`ok`, `unsupported`, `failed`, `unfaithful`), never zeros; a rerun reads
+finished actions back by content identity, which includes a hash of the
+analyzer's code. M2–M5 do not run and the controller never sees CONFIRM.
 
-The U and S checks and the follow-up readings compared answers by key equality,
-while the grader holds a numeric answer to ChartQA's relaxed 5 % rule: two
-samples of 12.5 and 12.8 were two answers for the triage and one verdict for the
-scorer, so the re-sampling part of U fired on rounding jitter (ChartQA
-`triage17`: 287 of 450 validation FAILs were on U). The host now passes an
-agreement rule next to the answer key (`tasks.same_answer`, built on
-`scoring.same_answer`: equal keys, or two numbers with the candidate within the
-case's `numeric_tolerance` of the reference; `run_triage` / `validate` /
-`triage_cases(agree_fn=)`, default: equal keys). The re-sampling check counts
-the samples agreeing with the Stage-0 answer as that answer and clusters the
-rest the same way (`rivals`), so nearby roundings neither split the base nor
-pile up as rivals; the rewording, threshold and `prompt_contrast` "changed"
-readings use the rule too. `answer_key` also applies the grader's yes/true
-aliases on `exact_or_numeric`. Rules version `mvp4-rules-5`; `agree_fn` is
-recorded in the report settings.
+`--triage-validate` freezes the issues a report supports (a route signal, or a
+reading that differs between a route's FAIL cases and their controls) and
+validates them once on cases the controller never saw: CONFIRM cases on media
+EXPLORE does not contain, plus a validation-only pool
+(`--triage-validation-source`, labelled by its own Stage 0 pass). Each issue is
+tested on its claimed side at a Bonferroni-adjusted level and comes back
+`supported`, `refuted`, `inconclusive` or `unavailable`; readings that go
+together case by case are counted as one phenomenon. `--confirm-split-by media`
+keeps all questions on one image on one side of the split, and
+`python -m evalrx.benchmark.tasks.chartqa <dir> --exclude <manifest>` freezes
+the ChartQA rows a pool left as such a validation pool.
 
-### Fixed — a budget check priced a step that ran without model calls at the run's worst case
+### Added — closed-form intervals in `evalrx.stats.intervals`
 
-`step_cost` took a step's own measurement only from observations that called
-the model, so the two audits of stored outputs (`answer_extraction_audit`,
-`termination_audit`: no calls, next to no time) counted as never measured and a
-budget check priced them at the run's most expensive case per case. An
-expansion's estimate carried both over every new case: on ChartQA `triage18`
-the 32 → 64 FAIL expansion (912 s when run) was estimated at 3205 s after
-`patchscope` had run and at 22215 s after an exploring arm had fitted
-`tuned_lens` on 4 cases (167.7 s per case), so every budget-tier arm stopped on
-"expand over budget" with budget to spare, the exploring arms at 32 FAIL cases
-whatever the tier (4000, 5500 or 7100 s). A step's own cost now covers every
-observation that called the model or completed without calling it; the typical
-and worst-case prices of a step that never ran still come from model-calling
-observations only (scoring `mvp3-score-5`).
+`z_quantile` and `t_quantile` (two-sided, at any level; the t quantile inverts
+the CDF, so a family-wise adjusted interval needs no table), `wilson_interval`,
+`newcombe_interval` (a difference of two rates) and `within_group_spearman` (a
+rank correlation taken inside groups, so a shift between the groups does not
+count). Standard library only; the triage controller's verdicts use them.
 
-### Fixed — an expansion's battery ran past the budget
+### Added — provider usage and listed-price cost on API models
 
-The decision to expand was checked once, on the sum of the battery steps'
-estimates over the new cases, and the battery then ran unchecked: on ChartQA
-`triage18` the 64 → 128 FAIL expansion was estimated at 1668 s from the cases
-measured so far and cost 2413 s (the later cases were dearer), so the 4000 s
-arms that expanded charged 4220–4548 s. The battery now runs chunk by chunk,
-every immediate step on one chunk of the new cases before any step moves to the
-next, with the budget checked before each chunk on the cost measured so far,
-like every other action; a refusal stops the run (`stop: budget`, pending
-`expansion`) with the chunks measured so far routed and a check that never ran
-on the remaining new cases untested (a case with no fired check is X), so an
-expansion overshoots by at most one chunk of one step.
+The gemini runtime sums the token counts every response reports, and
+`APIModel.usage_counters()` exposes them with the request and retry counts.
+`baseline.json` gains `api_usage` and `usd` for the Stage 0 pass; `usd` comes
+from a dated price table (`models/backends/api/prices.py`: only prices read off
+the provider's page; an unlisted model's cost is `None`, never a guess, and the
+input part is an upper bound because implicit cache hits are not reported). The
+gemini runtime merges per-call kwargs over its own sampling, so a re-sampling
+probe gets its `temperature` there (the endpoint backend drops per-call kwargs).
 
 ### Fixed — a gradient pass keeps no graph through the media encoders; a case that does not fit is skipped
 
@@ -617,215 +606,7 @@ without a graph (`media_encoders_without_grad`, found by the towers' names and
 the spec's audio hint; `CaptureSpec(media_grad=True)` keeps the old behaviour).
 Readings are unchanged; the pixel cap is the model's own and stays. `gradcam`
 and `generic_attention` also skip a case whose graph still does not fit
-(`skip_reasons: out_of_memory`) instead of failing the chunk: in the ChartQA
-validation (`triage17`) the failed chunk stopped both steps on the S route at
-12 of 135 cases.
-
-### Added — random and cheapest-first controls for the scored scheduler
-
-`--triage-scheduler random` and `--triage-scheduler cheapest` (reports
-`triage_report.random.*` / `triage_report.cheapest.*`) take the scored
-scheduler's candidate pool, budget, gain floor and stop rules and differ in the
-pick only: a seeded uniform draw among the candidates at or above the gain
-floor, or the lowest-cost one (an unpriced candidate last, ties by soft order).
-Neither explores nor takes an explainer, so the scored scheduler without
-exploration is their nearest value arm and the comparison isolates the value
-ordering. Decisions record `choice: random | cheapest` and a rationale;
-`scoring.choose(policy=)` carries the rule.
-
-### Added — the pool can be split into EXPLORE and CONFIRM by media content
-
-`--confirm-split-by media` (default `case`) draws the explore/confirm split over
-media groups: cases on the same image (by content) go to one side, stratified by
-the labels the group holds, so DISCOVERY and CONFIRM never share an image and
-the diagnostic validation leaves nothing out. Under the per-case split 207 of
-ChartQA's 500 CONFIRM cases shared a chart with DISCOVERY and were dropped, not
-at random (charts with two questions). The bundle records `split_by`; the
-per-case split stays the default because a judge-driven run splits by case and
-the two policies are compared case for case.
-
-### Added — a validation-only source for the diagnostic validation
-
-`--triage-validation-source MANIFEST` (with `--triage-validate`) adds cases used
-only for DIAGNOSTIC_VALIDATION: labelled by their own Stage 0 pass
-(`<run>/baseline_validation_source.json`), never seen by the controller or the
-judge, and joining the CONFIRM cases under the same rule (a case on media
-DISCOVERY contains is left out; a source row repeating an id of the pool is
-left out too). The partition bundle records where the validation cases came
-from and the source manifest's hash. On ChartQA (1000-case pool) the validation
-cases were 293 with 100 FAILs, 7 of them on the N route: nothing there could be
-decided. `python -m evalrx.benchmark.tasks.chartqa <dir> --exclude
-<pool>/manifest.json` freezes the human-authored rows the pool left (the rest
-of the test split, then the val split) as such a source.
-
-### Changed — the judge explains what already ran, and is re-asked only about what it can predict
-
-A re-ask fired when a route with carded tools left had fewer than two live
-explanations. It counted the steps a route is cut on, which are never offered
-to the judge, so a route whose only tools left were such steps asked a question
-that could not include it (ChartQA, Qwen3.5-2B: the full-budget D arm's second
-ask, for U with only `self_consistency_n10` left). The trigger now counts the
-steps the request offers. `logprob_entropy` on U joins `DEFINITIONAL`: an
-answer another one out-samples has a close-call token, so U's low confidence is
-its cut read off the output distribution, neither an issue nor a prediction on
-U.
-
-That left U on ChartQA with no tool the judge could predict: its rule layers
-hold only those two (the option rotation is for letter answers), and the judge
-was offered only tools still to run on a route. The tools that already ran on
-a route's cases (knockout, patchscope, tuned_lens, ...) are now offered too,
-under `already_run`, with their readings in view: a prediction on one is
-checked against them during the triage (a fit, not a test), tested on new cases
-by the validator, and gives no D, as the tool is not run again. The first ask
-no longer needs a tool left to run; a re-ask still does, as only such a tool
-brings new evidence. Explanations `mvp4-explain-6`, validation
-`mvp4-validate-5`.
-
-### Changed — triage validation: supported phenomena over a grid of thresholds; explanations met on new cases
-
-Whether two readings are one phenomenon was decided at one threshold (|rho| >=
-0.5), and correlations near it decided which arm found more. The main metric is
-now each arm's supported phenomena at every threshold of `RHO_GRID` (0.3 to 0.7
-by 0.05, `validation.supported_curve`, report `phenomenon_curve`). An arm found
-more than another only where it has more at every threshold. The live
-explanations at each arm's stop are frozen with the family, and the validator
-runs the steps their predictions name that no issue ran on that route, so each
-prediction is checked on new cases unless its step cannot run there. A
-reading a route is cut on (`DEFINITIONAL`, now in `explanations.py`; e.g.
-`self_consistency_n10` on U) is neither offered to the judge for that route
-nor measured for an explanation: the validator labels such a prediction
-`definitional`, neither support nor contradiction.
-
-Verdicts are one-sided: every issue claims a direction, so it is tested at
-alpha/K on its claimed side (its interval at 1 - 2 alpha/K) rather than at
-alpha/2K; a false `supported` anywhere in the family still has probability at
-most alpha. Each explanation the judge proposes now names one or two primary
-predictions, the readings it stands or falls on; competing explanations of a
-route must differ on one, and an explanation without one, or that cannot be told
-apart from an earlier one, is dropped when the reply is read. Only primary
-predictions keep an explanation live during the triage and enter D. The
-validator runs the steps of the frozen explanations' primary predictions, tests
-the distinct primary predictions as one family (one-sided Bonferroni), and calls
-an explanation `supported` (every primary prediction hits), `refuted` (one
-misses), `undecided` or `untestable`; other predictions are reported at 95%. An
-explanation from an earlier version, without primaries, stands on all its
-predictions. A re-ask of the judge keeps the explanations still live and adds
-the new ones that compete with them (`explanations.carry_over`; a new one that
-cannot be told apart from a kept one is dropped, a reused id is renumbered), so
-an explanation live at the stop is frozen however many asks came after it, and
-a failed re-ask loses nothing. Validation version `mvp4-validate-4`,
-explanations `mvp4-explain-5`.
-
-### Changed — the U re-sampling check needs another answer to be the most frequent
-
-The re-sampling part of U fired when any one of the 5 samples differed from
-the Stage-0 answer. At temperature 1.0 that is ordinary noise on open answers
-(ChartQA, Qwen3.5-0.8B: 16/32 PASS cases fired). It now fires when another
-answer was sampled more often than the Stage-0 answer; a tie stays clear. The
-check also records `base_is_modal`. The rewording part is unchanged. Rules
-version `mvp4-rules-4`.
-
-### Fixed — triage controls on open-answer tasks
-
-`triage_cases` gave every record its gold answer as stratum, whatever rule the
-sample was drawn with, and controls are matched within a stratum. On an
-open-answer task (sampled with `stratum="none"`) almost no PASS case shares a
-FAIL case's gold, so route readings had few controls (ChartQA: 5 for 30 U
-FAIL cases) and the follow-up steps ran on those few. `triage_cases` takes the
-sampler's rule (`stratum=`), passed by `run_triage` and the validator; yes/no
-and letter tasks are unchanged. Rules version `mvp4-rules-3`; the judge
-context's `fail_by_gold` is now `fail_by_stratum`.
-
-### Added — triage diagnostic validation (MVP-4, first version)
-
-The triage run fixes its data roles before the controller sees a case
-(`<run>/partition_bundle.json`): DISCOVERY = EXPLORE, DIAGNOSTIC_VALIDATION =
-the CONFIRM cases on media DISCOVERY does not contain. `--triage-validate`
-freezes the issues the report supports (route signals and reading differences
-on routes, `probing/validation.py`), writes the family and a power plan from
-DISCOVERY to `<run>/validation/frozen.json`, then validates every issue once
-at a Bonferroni-adjusted level: supported / refuted / inconclusive /
-unavailable. Readings that go together case by case within FAIL and within the
-controls (pooled within-group Spearman |rho| >= 0.5, same route) are grouped
-into one phenomenon, and each arm is credited with its own issues' verdicts
-grouped that way (supported phenomena is the main count). Interval helpers
-take a level (`explanations.t_quantile` inverts the t distribution exactly;
-`triage.difference_interval(z=...)`); `controller.analyzer_extras` gives the
-validator DISCOVERY's frozen lens references and fit set; the validator
-refuses a report from another rules version.
-
-### Changed — triage readings use the model's own answer, not gold
-
-Card readings compare FAIL cases with PASS controls, and a FAIL output is not
-gold by definition, so a gold margin lower on FAIL restated the label. The
-triage steps with a target (`attention_knockout`, `causal_trace`,
-`attention_temperature`, `attention_sensitivity`, `gradcam`,
-`generic_attention`, `patchscope`) now use `target="prediction"`; the
-"wrong before, right after" readings (`fixed_*`) stay in the step output but
-are off the cards; `run_triage` and the validator refuse a carded step whose
-target, in its config or the host's analyzer kwargs, is gold
-(`explanations.label_bound`). Rules version `mvp4-rules-2`, explanations
-`mvp4-explain-3`.
-
-### Changed — triage exploration draws from its own targets, on the evidence spending
-
-Exploration's share (`--triage-explore-share`) is now of the evidence spending,
-not including the judge's calls, and it draws only from targets the value never
-takes: the next candidate of a route too small to be active, and on each active
-route the representative of every other route's layer it does not own (steps
-with readings to compare with the controls), priced at a budget check's
-conservative estimate. Completing a target on its route is paid from the share
-until its readings so far show a difference outside the band; from then on it
-is completed on value (T, an incomplete step). Alternatives run only on
-their D; `--triage-explore-from candidates` keeps the previous draw (the other
-candidates, alternatives included) for ablations.
-
-### Changed — triage scored scheduler: decidable D, alternatives priced by R, exploration share (MVP-3)
-
-D counts each conflicting pair of live explanations by how decidable the
-conflict is on the route's cases (`explanations.decidability`, version
-`mvp3-explain-2`): taking each prediction as true at a reference difference (0
-for `same`, one standard deviation of the reading past the band for
-`up`/`down`), the cases a side the verdict's interval needs to contradict the
-other; each side scores `min(1, n / needed)` and the conflict the mean. The
-spread comes from the step's own measurements in this run, else the least
-favourable value, so three FAIL cases settle an unmeasured up-versus-same
-conflict to 1/6 where they counted in full before. An answered layer offers its
-other candidates as alternatives with R = 0.5 when they give the same kind of
-evidence as the tool that answered it (`PlanStep.evidence`) and 0 otherwise;
-they close no gap and cover no unit, so they run only on a D above their R, and
-the judge is offered them (`alternative_to`) from the first ask. Exploration
-takes a share of the spending (`--triage-explore-share`, default 0.1) instead
-of every 10th decision, and below the gain floor the run explores until no
-candidate fits the share. `--triage-weights` sets the weights of D, T, C and R
-for ablations (scoring `mvp3-score-4`). A judge call is asked only while the
-largest call so far fits the budget, so a run overshoots by at most its first
-call; a run whose remaining candidates are over budget stops for `budget`
-even when cheaper zero-gain alternatives are left. On Qwen3.5-0.8B POPE
-decidability cut D on the 3-case N route from 0.67-1.0 to 0.11-0.22 and the
-unbudgeted D arm's evidence from 1603 s to 1350 s; of 19 alternatives the D arms
-ran, 7 were chosen on value and 12 by exploration, so the extra evidence
-mostly comes from exploration, and whether D pays for its judge (about 30% of
-the evidence cost) still needs MVP-4's validated metric.
-
-### Changed — triage spends by measurement: chunked steps, no per-analyzer cost prior
-
-Steps run in chunks of `--triage-chunk` cases (default 8, FAIL and PASS
-alternating); the budget is checked before every chunk on the cost measured
-so far, so a step whose cost nobody knew overshoots by at most one chunk, and
-a chunk that raises stops the rest of the step. Cost estimates no longer use
-per-call rates or `calls_per_case` (kept for reservations only): a step that
-has run is priced at its own measured cost per case, one that has not at the
-run's median case (ranking) or its most expensive case (budget checks). A
-calibration on Qwen3.5-0.8B showed why: tools' cost ratios hold within a
-family on one model (generate tools ~ the number of generate calls, forward
-tools within ~15% against `embed_lens`) but not across input sizes
-(`patchscope` 3.9-16.7x `embed_lens` between 72 and 985 media tokens), and
-per-case cost also grows with batch size for several tools. The scored
-scheduler decides one chunk at a time (scoring `mvp3-score-3`): T and D are
-earned in proportion to the share of the route's remaining FAIL cases a chunk
-covers, and further chunks of a step it already took do not count against
-`--triage-max-actions`.
+(`skip_reasons: out_of_memory`) instead of failing the batch.
 
 ### Changed — the batch-dependent analyzers run per case; seeded self-consistency
 
@@ -842,142 +623,20 @@ under torch's random state seeded from the seed and the case's content
 every case's samples at temperature 1.0 are identical whether the cases run in
 chunks, in one batch or in reverse order, where before 7 of 64 route labels
 changed between two runs that executed in a different order. A model that
-samples on the provider's side is not affected. The triage passes EXPLORE in the sampler's rank
-order (the first 32 cases as the tuned lens's fit set), so all four steps are
-`reuse` steps: they run on new cases only and in chunks. `PlanStep.deferred`
-marks the battery steps no route reads (`embed_lens`, `patchscope`).
+samples on the provider's side is not affected. `self_consistency` asks one
+`generate` call per sample rather than one batch, so a seeded case draws the
+same samples whatever the backend's batch size.
 
-### Added — triage competing explanations: D for the scored scheduler (MVP-3, second part)
-
-`--triage-explanations judge` (with `--triage-scheduler scored`) has the
-chain's judge propose, per active route, up to three competing local
-explanations of the route's FAIL cases, each predicting `up` / `down` /
-`same` / `unknown` for the readings of every tool still to run there (FAIL mean
-minus PASS control mean against a band fixed per reading in
-`probing/explanations.py`, version `mvp3-explain-1`). The judge is asked once
-the sample has settled and again, at most three asks, when the evidence has
-decided a prediction and a route with tools left has fewer than two live
-explanations. Code checks each prediction on the 95% interval of the difference
-(hit inside the predicted region, miss outside, else undetermined); a miss
-contradicts the explanation. A candidate's D is the share of pairs of its
-route's live explanations whose predictions for it conflict (scoring version
-`mvp3-score-2`). The judge sees route summaries and readings only, never a
-case or CONFIRM; each call's prompt, reply and cost is stored under
-`probing/explanations/`, so a resumed run reads it back. The report is
-`triage_report.scored_d.*`; every report now carries `outcomes` (each card
-reading's FAIL-vs-control difference per route), and `compare.py` counts the
-pairs of the explaining run's explanations each run's evidence tells apart.
-Only each open layer's current candidate is offered for prediction. On
-Qwen3.5-0.8B POPE (claude-opus-5 judge, two asks, 169 s) D reorders the
-follow-ups but changes neither the set that runs nor the pairs of explanations
-the final evidence tells apart (4/7 for every scheduler); under a tight budget
-the judge's time costs coverage. The re-ask after the first S explanations were
-all contradicted proposed one that patchscope then confirmed out of sample
-(gold readable at no depth: peak probability FAIL - control -0.85). D does not
-yet discount predictions the route's case count cannot decide.
-
-### Changed — triage budgets charge the evidence read
-
-`--triage-budget-sec` / `--triage-budget-usd` are checked against the evidence
-the run reads, each observation at its first execution's cost, plus judge
-calls (`cost.charged` in the report), not against everything the ledger has
-recorded across invocations: a resumed run or a second scheduler on the same
-ledger now decides as the first run did.
-
-### Added — triage scored scheduler (MVP-3, first part)
-
-`--triage-scheduler scored` replaces the rules' rounds with one decision at a
-time: every feasible candidate (each active route's open or stale layer, the
-expansion, the deferred battery steps) gets
-`U = q·[D + T + C − R]₊ / (c + ε)` (`probing/scoring.py`, version
-`mvp3-score-1`) and the highest wins, ties going to the soft order; taking a
-later layer first is recorded as a soft-order exception. D is 0 until
-competing explanations with predictions exist; T is 1 for extending a
-`reuse` step to a route's new cases or a contradiction, 0.5 for an expansion
-that may close a recorded gap; C is the coverage gap over `layer × gold
-stratum` units the action removes; R filters an observation that already
-exists; q is `(successes+1)/(attempts+2)` over the analyzer's distinct
-observations (unsupported is not an attempt); c is the step's own cost per
-case, else measured per-call rates, on the primary axis (USD when every
-action is priced, else wall seconds). Every 10th decision explores with a
-seed; no candidate above the gain floor (0.01) stops the run. While an
-expansion can still follow, no batch-dependent candidate is taken (its reading
-would be superseded; its layer waits rather than falling back). On
-Qwen3.5-0.8B POPE it reaches the rules' follow-ups, readings and call counts
-exactly, with twice the decisions (each expansion makes it extend what it ran
-on the smaller sample): with D = 0 it only reorders. Decisions read
-only the scheduler's own evidence and price candidates as if fresh, so a
-shared ledger saves compute without changing choices; the report
-(`triage_report.scored.*`) lists every candidate's components per decision.
-Both schedulers' reports now carry `cost.evidence` (the first-execution cost
-of every observation read), `cost.controller_sec` and `coverage`;
-`probing/compare.py` compares two reports. `--triage-budget-usd` caps USD the
-way `--triage-budget-sec` caps seconds. Adoption of earlier chunks is limited
-to chunks inside the target, so no case enters the evidence without a
-decision that asked for it.
-
-### Added — `prompt_contrast(gen_kwargs=...)`; describe-first gets its own output room
+### Added — `prompt_contrast(gen_kwargs=...)`
 
 `prompt_contrast` takes per-call generation settings for every re-ask
 (baseline included); without them it behaves as before (Qwen3.5-0.8B: every
-reworded and threshold answer identical to the earlier run). The triage's
-describe-first candidates ask for `max_new_tokens=256`, so they run under
-POPE's 16-token cap where the backend honours per-call settings; on a
-backend that drops them (OpenAI-compatible endpoint) the step runs without
-them and is gated on the host's cap. Follow-up readings of a strategy that
-asks for text before the answer add `extra_words_*` and `complied_*` (at
-least 5 more words than the re-asked question), and the report warns when
-most route cases did not comply: Qwen3.5-0.8B answers "No" straight away
-(0/17 complied), so its unchanged answers do not test the question;
-gemini-3.1-flash-lite describes first (15/15, about 21 extra words).
-
-### Added — triage expansion and rule-chosen follow-ups (MVP-2)
-
-`--m1-policy triage_active` (policy `mvp2-0`) keeps the nine-step battery and
-then lets fixed rules decide what runs next (`probing/rules.py`, version
-`mvp2-rules-1`). **Expansion** is a controller action: while a gap holds that
-more cases can close — a positive FAIL-minus-PASS routing difference whose 95%
-Newcombe interval still includes zero, or a gold stratum with fewer than 8 S
-or stable PASS cases — the nested sample doubles up to `--triage-max-fail`
-(default 32). A step's observations are now chunks over disjoint case sets
-(`probing/evidence.py`): steps whose per-case rows do not depend on the batch
-(`PlanStep.reuse`; audits, counterfactual swap with partition donors,
-knockout, re-sampling, wrappers) run on the new cases only; `embed_lens`
-and `patchscope` (question words inferred from the batch) are not read by any
-route, so they run once, on the sample the expansions settle on. An observation index by step identity without the cases lets a
-later invocation with a larger cap reuse earlier chunks. **Follow-ups**: each
-route with at least 3 FAIL cases proposes, per round, the next candidate of
-its first open layer (default representative, then fallbacks), on its FAIL
-cases plus gold-matched PASS controls; a failed or refused candidate falls
-back within its layer, a valid one advances, candidates the model cannot run
-are passed over at no cost, and a layer done on fewer cases is extended
-first. `--triage-max-actions` (default 12) caps the decisions; `--triage-budget-sec`
-also skips an action whose estimate exceeds what is left. Every decision is a
-trace event naming its rule, condition and what it passed over; the report
-adds sample revisions, decisions, descriptive follow-up readings (route FAIL
-vs controls) and every route's layer states. Report keys changed: `steps` is
-now `executions`; `next_candidates` and `probing/proposals.py` are gone (the
-rules run the candidates instead of listing them). An edit refused on any
-chunk refuses the step on every case. The MVP-0 entry point
-`run_triage_mvp0` is the same controller.
-
-### Added — triage on API models: provider usage, dollars, next experiments (MVP-1)
-
-The gemini runtime now sums the token counts every response reports
-(`state["usage"]`: prompt, completion and thought tokens, plus responses that
-reported none), and `APIModel.usage_counters()` exposes them with the request
-and retry counts. The triage executor differences two reads around each
-action (`cost["api_usage"]`), the runner does the same around Stage 0
-(`baseline.json` gains `api_usage` and `usd`), and `usd` comes from a dated
-price table (`models/backends/api/prices.py`: only prices read off the
-provider's page, checked 2026-10-17; an unlisted model's cost is `None`, never
-a guess, and the input part is an upper bound because implicit cache hits are
-not reported). The report adds a cost summary for the invocation. On the
-gemini backend the U sampling check now runs: the runtime merges per-call
-kwargs over its own sampling, so `self_consistency` gets `temperature=1.0`
-(the endpoint backend drops per-call kwargs and stays untested). The report
-also listed rule-based next candidates for every route with FAIL cases, each
-gated on the actual model (superseded in MVP-2, which runs them).
+reworded and threshold answer identical to the earlier run). A strategy
+that asks for text before the answer adds `extra_words_*` and `complied_*`
+readings (at least 5 more words than the re-asked question): Qwen3.5-0.8B
+answers "No" straight away under a describe-first instruction (0/17 complied),
+so its unchanged answers do not test the question; gemini-3.1-flash-lite
+describes first (15/15).
 
 ### Fixed — logit margins compared an answer with its own other spelling
 
@@ -999,32 +658,6 @@ forms and counts a layer as reading the answer when any form ranks first.
 Knockout and other margins measured with a decoder-backed tokenizer before
 this change are not comparable with new ones.
 
-### Added — triage U and S routes (policy `mvp0-2`)
-
-The triage plan now runs five more actions after the knockout. U (an answer
-that moves) has two required parts: `self_consistency`, run once per case
-(the executor's new `per_case` mode, since the analyzer reads only
-`cases[0]`) at the host's sampling settings (`temperature=1.0` plus the run's
-`top_p`/`top_k` on local backends; greedy settings leave it untested), and
-`prompt_contrast` with the question kept verbatim inside two neutral wrappers
-(a wrapper whose answer is unreadable is an invalid control). Answers are
-compared with the task's new label-blind `answer_key` (`benchmark.scoring`,
-`tasks.answer_key`), never graded. S is a FAIL case on which H, N (cases with
-media; N is now `not_applicable` without media) and both U parts ran and none
-fired; a missing check leaves it in X, and a PASS case with every check clear
-has no route. The S readings on every case are descriptive: a threshold
-instruction (`prompt_contrast` "sensitive", yes/no tasks only; others record
-the step as `not_applicable`), `embed_lens(layer=0.9)` and
-`patchscope(target="gold", media_layers=3)`. Both lenses gain a question-word
-reading — prompt words found in at most half of the batch's distinct prompts
-(`_internals/words.py`), so template words never count: `el_query_sim`, and
-`ps_media_query_hits`/`_share` (media tokens decoded as the case's question
-word). Patchscope's patch self-check now raises `FidelityError` (still a
-`RuntimeError`) and reports `patch_fidelity`, so the triage records an
-unfaithful patch as `unfaithful`. `prompt_contrast` also keeps untruncated
-outputs as an `outputs` artifact, and the executor keeps a step's named
-result artifacts with its findings (`keep_artifacts`).
-
 ### Added — counterfactual swap donors (`modality_ablation(donor_rule="counterfactual")`)
 
 An unchanged answer after a media swap is only evidence when the donor's
@@ -1038,14 +671,9 @@ a donor whose gold equals the wrong answer makes "unchanged" correct); that
 gold is what a correct answer must become, recorded as
 `ablation_<slot>_donor_expected`. Otherwise it falls back to the content rule
 and records `ablation_<slot>_donor_kind="content"`. `n_counterfactual_<slot>`
-counts the former. The default `donor_rule="content"` is unchanged. The triage
-controller uses the counterfactual rule with the whole EXPLORE partition as
-the pool; on yes/no and letter tasks, N is tested only on counterfactual swaps
-(content-only swaps leave it untested with the reason), and the report adds
-donor kinds and how often a counterfactual swap moved the answer to the
-donor's gold.
+counts the former. The default `donor_rule="content"` is unchanged.
 
-### Changed — edit-free self-checks run on every analysed case
+### Changed — edit-free self-checks run on every analysed case and raise `FidelityError`
 
 `attention_knockout`, `attention_sensitivity`, `attention_temperature` and
 `generic_attention` used to check the attention tap (and, on hybrid stacks, the
@@ -1061,25 +689,10 @@ case per mechanism, the number of argmax changes and every per-case check.
 `check_fidelity` accepts the caller's native logits (`base=`) to save a
 forward. Cost: one extra tapped forward per case (plus one linear re-run on a
 hybrid stack). Under `sdpa` these analyzers will now usually refuse on
-Qwen3.5; use `--attn-impl eager`, where the tap is exact. The triage
-controller's action identity now includes a content hash of the analyzer's
-module and `analyzers/_internals`, so a code change re-runs the action instead
-of reading back an old observation.
-
-### Added — triage probing controller, MVP-0 (`--m1-policy triage_active`)
-
-An opt-in alternative to the judge-selected M1 (`evalrx/eval_agent/probing/`).
-After Stage 0 and the usual EXPLORE/CONFIRM split, a host-side controller runs
-a fixed plan — `answer_extraction_audit`, `termination_audit` (no
-continuation), `modality_ablation(mode="swap")`, `attention_knockout(target="gold")`
-— on a matched, nested FAIL/PASS sample of EXPLORE, exactly as planned (no
-backfill, cap or generated probes), and writes `selection_trace.jsonl`,
-`cost_ledger.jsonl`, per-action observations and a triage report (H/N/X route
-labels traced to case, field, action and fidelity verdict) under
-`<run>/probing/`. Outcomes are typed (`ok` / `unsupported` / `failed` /
-`unfaithful`) and never written as zeros; a rerun reads finished actions back
-instead of re-running them. No judge is called and M2–M5 do not run. The
-default `--m1-policy judge` path is unchanged.
+Qwen3.5; use `--attn-impl eager`, where the tap is exact. The refusal is a
+`FidelityError` (a `RuntimeError` subclass carrying the check's `verdict`), also
+raised by `require_fidelity` and `require_edit_fidelity`, so callers can tell an
+untrustworthy edit from an ordinary failure without parsing the message.
 
 ### Fixed — `modality_ablation(mode="swap")` could swap in the same media
 
@@ -1090,13 +703,6 @@ next case in batch order whose media differs in content (file bytes or
 pixels), each row records `ablation_<slot>_donor` and the compared answers, and
 `n_drop_fallback_<slot>` counts cases that had to fall back to drop. `drop`
 mode output is unchanged.
-
-### Changed — fidelity refusals raise `FidelityError`
-
-`require_fidelity` and `require_edit_fidelity` raise
-`evalrx.analyzers._internals.attn_tap.FidelityError` (a `RuntimeError`
-subclass carrying the check's `verdict`), so callers can tell an untrustworthy
-edit from an ordinary failure without parsing the message.
 
 ## [0.2.0] — 2026-11-14
 
