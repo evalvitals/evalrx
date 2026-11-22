@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from contextlib import nullcontext
 from typing import Any, Callable, TypeVar
 
 from evalrx.core.capability import Capability, CapabilityError
@@ -28,7 +29,7 @@ from evalrx.core.model import Model, TokenLogprob, Trace
 from evalrx.core.spec import AttnSemantics
 from evalrx.core.tool import ChatTurn
 from evalrx.models._media import AUDIO_SAMPLE_RATE, resolve_audio
-from evalrx.models.backends.base import Backend, RuntimeConfig
+from evalrx.models.backends.base import Backend, RuntimeConfig, call_sampling
 from evalrx.models.backends.hf._util import (  # noqa: F401
     _check_audio_duration,
     _collect_message_images,
@@ -37,6 +38,7 @@ from evalrx.models.backends.hf._util import (  # noqa: F401
     _populate_vision_extras,
     _read_nested_attr,
     collate_encodings,
+    media_encoders_without_grad,
 )
 from evalrx.models.backends.hf.decoding import ContrastiveDecodingMixin
 from evalrx.models.backends.hf.specialists import SpecialistRepairsMixin
@@ -456,7 +458,7 @@ class HFLocalModel(ContrastiveDecodingMixin, SpecialistRepairsMixin, Model):
         The call's own *kwargs* win over ``runtime.sampling``, the decoding the
         model is deployed with.
         """
-        kwargs = {**self.runtime.sampling, **kwargs}
+        kwargs = call_sampling(self.runtime.sampling, kwargs)
         # "max_tokens" is the OpenAI-style name FixAgent's judge-proposed L2
         # PipelineSpecs use (see fix_tools._safe_generation_kwargs and the
         # _L2_PROMPT schema); transformers' generate() only recognises
@@ -717,8 +719,14 @@ class HFLocalModel(ContrastiveDecodingMixin, SpecialistRepairsMixin, Model):
         # GRADIENTS: CaptureSpec.with_grad keeps the graph so a caller can
         # differentiate the returned logits (pair it with to_cpu=False). Default
         # stays no_grad: an attention capture with a live graph costs gigabytes.
+        # The graph starts at the decoder: the media encoders run without one
+        # unless CaptureSpec.media_grad asks for it (a vision tower's attention
+        # over a large image, kept for backward, is tens of GB).
         with_grad = bool(spec is not None and getattr(spec, "with_grad", False))
-        with torch.set_grad_enabled(with_grad):
+        media_grad = bool(spec is not None and getattr(spec, "media_grad", False))
+        audio_hint = self.spec.audio.audio_tower if self.spec.audio is not None else None
+        encoders = media_encoders_without_grad(model, audio_hint) if with_grad and not media_grad else nullcontext()
+        with torch.set_grad_enabled(with_grad), encoders:
             outputs = model(**enc, **flags)
 
         layers = spec.layers if spec is not None else None

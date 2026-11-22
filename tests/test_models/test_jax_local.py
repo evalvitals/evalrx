@@ -223,6 +223,10 @@ def test_generate_kwargs_map_to_sampling_params():
     assert m._sampling({"do_sample": True}).temperature == 1.0
     assert m._sampling({"temperature": 0.7, "do_sample": False}).greedy
     assert m._sampling({"max_new_tokens": 2, "max_tokens": 9}).max_new_tokens == 2
+    m.runtime.sampling = {"do_sample": False}            # deployed greedy
+    assert m._sampling({}).greedy and m._sampling({"top_p": 0.9}).greedy
+    assert m._sampling({"temperature": 1.0}).temperature == 1.0   # a call's own temperature samples
+    assert m._sampling({"temperature": 0.0}).greedy
 
 
 class ScopedToyAdapter(ToyAdapter):

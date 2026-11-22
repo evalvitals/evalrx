@@ -21,6 +21,21 @@ if TYPE_CHECKING:
     from evalrx.core.spec import ModelSpec
 
 
+def call_sampling(deployed: dict[str, Any], call: dict[str, Any]) -> dict[str, Any]:
+    """The decoding of one generate call: its own kwargs over the deployed ones.
+
+    ``do_sample`` and ``temperature`` say one thing between them. A call that
+    names a temperature and no ``do_sample`` is read by its temperature alone:
+    a re-sampling probe at ``temperature=1.0`` samples on a model deployed
+    greedy (``do_sample=False``), where merging key by key left the deployed
+    ``do_sample=False`` in force and every sample came back the greedy answer.
+    """
+    merged = {**deployed, **call}
+    if "temperature" in call and "do_sample" not in call:
+        merged.pop("do_sample", None)
+    return merged
+
+
 @dataclass
 class RuntimeConfig:
     """How to run a model — orthogonal to *which* model (that's the spec)."""

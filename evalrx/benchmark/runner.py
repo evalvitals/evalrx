@@ -13,6 +13,7 @@ candidates) and the ``gemini`` family runs through Google's Gen AI API
 
 from __future__ import annotations
 
+import argparse
 import json
 import time
 from dataclasses import replace
@@ -21,6 +22,10 @@ from typing import Any
 
 from . import tasks as T
 from .models import Resolved
+
+#: Seed of the label-stratified EXPLORE/CONFIRM split, shared by the diagnosis
+#: loop and the triage controller so both see the same EXPLORE cases.
+CONFIRM_SPLIT_SEED = 20260818
 
 
 def model_label(resolved: Resolved) -> str:
@@ -168,13 +173,40 @@ def load_model(resolved: Resolved, args, task: T.Task):
 _SAMPLED_M1 = ("self_consistency", "coverage_verification_gap")
 
 
+def _sampling_kwargs(resolved: Resolved, args) -> "dict | None":
+    """Per-call sampling settings for re-sampling analyzers; ``None`` where the
+    backend fixes sampling in its runtime and ignores per-call kwargs.
+
+    The gemini runtime merges per-call kwargs over its own sampling
+    (``_Runtime.config``), so a temperature reaches the request there; the
+    endpoint's generate_fn drops them.
+    """
+    if resolved.backend in ("hf_local", "jax_local"):
+        return {"temperature": 1.0, "top_p": args.top_p, "top_k": args.top_k}
+    if resolved.backend == "gemini":
+        return {"temperature": 1.0}
+    return None
+
+
+def _usage_cost(model, before: "dict | None") -> dict:
+    """Provider usage since *before* and its listed-price USD (``{}`` for a model with no counters)."""
+    from evalrx.eval_agent.triage.metering import usage_counters, usage_delta
+    from evalrx.models.backends.api.prices import usd
+
+    usage = usage_delta(before, usage_counters(model))
+    if usage is None:
+        return {}
+    model_id = getattr(getattr(model, "spec", None), "hf_repo", None) or getattr(getattr(model, "spec", None), "key", None)
+    return {"api_usage": usage, "usd": usd(model_id, usage)}
+
+
 def _sampling_analyzer_overrides(resolved: Resolved, args) -> dict:
-    if resolved.backend not in ("hf_local", "jax_local"):
+    gen = _sampling_kwargs(resolved, args)
+    if gen is None:
         return {}
     from evalrx.analyzers.uncertainty.coverage_gap import CoverageVerificationGap
     from evalrx.analyzers.uncertainty.self_consistency import SelfConsistencyAnalyzer
 
-    gen = {"temperature": 1.0, "top_p": args.top_p, "top_k": args.top_k}
     return {
         "self_consistency": SelfConsistencyAnalyzer(gen_kwargs=dict(gen)),
         "coverage_verification_gap": CoverageVerificationGap(gen_kwargs=dict(gen)),
@@ -647,6 +679,162 @@ def _run_fix(loop, run_dir: Path, ctx, report, cases, args, fix_tier: str) -> di
             "attempted": attempted}
 
 
+def _price_fn(spec):
+    from evalrx.models.backends.api.prices import usd
+
+    model_id = spec.hf_repo or spec.key
+    return lambda usage: usd(model_id, usage)
+
+
+def _triage_explainer(args, spec):
+    """The chain's judge as the scored triage's explainer (``--triage-explanations judge``).
+
+    Triage runs no coding stage, so the judge is built without the coder checks
+    the Gemini judge otherwise needs. The judge must not be the model under test."""
+    from evalrx.eval_agent.triage.explanations import Explainer
+    from evalrx.models.backends.api.prices import usd
+
+    if args.triage_scheduler != "scored":
+        raise SystemExit("--triage-explanations judge needs --triage-scheduler scored")
+    judge_args = argparse.Namespace(**{**vars(args), "allow_codegen": False, "explore": False, "m2_codegen": False,
+                                       "skip_m5": True, "coder_provider": None})
+    judge, _, name, _ = build_judge(judge_args)   # the coder slot carries the judge's resolved model name
+    name = name or args.judge_model
+    if name and name in {spec.key, spec.hf_repo}:
+        raise SystemExit(f"the triage judge ({name}) is the model under test; pick another --judge-model")
+    identity = {"provider": args.judge_provider, "model": name, "effort": args.judge_effort}
+    return Explainer(judge, identity=identity, price_fn=(lambda u: usd(name, u)) if name else None)
+
+
+def _validation_source(args, task: T.Task, model, gen_kwargs: dict, protocol, run_dir: Path, ctx):
+    """``--triage-validation-source``: cases used only for DIAGNOSTIC_VALIDATION, labelled by
+    their own Stage 0 pass (``<run>/baseline_validation_source.json``). The controller and the
+    judge never see them; the partition leaves out those on media DISCOVERY contains."""
+    manifest = Path(args.triage_validation_source)
+    if not manifest.is_file():
+        raise SystemExit(f"--triage-validation-source: {manifest} is missing")
+    candidates, _ = T.build_cases(task, manifest)
+    found, elapsed = _discover(model, candidates, protocol, gen_kwargs, args, task)
+    source = found.cases
+    _mark_short_answers_stopped(task, source)
+    (run_dir / "baseline_validation_source.json").write_text(json.dumps({
+        "model": args.model, "dataset": task.name, "role": "validation source", "manifest": str(manifest),
+        "n": len(source), "n_pass": found.n_pass, "n_fail": found.n_fail, "n_unknown": found.n_unknown,
+        "accuracy": round(found.n_pass / max(1, len(source)), 4), "seconds": round(elapsed, 1),
+        "label_samples": label_samples(task, args), "n_split": _split_votes(source),
+        "cases": _case_labels(source),
+    }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"Validation source: PASS={found.n_pass}, FAIL={found.n_fail}, n={len(source)} "
+          f"({elapsed:.0f}s) from {manifest}")
+    if ctx is not None:
+        ctx.config.update(triage_validation_source=str(manifest), n_validation_source_cases=len(source))
+    return source, manifest
+
+
+def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs: dict,
+                cases, ctx, run_dir: Path, baseline: dict, source=None) -> int:
+    """``--m1-policy triage_active``: the triage battery, then expansions and
+    follow-ups on EXPLORE one action at a time, then stop.
+
+    Same Stage 0 and the same EXPLORE/CONFIRM split as the diagnosis loop; the
+    controller sees EXPLORE only and runs no M2-M5; it calls the judge only with
+    ``--triage-explanations judge`` (scored scheduler: explanations for D, from
+    route summaries, never a case). Outputs go to ``<run>/probing/``.
+
+    The data roles are fixed first (``<run>/partition_bundle.json``): DISCOVERY is
+    EXPLORE, DIAGNOSTIC_VALIDATION the CONFIRM cases on media EXPLORE does not
+    contain, plus the cases of a validation-only *source* (``(cases, manifest)``
+    from :func:`_validation_source`) under the same rule. With ``--triage-validate``
+    the issues the report supports are frozen and validated once on
+    DIAGNOSTIC_VALIDATION (``<run>/validation/``).
+    """
+    from evalrx.eval_agent.triage import explore_confirm_split, run_triage
+    from evalrx.eval_agent.triage.validation import freeze_issues, partition_bundle, validate
+
+    explore, confirm = explore_confirm_split(cases, float(args.confirm_split), CONFIRM_SPLIT_SEED,
+                                             by=args.confirm_split_by)
+    bundle, validation = partition_bundle(explore, confirm, seed=CONFIRM_SPLIT_SEED,
+                                          confirm_split=float(args.confirm_split), manifest=baseline.get("manifest"),
+                                          source=source[0] if source else None,
+                                          source_manifest=source[1] if source else None,
+                                          split_by=args.confirm_split_by)
+    if args.triage_validate and not len(validation):
+        raise SystemExit("--triage-validate needs CONFIRM cases on media EXPLORE does not contain; "
+                         "set --confirm-split above 0 or give a --triage-validation-source")
+    bundle_row = bundle.to_dict()
+    (run_dir / "partition_bundle.json").write_text(json.dumps(bundle_row, indent=2) + "\n", encoding="utf-8")
+    runtime = getattr(model, "runtime", None)
+    identity = {
+        "spec": spec.key, "weights": spec.hf_repo, "backend": resolved.backend,
+        "dtype": getattr(runtime, "dtype", args.dtype), "attn_impl": getattr(runtime, "attn_impl", None),
+        "generation": gen_kwargs, "enable_thinking": bool(args.enable_thinking),
+    }
+    if not gen_kwargs:
+        # API backends carry the sampling (and the output cap) in the runtime, not per call
+        identity["runtime_generation"] = generation_settings(task, args)
+    explainer = _triage_explainer(args, spec) if args.triage_explanations == "judge" else None
+    if explainer is None:
+        ctx.config.update(m1_policy="triage_active", judge_provider=None, judge_model=None)  # none was built
+    else:
+        ctx.config.update(m1_policy="triage_active", judge_provider=explainer.identity["provider"],
+                          judge_model=explainer.identity["model"], triage_explanations="judge")
+    extras: dict = {"modality_ablation": {"score_fn": T.score_case},
+                    "prompt_contrast": {"score_fn": T.score_case}}
+    sampling = _sampling_kwargs(resolved, args)
+    if sampling is not None:
+        # API backends ignore per-call kwargs (their runtime samples); without
+        # settings here the U sampling check stays untested, never trivially clear
+        extras["self_consistency"] = {"gen_kwargs": sampling}
+    # what discovery and validation run with alike
+    shared = dict(seed=args.triage_seed,
+                  stratum="gold" if task.kind in ("yes_no", "multiple_choice_letter") else "none",
+                  host_assumed_finish=bool(task.short_answer), answer_contract=bool(task.output_contract),
+                  n_needs_counterfactual=task.kind in ("yes_no", "multiple_choice_letter"),
+                  task_kind=task.kind, answer_fn=T.answer_key, agree_fn=T.same_answer, analyzer_kwargs=extras, price_fn=_price_fn(spec),
+                  per_call_generation=sampling is not None, chunk=int(args.triage_chunk))
+    report = run_triage(
+        model, explore, out_dir=run_dir / "probing", model_identity=identity,
+        n_fail=args.triage_n_fail, max_fail=args.triage_max_fail, max_actions=args.triage_max_actions,
+        budget_sec=float(args.triage_budget_sec),
+        stage0_cost={"wall_sec": baseline["seconds"], "calls": {"generate": baseline["n"]},
+                     "n_cases": baseline["n"],
+                     **{k: baseline[k] for k in ("api_usage", "usd") if k in baseline}},
+        scheduler=args.triage_scheduler, budget_usd=float(args.triage_budget_usd), explainer=explainer,
+        explore_share=float(args.triage_explore_share),
+        partition={"confirm_split": float(args.confirm_split), "split_by": args.confirm_split_by,
+                   "seed": CONFIRM_SPLIT_SEED,
+                   "n_explore": len(explore), "n_confirm": len(confirm) if confirm is not None else 0,
+                   "n_validation": len(validation), "n_validation_source": len(source[0]) if source else 0,
+                   "bundle_sha1": bundle_row["sha1"],
+                   "confirm_visible_to_controller": False},
+        run_logger=ctx.logger, **shared,
+    )
+    from evalrx.eval_agent.triage.controller import report_name
+
+    name = report_name(args.triage_scheduler, explainer is not None)
+    checked = None
+    if args.triage_validate:
+        checked = validate(model, explore, validation, {name: freeze_issues(report)}, {name: report},
+                           out_dir=run_dir / "validation", model_identity=identity, bundle=bundle,
+                           budget_sec=float(args.triage_validation_budget_sec), run_logger=ctx.logger, **shared)
+    ctx.finalize()
+    summary = {
+        "model": args.model, "spec": spec.key, "dataset": task.name, "modality": task.modality,
+        "backend": resolved.backend, "n_cases": len(cases), "baseline_accuracy": baseline["accuracy"],
+        "m1_policy": "triage_active", "triage": report["summary"],
+        "triage_steps": [{k: s.get(k) for k in ("kind", "key", "analyzer", "status", "reused", "n_cases")}
+                         for s in report["executions"]],
+        "triage_stop": report["stop"], "triage_scheduler": report["scheduler"],
+        "code": report["code"],
+        "triage_explanations": args.triage_explanations,
+        **({"validation": {"frozen_sha1": checked["frozen_sha1"], **checked["arms"][name]}} if checked else {}),
+    }
+    (run_dir / "summary.json").write_text(json.dumps(summary, indent=2, default=str) + "\n", encoding="utf-8")
+    print(f"Done (triage). {run_dir / 'probing' / (name + '.md')}"
+          + (f"; validation: {run_dir / 'validation' / 'validation_report.md'}" if checked else ""))
+    return 0
+
+
 def run(args, task: T.Task, resolved: Resolved) -> int:
     """Run one cell: Stage 0 baseline, the diagnosis loop, then M5 and the fix ladder.
 
@@ -665,11 +853,12 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
     label = model_label(resolved)
     print(f"[model] {label}; backend={resolved.backend}; benchmark={task.title}; n={len(candidates)}")
 
+    triage = getattr(args, "m1_policy", "judge") == "triage_active"
     judge = None
     coder_provider: Any = None
     coder_model: Any = None
     coder_extra: Any = None
-    if not args.baseline_only:
+    if not args.baseline_only and not triage:  # the triage builds its own judge, and only for explanations
         judge, coder_provider, coder_model, coder_extra = build_judge(args)
 
     model, gen_kwargs, spec = _load_target(resolved, args, task, run_dir)
@@ -699,6 +888,9 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
             batch_case_ids=[c.id for c in candidates],
         )
 
+    from evalrx.eval_agent.triage.metering import usage_counters
+
+    usage_before = usage_counters(model)
     discovery, elapsed = _discover(discovery_model, candidates, protocol, gen_kwargs, args, task)
     cases = discovery.cases
     if ctx is not None:
@@ -712,6 +904,8 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         "generation_kwargs": gen_kwargs, "enable_thinking": bool(args.enable_thinking),
         "manifest": str(manifest), "limit": limit,
         "label_samples": label_samples(task, args), "n_split": _split_votes(cases),
+        # what the provider counted for the discovery pass (API models only)
+        **_usage_cost(model, usage_before),
         "cases": _case_labels(cases),
     }
     version = _api_model_version(model)
@@ -734,6 +928,12 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         return 0
     if not discovery.has_m4_groups:
         raise SystemExit("M4 needs both PASS and FAIL cases; adjust --limit / --seed")
+    if triage:
+        source = None
+        if getattr(args, "triage_validation_source", None):
+            source = _validation_source(args, task, model, gen_kwargs, protocol, run_dir, ctx)
+        return _run_triage(args, task, resolved, spec, model, gen_kwargs, cases, ctx, run_dir, baseline,
+                           source=source)
 
     val_cases = None
     if val_manifest is not None:
@@ -768,7 +968,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
         hypothesis_tester=HypothesisTester(judge=judge, min_effect=0.05),
         fix_agent=_fix_agent(args, task, judge, coder_cfg, gen_kwargs, ctx, raw_model, deployed_spec),
         max_cycles=args.max_cycles, run_logger=ctx.logger,
-        confirm_split=float(args.confirm_split), confirm_split_seed=20260818,
+        confirm_split=float(args.confirm_split), confirm_split_seed=CONFIRM_SPLIT_SEED,
         # Default: the 50/50 explore/confirm design — M1-M4 work on EXPLORE
         # (M4 in-cycle), the fix ladder searches on EXPLORE, and CONFIRM is
         # reserved for the single frozen-winner validation.

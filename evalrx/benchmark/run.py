@@ -141,12 +141,70 @@ def build_parser(p: argparse.ArgumentParser | None = None) -> argparse.ArgumentP
                    help="fraction of the main batch reserved as CONFIRM (label-stratified, seed "
                         "20260818); the rest is EXPLORE where M1-M4 and the fix search run. "
                         "0.5 = the 50/50 default; 1/3 with --limit 192 = 128 explore / 64 confirm")
+    p.add_argument("--confirm-split-by", choices=["case", "media"], default="case",
+                   help="triage_active: what the explore/confirm draw is over. case = the loop's own "
+                        "stratified split (a judge-driven run on the same batch sees the same EXPLORE); media = "
+                        "whole media groups (cases on the same image, by content) go to one side, so "
+                        "DISCOVERY and CONFIRM never share an image and the validation leaves nothing out")
     p.add_argument("--val-limit", type=int, default=0,
                    help="with --held-out: cases taken from the top of manifest_val.json "
                         "(0 = the whole validation manifest)")
     p.add_argument("--m1-selection", choices=["pinned", "judge"], default="pinned",
                    help="pinned = the task's static analyzer set; judge = catalog selection "
                         "(modality-gated on the MODEL, so avoid on multimodal specs for text tasks)")
+    p.add_argument("--m1-policy", choices=["judge", "triage_active"], default="judge",
+                   help="judge = the current diagnosis (decision judge over M1-M4, then M5/fix); "
+                        "triage_active = triage controller: after Stage 0, run the triage battery "
+                        "strictly on a matched EXPLORE sample, then expand it and run route follow-ups one "
+                        "action at a time (--triage-scheduler), write the trace, cost ledger and triage report "
+                        "under <run>/probing/, and stop. M2-M5 do not run; a judge is built only with "
+                        "--triage-explanations judge; the controller never sees CONFIRM (only "
+                        "--triage-validate reads it, after the stop)")
+    p.add_argument("--triage-n-fail", type=int, default=8,
+                   help="triage_active: FAIL cases in the sample (PASS controls are matched per gold answer)")
+    p.add_argument("--triage-max-fail", type=int, default=128,
+                   help="triage_active: the most FAIL cases the expansion rule may grow the sample to "
+                        "(doubling from --triage-n-fail; a value at or below it disables expansion)")
+    p.add_argument("--triage-max-actions", type=int, default=30,
+                   help="triage_active: decisions after the battery (expansions + route follow-ups; the "
+                        "scored scheduler's further chunks of a step it already took do not count)")
+    p.add_argument("--triage-scheduler", choices=["scored", "rules"], default="scored",
+                   help="triage_active: scored = the candidate with the highest value per cost, "
+                        "U = q*[D+T+C-R]+/(c+eps), with a share of the spending for exploration (report: "
+                        "triage_report.scored.*); rules = fixed rounds over the routes' layers, no value "
+                        "estimate and no exploration (report: triage_report.*)")
+    p.add_argument("--triage-budget-usd", type=float, default=0.0,
+                   help="triage_active: USD cap on priced API models (0 = none), charged like "
+                        "--triage-budget-sec")
+    p.add_argument("--triage-chunk", type=int, default=8,
+                   help="triage_active: cases per chunk of a reusable step (FAIL and PASS alternating; 0 = one "
+                        "piece). The budget is checked before every chunk on the cost measured so far, and the "
+                        "scored scheduler decides one chunk at a time")
+    p.add_argument("--triage-explanations", choices=["none", "judge"], default="none",
+                   help="triage_active with --triage-scheduler scored: judge = the --judge-provider/"
+                        "--judge-model judge proposes competing explanations with predictions once the "
+                        "sample has settled (and again when the evidence thins them), giving D (none = D "
+                        "stays 0, no judge is built)")
+    p.add_argument("--triage-explore-share", type=float, default=0.1,
+                   help="triage_active with --triage-scheduler scored: the share of the evidence spending "
+                        "exploration may take (0 = none)")
+    p.add_argument("--triage-validate", action=argparse.BooleanOptionalAction, default=False,
+                   help="triage_active: freeze the issues the triage report supports and validate them once on "
+                        "the CONFIRM cases whose media EXPLORE does not contain (<run>/validation/)")
+    p.add_argument("--triage-validation-budget-sec", type=float, default=0.0,
+                   help="triage_active with --triage-validate: wall-clock cap on the validation's evidence (0 = none)")
+    p.add_argument("--triage-validation-source", default=None, metavar="MANIFEST",
+                   help="triage_active with --triage-validate: a manifest of cases used only for DIAGNOSTIC_VALIDATION, "
+                        "beside the CONFIRM cases: labelled by their own Stage 0 pass "
+                        "(<run>/baseline_validation_source.json), never seen by the controller or the judge, and left "
+                        "out where their media DISCOVERY contains (ChartQA: python -m evalrx.benchmark.tasks.chartqa "
+                        "<dir> --exclude <pool>/manifest.json freezes the human rows the pool left)")
+    p.add_argument("--triage-seed", type=int, default=0,
+                   help="triage_active: rank seed of the nested sampler")
+    p.add_argument("--triage-budget-sec", type=float, default=0.0,
+                   help="triage_active: wall-clock cap (0 = none) on the evidence the run reads, each "
+                        "observation at its first execution's cost, plus judge calls; a running "
+                        "action is not interrupted, later ones are skipped")
     p.add_argument("--analyzer-max-cases", type=int, default=0, help="cap per analyzer (0 = every case)")
     p.add_argument("--m2-codegen", action=argparse.BooleanOptionalAction, default=None,
                    help="coder-written M2 statistics tools (default: on)")
@@ -214,6 +272,16 @@ def run_args(args) -> int:
         raise ValueError("max-actions must be positive")
     if args.diagnosis_mode == "agentic" and args.held_out:
         raise ValueError("agentic diagnosis uses EXPLORE; --held-out is supported only in fixed mode")
+    triage = getattr(args, "m1_policy", "judge") == "triage_active"
+    if triage and args.held_out:
+        raise ValueError("--m1-policy triage_active works on EXPLORE only; it has no --held-out role yet")
+    if triage and args.triage_n_fail < 1:
+        raise ValueError("--triage-n-fail must be positive")
+    if triage and args.triage_max_actions < 0:
+        raise ValueError("--triage-max-actions must be non-negative")
+    if triage:
+        if not 0.0 <= args.triage_explore_share < 1.0:
+            raise ValueError("--triage-explore-share must be in [0, 1)")
     dataset = args.dataset or T.DEFAULT_TASK[args.modality]
     task = T.get(dataset)
     if task.modality != args.modality:

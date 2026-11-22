@@ -22,6 +22,7 @@ Images are 16×16 PIL images: 8×8 patches of 2 px, merged 2×2 → 16 image tok
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from types import SimpleNamespace
 from typing import Any
 
@@ -34,6 +35,7 @@ from evalrx.core.case import Inputs
 from evalrx.core.model import Model, Trace
 from evalrx.core.spec import AttnSemantics
 from evalrx.core.tokentype import TokenTypeMap
+from evalrx.models.backends.hf._util import media_encoders_without_grad
 
 IMAGE_TOKEN, VIDEO_TOKEN, VSTART, VEND = 100, 101, 102, 103
 VOCAB = 128
@@ -177,7 +179,8 @@ class TinyVLM(Model):
             # refuses image inputs without it; 4.x models do not take it.
             enc["mm_token_type_ids"] = (enc["input_ids"] == IMAGE_TOKEN).long()
         with_grad = bool(spec is not None and getattr(spec, "with_grad", False))
-        with torch.set_grad_enabled(with_grad):
+        encoders = media_encoders_without_grad(module) if with_grad else nullcontext()
+        with torch.set_grad_enabled(with_grad), encoders:
             out = module(**enc, output_attentions=Capability.ATTENTION in capture,
                          output_hidden_states=Capability.HIDDEN_STATES in capture)
         img_set = set(image_pos)

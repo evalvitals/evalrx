@@ -514,6 +514,196 @@ bookkeeping in one `evalrx.eval_agent.policy.RunState` (the agentic
 - `evalrx.agent_runtime.json_shape.validate_json_shape`: output models
   validate with pydantic.
 
+### Fixed — a re-sampling probe ran greedy on a model deployed greedy
+
+Since the local backends apply the deployed decoding (`RuntimeConfig.sampling`) to
+every call, a benchmark cell with greedy Stage 0 deploys `do_sample=False`, and a call
+that asked for `temperature=1.0` kept it: `self_consistency` and
+`coverage_verification_gap` drew the greedy answer every time (Qwen3.5-2B on ChartQA's
+machine questions: five identical samples on each of 112 cases, where 14 of the 32
+measured before the backends changed had varied), so the triage's re-sampling check
+never fired and M1 read every case as fully consistent. A call that names a temperature and no `do_sample` is now read by its
+temperature alone (`backends.base.call_sampling`, used by `hf_local`, `jax_local` and
+`vllm_offline`); a call that names neither keeps the deployed decoding.
+
+### Added — a triage controller as an opt-in M1 (`--m1-policy triage_active`)
+
+An alternative to the judge-selected M1, in `evalrx/eval_agent/triage/` (not
+`evalrx/probing/`, the probe catalog the judge-driven M1 calls). The default
+`--m1-policy judge` is unchanged; `docs/agentic_benchmark.md` describes a run.
+
+After Stage 0 and the loop's own EXPLORE/CONFIRM split, a host-side controller
+draws a matched, nested sample of FAIL cases and PASS controls from EXPLORE and
+runs a fixed battery on it exactly as written (no backfill, no case cap, no
+generated probes). Each FAIL case is put on routes by label-free checks: H (the
+output or its grading is suspect), N (the answer ignores the media, tested with a
+counterfactual swap), U (the answer moves under re-sampling and rewording), S (a
+stable error: every check ran and none fired) and X (a check is missing). Answers
+are compared under the task's own tolerance (`tasks.same_answer`), not graded
+against gold, and every reading on a card compares FAIL with matched PASS cases
+on the model's own answer.
+
+The controller then decides one action at a time between doubling the sample
+(up to `--triage-max-fail`, while a route's signal is uncertain or a cohort is
+small) and the routes' follow-ups. `--triage-scheduler scored` (default) takes
+the candidate with the highest value per cost, `U = q·[D + T + C − R]₊ / (c + ε)`,
+and gives a share of the spending (`--triage-explore-share`) to steps the value
+never takes; `rules` runs fixed rounds over the routes' layers instead. Steps
+run in chunks (`--triage-chunk`) and are priced at their own measured cost, so
+`--triage-budget-sec` / `--triage-budget-usd` are overshot by at most one chunk.
+With `--triage-explanations judge` the chain's judge proposes competing
+explanations per route, each with predictions code checks against the readings;
+the conflicts between live explanations give the value its D.
+
+Every action is recorded with why it ran, what it cost and whether its
+measurement can be trusted (`<run>/probing/`: `selection_trace.jsonl`,
+`cost_ledger.jsonl`, `observations/`, `triage_report*.{json,md}`). Outcomes are
+typed (`ok`, `unsupported`, `failed`, `unfaithful`), never zeros; a rerun reads
+finished actions back by content identity, which includes a hash of the
+analyzer's code. M2–M5 do not run and the controller never sees CONFIRM.
+
+`--triage-validate` freezes the issues a report supports (a route signal, or a
+reading that differs between a route's FAIL cases and their controls) and
+validates them once on cases the controller never saw: CONFIRM cases on media
+EXPLORE does not contain, plus a validation-only pool
+(`--triage-validation-source`, labelled by its own Stage 0 pass). Each issue is
+tested on its claimed side at a Bonferroni-adjusted level and comes back
+`supported`, `refuted`, `inconclusive` or `unavailable`; readings that go
+together case by case are counted as one phenomenon. `--confirm-split-by media`
+keeps all questions on one image on one side of the split, and
+`python -m evalrx.benchmark.tasks.chartqa <dir> --exclude <manifest>` freezes
+the ChartQA rows a pool left as such a validation pool.
+
+### Added — closed-form intervals in `evalrx.stats.intervals`
+
+`z_quantile` and `t_quantile` (two-sided, at any level; the t quantile inverts
+the CDF, so a family-wise adjusted interval needs no table), `wilson_interval`,
+`newcombe_interval` (a difference of two rates) and `within_group_spearman` (a
+rank correlation taken inside groups, so a shift between the groups does not
+count). Standard library only; the triage controller's verdicts use them.
+
+### Added — provider usage and listed-price cost on API models
+
+The gemini runtime sums the token counts every response reports, and
+`APIModel.usage_counters()` exposes them with the request and retry counts.
+`baseline.json` gains `api_usage` and `usd` for the Stage 0 pass; `usd` comes
+from a dated price table (`models/backends/api/prices.py`: only prices read off
+the provider's page; an unlisted model's cost is `None`, never a guess, and the
+input part is an upper bound because implicit cache hits are not reported). The
+gemini runtime merges per-call kwargs over its own sampling, so a re-sampling
+probe gets its `temperature` there (the endpoint backend drops per-call kwargs).
+
+### Fixed — a gradient pass keeps no graph through the media encoders; a case that does not fit is skipped
+
+`hf_local` ran the whole model under autograd when `CaptureSpec(with_grad=True)`
+was asked, so a vision tower's attention over a large image was kept for the
+backward pass: on Qwen3.5-2B (24 full-attention vision layers, no window, a
+16.7 MP pixel cap) a 918x1811 chart is 6400 patches and the process peaked at
+75 GB, out of memory on an 80 GB card, where other images took 16-20 GB. The
+decoder analyzers (`gradcam`, `generic_attention`, `attribution_patching`)
+differentiate towards decoder activations only, so the media encoders now run
+without a graph (`media_encoders_without_grad`, found by the towers' names and
+the spec's audio hint; `CaptureSpec(media_grad=True)` keeps the old behaviour).
+Readings are unchanged; the pixel cap is the model's own and stays. `gradcam`
+and `generic_attention` also skip a case whose graph still does not fit
+(`skip_reasons: out_of_memory`) instead of failing the batch.
+
+### Changed — the batch-dependent analyzers run per case; seeded self-consistency
+
+`embed_lens(reference=...)` and `patchscope(reference=...)` tell a case's own
+question words from a fixed reference set's prompts (`embed_lens` also its
+recurring words, from the reference's first `reference_media` distinct media,
+cached on the model) instead of the batch; `tuned_lens(fit_cases=...)` fits
+its translators on fixed cases (cached per fit set); `causal_trace` and
+`attribution_patching` seed each case's noise from its content (prompt and
+media) instead of its position in the batch. Without the new arguments the
+lenses behave as before. `self_consistency(seed=0)` draws each case's samples
+under torch's random state seeded from the seed and the case's content
+(restored afterwards; `seed=None` keeps the global state): on Qwen3.5-0.8B
+every case's samples at temperature 1.0 are identical whether the cases run in
+chunks, in one batch or in reverse order, where before 7 of 64 route labels
+changed between two runs that executed in a different order. A model that
+samples on the provider's side is not affected. `self_consistency` asks one
+`generate` call per sample rather than one batch, so a seeded case draws the
+same samples whatever the backend's batch size.
+
+### Added — `prompt_contrast(gen_kwargs=...)`
+
+`prompt_contrast` takes per-call generation settings for every re-ask
+(baseline included); without them it behaves as before (Qwen3.5-0.8B: every
+reworded and threshold answer identical to the earlier run). A strategy
+that asks for text before the answer adds `extra_words_*` and `complied_*`
+readings (at least 5 more words than the re-asked question): Qwen3.5-0.8B
+answers "No" straight away under a describe-first instruction (0/17 complied),
+so its unchanged answers do not test the question; gemini-3.1-flash-lite
+describes first (15/15).
+
+### Fixed — logit margins compared an answer with its own other spelling
+
+`build_margin` (every white-box analyzer's target: knockout, causal trace,
+patchscope, gradcam, attribution and path patching, ...) compared the target
+token with the strongest OTHER token. A BPE vocabulary holds `"Yes"`,
+`" Yes"`, `"yes"` and `" yes"` as different ids, and a model can split one
+answer across them: Qwen3.5-0.8B on POPE gives `" Yes"` 0.80 and `"Yes"` 0.20
+on a correct case, so the gold `"Yes"` margin compared "Yes" with " Yes" and
+came out negative (−1.375) on a correct answer; `target="prediction"` had the
+same problem with its top-2. The comparison token is now the strongest token
+outside the answer's surface forms (`answer_variants`: with or without a
+leading space, lower-case or capitalised for answers longer than one
+character, each confirmed by the decoder; without a decoder only the literal
+form), the gold target is the form the clean run scores highest, and
+`LogitMargin.variants` lists the forms. On that case the gold margin is now
++7.875 (" Yes" vs " No"). Patchscope sums the readout probability over the
+forms and counts a layer as reading the answer when any form ranks first.
+Knockout and other margins measured with a decoder-backed tokenizer before
+this change are not comparable with new ones.
+
+### Added — counterfactual swap donors (`modality_ablation(donor_rule="counterfactual")`)
+
+An unchanged answer after a media swap is only evidence when the donor's
+media should have changed it. On yes/no and few-option tasks a random donor
+often leaves the correct answer unchanged (a random COCO image usually lacks
+the object POPE asks about, so "No" stays right). The new rule first looks,
+in `donor_pool` (default: the probed batch), for a case asking the identical
+prompt about different-content media whose gold differs from the model's own
+unablated answer (not from the case's gold: on a failed case those differ, and
+a donor whose gold equals the wrong answer makes "unchanged" correct); that
+gold is what a correct answer must become, recorded as
+`ablation_<slot>_donor_expected`. Otherwise it falls back to the content rule
+and records `ablation_<slot>_donor_kind="content"`. `n_counterfactual_<slot>`
+counts the former. The default `donor_rule="content"` is unchanged.
+
+### Changed — edit-free self-checks run on every analysed case and raise `FidelityError`
+
+`attention_knockout`, `attention_sensitivity`, `attention_temperature` and
+`generic_attention` used to check the attention tap (and, on hybrid stacks, the
+media-absent linear re-run) on the first analysable case only, and the verdict
+was cached on the model — so whether a whole batch was accepted depended on
+which case came first. On Qwen3.5-0.8B in bf16 the tap differs from `sdpa` by
+0.8–2.0% of the largest logit depending on the input, straddling the 1%
+tolerance. A new `FidelityGate` (`analyzers/_internals/edits.py`) now checks
+every analysed case before measuring it; the first failing case refuses the
+whole batch with a `FidelityError` naming it. `tap_fidelity` reports the worst
+case per mechanism, the number of argmax changes and every per-case check.
+`check_fidelity` / `check_linear_fidelity` are no longer cached and
+`check_fidelity` accepts the caller's native logits (`base=`) to save a
+forward. Cost: one extra tapped forward per case (plus one linear re-run on a
+hybrid stack). Under `sdpa` these analyzers will now usually refuse on
+Qwen3.5; use `--attn-impl eager`, where the tap is exact. The refusal is a
+`FidelityError` (a `RuntimeError` subclass carrying the check's `verdict`), also
+raised by `require_fidelity` and `require_edit_fidelity`, so callers can tell an
+untrustworthy edit from an ordinary failure without parsing the message.
+
+### Fixed — `modality_ablation(mode="swap")` could swap in the same media
+
+The donor was the first other case filling the slot, compared by case id only:
+on POPE (two questions per image, adjacent rows) the first pair swapped the
+same image back in, and every other case shared one donor. Donors are now the
+next case in batch order whose media differs in content (file bytes or
+pixels), each row records `ablation_<slot>_donor` and the compared answers, and
+`n_drop_fallback_<slot>` counts cases that had to fall back to drop. `drop`
+mode output is unchanged.
+
 ## [0.2.0] — 2026-11-14
 
 ### Changed — the run logger and its readers lose their "V2" names

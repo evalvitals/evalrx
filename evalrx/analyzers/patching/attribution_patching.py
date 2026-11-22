@@ -231,6 +231,7 @@ class AttributionPatchingAnalyzer(Analyzer):
             torch_module,
         )
         from evalrx.analyzers._internals.residual import residual_hooks
+        from evalrx.analyzers._internals.seeds import case_seed
         from evalrx.analyzers._internals.targets import build_margin
         from evalrx.analyzers.patching.causal_trace import (
             _merge,
@@ -295,7 +296,7 @@ class AttributionPatchingAnalyzer(Analyzer):
         trusted: set = set()  # traced cases whose estimates passed their exact check
         skipped: Counter = Counter()
         slots: Counter = Counter()
-        for index, case in enumerate(cases.stratified_head(self.max_cases)):
+        for case in cases.stratified_head(self.max_cases):
             clean_variant: tuple[Any, dict, tuple[Any, Any]] = (case.inputs, {}, (None, None))
             # A gray image's DeepStack copies are interpolated too: record both runs' copies.
             clean_rec: "dict | None" = {} if (integrated and mergers and self.corruption == "gray") else None
@@ -321,7 +322,7 @@ class AttributionPatchingAnalyzer(Analyzer):
             variants, why = corrupted_variants(
                 case.inputs, self.corruption, slot=slot, media=media, embeddings=clean_h[0][media],
                 deepstack=bool(mergers), noise_scale=self.noise_scale, n_noise=self.n_noise,
-                seed=self.seed * 100003 + index)
+                seed=case_seed(self.seed, case))
             if not variants:
                 skipped[why] += 1
                 continue

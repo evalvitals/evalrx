@@ -127,7 +127,6 @@ def test_linear_knockout_keeps_the_prefix_and_moves_the_answer(hybrid):
 
 
 def test_linear_fidelity_verdict(hybrid):
-    hybrid._loaded[0].__dict__.pop("_evalrx_linear_fidelity", None)
     verdict = check_linear_fidelity(hybrid, Inputs(prompt="x", image=image(1)), MEDIA)
     assert verdict["linear_faithful"] is True
     assert verdict["linear_layers_engaged"] == verdict["linear_layers_expected"] == 4
@@ -154,6 +153,7 @@ def test_attention_knockout_on_hybrid(hybrid):
     assert f["layer_kinds"] == {"softmax": 2, "linear": 4}
     fid = f["tap_fidelity"]
     assert fid["faithful"] and fid["tap_layers_engaged"] == 2 and fid["linear_layers_engaged"] == 4
+    assert fid["n_checked"] == 4 and all("linear_faithful" in c for c in fid["cases"])  # every case
     assert any(abs(r["ko_delta_full"]) > 0 for r in f["per_case"])
 
 

@@ -134,20 +134,17 @@ def check_linear_fidelity(model: "Model", inputs: Any, media: Iterable[int], *,
     The re-run calls ``module.forward`` on a shortened sequence without the
     cache/mask arguments the decoder passed; before the first media token it
     must reproduce the real outputs, or the re-run is not the same computation.
-    Cached on the module (one extra forward per model).
+    Measured on this input and media span every call (one forward), not cached.
     """
     from evalrx.core.capability import Capability
 
     module = torch_module(model, analyzer)
     stack = decoder_stack(module)
-    cache = module.__dict__.setdefault("_evalrx_linear_fidelity", {})
-    if "verdict" in cache:
-        return dict(cache["verdict"])
     with linear_media_edit(model, media, weight=0.0, analyzer=analyzer) as state:
         model.forward(inputs, capture={Capability.LOGITS})
     engaged = len(set(state.calls))
     worst = max(state.prefix_rel_diff.values(), default=float("nan"))
-    verdict = {
+    return {
         "linear_faithful": bool(engaged == stack.n_linear and state.prefix_rel_diff
                                 and worst <= rtol),
         "linear_layers_engaged": engaged,
@@ -155,8 +152,6 @@ def check_linear_fidelity(model: "Model", inputs: Any, media: Iterable[int], *,
         "linear_prefix_max_rel_diff": round(worst, 6),
         "linear_rtol": rtol,
     }
-    cache["verdict"] = verdict
-    return dict(verdict)
 
 
 def _torch_kernel(mod: Any) -> Callable:

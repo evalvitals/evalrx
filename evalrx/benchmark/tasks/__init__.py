@@ -17,10 +17,12 @@ from . import (
 )
 from .base import (  # noqa: F401
     Task,
+    answer_key,
     build_cases,
     label_case,
     load_rows,
     manifest_path,
+    same_answer,
     score_case,
     val_manifest_path,
     write_manifest,

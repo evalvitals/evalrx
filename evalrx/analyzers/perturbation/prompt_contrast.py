@@ -128,6 +128,11 @@ class PromptContrastAnalyzer(Analyzer):
                     to a word-boundary rubric scorer over ``case.expected``
                     (dict ``all_of/any_of/none_of`` or plain string).
         max_cases:  Cap on cases (cost = ``len(strategies)`` generations each); 0 (the default) = every case.
+        gen_kwargs: per-call generation settings for every re-ask, baseline
+                    included (e.g. a larger ``max_new_tokens`` for a strategy that
+                    asks for a description before the answer); ``None`` (the
+                    default) = the model's own settings. A backend that drops
+                    per-call settings (an OpenAI-compatible endpoint) ignores them.
     """
 
     name = "prompt_contrast"
@@ -157,6 +162,7 @@ class PromptContrastAnalyzer(Analyzer):
     strategies: dict[str, str]
     score_fn: Callable[[Any, str], Optional[bool]] | None
     max_cases: int
+    gen_kwargs: 'dict[str, Any] | None'
 
     def __init__(
         self,
@@ -167,16 +173,19 @@ class PromptContrastAnalyzer(Analyzer):
         # so a small cap leaves too few discordant pairs for M4 to clear the
         # e-value bar. 128 covers typical mined fail counts plus controls.
         max_cases: int = 0,
+        gen_kwargs: "dict[str, Any] | None" = None,
     ) -> None:
         strategies = dict(strategies) if strategies else dict(_DEFAULT_STRATEGIES)
         if "baseline" not in strategies:
             strategies = {"baseline": "{prompt}", **strategies}
-        super().__init__(strategies=strategies, score_fn=score_fn, max_cases=max_cases)
+        super().__init__(strategies=strategies, score_fn=score_fn, max_cases=max_cases,
+                         gen_kwargs=dict(gen_kwargs) if gen_kwargs else None)
 
     def _run(self, model: "Model", cases: "CaseBatch") -> Result:
         score = self.score_fn or _default_score
         by_strategy: dict[str, dict[str, float]] = {s: {} for s in self.strategies}
         answers: dict[str, dict[str, str]] = {s: {} for s in self.strategies}
+        outputs: dict[str, dict[str, str]] = {s: {} for s in self.strategies}  # untruncated
         n_unscored = 0
 
         # Stratified cap: keep FAIL representation so the cases actually carry
@@ -196,11 +205,12 @@ class PromptContrastAnalyzer(Analyzer):
         asked = [(case, strat, dataclasses.replace(
                       case.inputs, prompt=template.format(prompt=str(getattr(case.inputs, "prompt", "")))))
                  for case in selected for strat, template in self.strategies.items()]
-        outputs = model.generate_batch([inputs for _, _, inputs in asked])
-        for (case, strat, _), out in zip(asked, outputs):
+        replies = model.generate_batch([inputs for _, _, inputs in asked], **dict(self.gen_kwargs or {}))
+        for (case, strat, _), out in zip(asked, replies):
             out = str(out)
             verdict = score(case, out)
             answers[strat][case.id] = out[:200]
+            outputs[strat][case.id] = out
             if verdict is None:
                 n_unscored += 1
                 continue
@@ -268,5 +278,5 @@ class PromptContrastAnalyzer(Analyzer):
             model=repr(model),
             cases=cases,
             findings=findings,
-            artifacts={"answers": answers, "per_case": per_case},
+            artifacts={"answers": answers, "outputs": outputs, "per_case": per_case},
         )

@@ -22,7 +22,7 @@ from evalrx.core.capability import Capability, CapabilityError
 from evalrx.core.case import Inputs
 from evalrx.core.model import Model, TokenLogprob, Trace
 from evalrx.core.tool import ChatTurn
-from evalrx.models.backends.base import Backend, RuntimeConfig
+from evalrx.models.backends.base import Backend, RuntimeConfig, call_sampling
 
 
 class VLLMOfflineModel(Model):
@@ -65,7 +65,7 @@ class VLLMOfflineModel(Model):
         when ``do_sample`` is False or the temperature is not positive)."""
         from vllm import SamplingParams
 
-        kwargs = {**self.runtime.sampling, **kwargs}
+        kwargs = call_sampling(self.runtime.sampling, kwargs)
         max_tokens = kwargs.get("max_new_tokens") or kwargs.get("max_tokens") or self.runtime.max_new_tokens
         temperature = float(kwargs.get("temperature") or 0.0)
         if kwargs.get("do_sample") is False:

@@ -166,6 +166,50 @@ def test_scorers_by_task_kind(common):
         score("bogus", "x", ["x"])
 
 
+def test_answer_keys_read_answers_without_the_gold(common):
+    # the triage U checks compare these keys across samples and rewordings
+    _, tasks, scoring, _ = common
+    key = scoring.answer_key
+    assert key("yes_no", "Yes, a dog barks.") == key("yes_no", "yes") == "yes"
+    assert key("yes_no", "maybe") == ""                                   # committed to nothing
+    assert key("multiple_choice_letter", "the answer: (B)", choices=["A", "B", "C"]) == "B"
+    assert key("exact_or_numeric", "Final answer: 6.80%") == key("exact_or_numeric", "6.8") == "6.8"
+    assert key("exact_or_numeric", "Answer: The Beatles") == "beatles" and key("exact_or_numeric", " ") == ""
+    assert key("short_answer_em", "Answer: The Beatles.") == "beatles"
+    assert key("llm_graded", "anything") is None                          # no categorical answer
+    with pytest.raises(ValueError):
+        key("bogus", "x")
+    from evalrx.core.case import FailureCase, Inputs
+
+    case = FailureCase(id="c", inputs=Inputs(prompt="q"), expected="C",
+                       metadata={"task": "multiple_choice_letter", "choices": ["A", "B", "C", "D", "E"]})
+    assert tasks.answer_key(case, "E") == "E"                             # the case's own choices
+    # ChartQA's label aliases hold for the key as for the grader
+    assert key("exact_or_numeric", "Yes") == key("exact_or_numeric", "TRUE") == "true"
+
+
+def test_two_answer_keys_are_one_answer_within_the_tasks_tolerance(common):
+    """The grader calls 12.6 right against a gold of 12.5 (ChartQA's 5 %), so two keys that
+    close are one answer for the triage checks too; the rule is read from the reference."""
+    _, tasks, scoring, _ = common
+    same = scoring.same_answer
+    assert same("12.6", "12.5", numeric_tolerance=0.05) and same("12.4", "12.5", numeric_tolerance=0.05)
+    assert not same("13.5", "12.5", numeric_tolerance=0.05)              # 8 % off
+    assert same("1.5e+06", "1.52e+06", numeric_tolerance=0.05)           # keys of large numbers (``:g``)
+    assert same("0", "0", numeric_tolerance=0.05) and not same("0.001", "0", numeric_tolerance=0.05)
+    assert same("-3", "-3.1", numeric_tolerance=0.05)
+    assert same("beatles", "beatles", numeric_tolerance=0.05) and not same("beatles", "beatle", numeric_tolerance=0.05)
+    assert not same("12.6", "12.5") and not same("12.6", "12.5", numeric_tolerance=0.0)   # zero tolerance = equality
+    assert not same("", "12.5", numeric_tolerance=0.05) and not same("12.5", "", numeric_tolerance=0.05)
+    from evalrx.core.case import FailureCase, Inputs
+
+    chart = FailureCase(id="c", inputs=Inputs(prompt="q"), expected=["12.5"],
+                        metadata={"task": "exact_or_numeric", "numeric_tolerance": 0.05})
+    plain = FailureCase(id="p", inputs=Inputs(prompt="q"), expected=["12.5"], metadata={"task": "exact_or_numeric"})
+    assert tasks.same_answer(chart, "12.6", "12.5") and not tasks.same_answer(plain, "12.6", "12.5")
+    assert tasks.same_answer(plain, "12.5", "12.5")
+
+
 def test_parsed_choice_refuses_leaked_thought_preambles_and_enumerations(common):
     """gemma-4-e2b/MMAU 2026-08-22: 100/256 outputs were a spontaneous ``thought``
     channel cut at the 64-token cap while restating the options; the old
@@ -277,6 +321,8 @@ def test_cli_no_model_paths(common, capsys):
         "claude", None, "medium"
     )
     assert defaults.held_out is False
+    assert defaults.triage_validation_source is None
+    assert defaults.confirm_split_by == "case"
     assert defaults.fix_repair_rounds == 2
     assert defaults.allow_adapted_paper_methods is False
     assert run.build_parser().parse_args([
@@ -633,6 +679,51 @@ def test_pope_download_keeps_first_yes_first_no_per_image_and_reuses_sibling_ima
     ra = tasks.load_rows(tmp_path / "pope_adversarial" / "manifest.json")
     rb = tasks.load_rows(tmp_path / "pope_adv_again" / "manifest.json")
     assert a["kept"] == b["kept"] == 4 and [r["id"] for r in ra] == [r["id"] for r in rb]
+
+
+def _chartqa_parquet(path, n):
+    """A ChartQA-shaped parquet: rows at even indices are human-authored."""
+    import io
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from PIL import Image
+
+    rows = []
+    for i in range(n):
+        buf = io.BytesIO()
+        Image.new("RGB", (4, 4), (i * 20 % 256, 0, 0)).save(buf, format="PNG")
+        rows.append({"query": f"Question {i}?", "label": [str(i)], "image": {"bytes": buf.getvalue(), "path": None},
+                     "human_or_machine": 0 if i % 2 == 0 else 1})
+    pq.write_table(pa.Table.from_pylist(rows), path)
+
+
+def test_chartqa_validation_source_is_every_human_row_the_pool_left(common, tmp_path, monkeypatch):
+    _, tasks, _, _ = common
+    import huggingface_hub
+
+    from evalrx.benchmark.tasks import chartqa
+
+    files = {chartqa.TEST_PARQUET: tmp_path / "test.parquet", chartqa.VAL_PARQUET: tmp_path / "val.parquet"}
+    _chartqa_parquet(files[chartqa.TEST_PARQUET], 8)   # human rows 0, 2, 4, 6
+    _chartqa_parquet(files[chartqa.VAL_PARQUET], 6)    # human rows 0, 2, 4
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", lambda repo, name, **kw: str(files[name]))
+    pool = chartqa.download(tmp_path / "pool", limit=2, seed=1)
+    pool_rows = tasks.load_rows(pool["manifest"])
+    assert len(pool_rows) == 2 and all(r["subset"] == "test_human" for r in pool_rows)
+
+    out = chartqa.validation_source(tmp_path / "source", exclude=[pool["manifest"]])
+    rows = tasks.load_rows(tmp_path / "source" / "manifest.json")
+    assert (out["kept"], out["by_subset"], out["excluded"]) == (5, {"test_human": 2, "val_human": 3}, 2)
+    assert not {r["id"] for r in pool_rows} & {r["id"] for r in rows} and len({r["id"] for r in rows}) == 5
+    assert [r["subset"] for r in rows] == ["test_human"] * 2 + ["val_human"] * 3
+    assert [r["id"] for r in rows if r["subset"] == "val_human"] == ["chartqa-val-human-0", "chartqa-val-human-2",
+                                                                      "chartqa-val-human-4"]
+    assert all(r["image"].startswith("images/chartqa-val-") for r in rows if r["subset"] == "val_human")
+    assert all((tmp_path / "source" / r["image"]).is_file() and r["sample_seed"] is None for r in rows)
+    # the same case protocol as the pool: the source builds and scores like any manifest
+    batch, _ = tasks.build_cases(tasks.get("chartqa"), tmp_path / "source" / "manifest.json")
+    assert len(batch) == 5 and tasks.score_case(list(batch)[-1], "4")
 
 
 def test_pope_cases_score_through_the_yes_no_grader(common, tmp_path, monkeypatch):

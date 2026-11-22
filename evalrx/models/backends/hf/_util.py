@@ -12,6 +12,65 @@ from evalrx.models._media import resolve_image as _resolve_image
 
 logger = logging.getLogger(__name__)
 
+#: attribute names HF multimodal models give their media encoders (vision / audio towers)
+MEDIA_ENCODER_NAMES = ("visual", "vision_tower", "vision_model", "vision_encoder", "audio_tower", "audio_encoder")
+
+
+def media_encoders(module: Any, hint: "str | None" = None) -> "list[tuple[str, Any]]":
+    """The media encoders of an HF multimodal *module*: its submodules named like a tower
+    (:data:`MEDIA_ENCODER_NAMES`), plus the dotted *hint* path a spec gives, each without
+    the ones nested inside another match; ``[]`` for a text-only model."""
+    found = [(name, sub) for name, sub in module.named_modules() if name.rsplit(".", 1)[-1] in MEDIA_ENCODER_NAMES]
+    hinted = _read_nested_attr(module, hint, default=None) if hint else None
+    if hinted is not None and hasattr(hinted, "forward"):
+        found.append((hint, hinted))
+    out: "list[tuple[str, Any]]" = []
+    for name, sub in sorted(found, key=lambda t: (t[0].count("."), t[0])):
+        if any(sub is kept or name.startswith(prefix + ".") for prefix, kept in out):
+            continue
+        out.append((name, sub))
+    return out
+
+
+class media_encoders_without_grad:
+    """Run *module*'s media encoders under ``torch.no_grad`` while active.
+
+    A gradient pass through the decoder (``CaptureSpec(with_grad=True)``) otherwise keeps the
+    encoders' graph too, since their parameters require grad: a vision tower's attention over
+    a 6000-patch image is tens of GB when kept for backward. The decoder analyzers differentiate
+    towards decoder activations only, so the encoders' outputs can enter the decoder as constants;
+    their values are unchanged. Each encoder's ``forward`` is shadowed on the instance for the
+    duration and restored after, also on an error. ``names`` lists what was wrapped.
+    """
+
+    def __init__(self, module: Any, hint: "str | None" = None) -> None:
+        self.module, self.hint = module, hint
+        self.names: list[str] = []
+        self._previous: list = []
+
+    def __enter__(self) -> "media_encoders_without_grad":
+        import torch
+
+        for name, encoder in media_encoders(self.module, self.hint):
+            original = encoder.forward
+
+            def forward(*args: Any, _original: Any = original, **kwargs: Any) -> Any:
+                with torch.no_grad():
+                    return _original(*args, **kwargs)
+
+            self._previous.append((encoder, "forward" in encoder.__dict__, encoder.__dict__.get("forward")))
+            encoder.forward = forward
+            self.names.append(name)
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        for encoder, had, previous in reversed(self._previous):
+            if had:
+                encoder.forward = previous
+            else:
+                del encoder.forward   # back to the class method
+        self._previous.clear()
+
 
 def _read_nested_attr(obj: Any, attr_path: "str | None", *, default: Any) -> Any:
     """Walk a dotted attribute path on *obj*, returning *default* if any step is missing."""
