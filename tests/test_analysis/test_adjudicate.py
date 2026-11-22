@@ -7,6 +7,8 @@ applies one e-BH family, never trusts a self-declared verdict).
 
 from __future__ import annotations
 
+import pytest
+
 from evalrx.agent_runtime.sandbox import ExperimentSandbox
 from evalrx.analysis import (
     CandidateSignal,
@@ -45,17 +47,73 @@ def test_balanced_paired_binary_does_not_reject():
     assert c.reject is False
 
 
-def test_two_group_uses_ci_reject_and_is_not_in_ebh_family():
+def test_two_group_gets_a_p_value_and_its_own_bh_family():
     # Signal-absent cases all pass (0), signal-present cases all fail (1).
     c = _sig("strong_signal", {"kind": "two_group", "a": [0] * 8, "b": [1] * 8})
     meta = adjudicate_signals([c])
 
     assert c.host_adjudicated
     assert c.e_value is None          # unpaired path produces no e-value
-    assert c.fdr_corrected is False   # therefore not part of the e-BH family
-    assert c.reject is True           # but CI excludes 0 -> host rejects
+    # Exact test: one table in C(16, 8) is this extreme, on each side.
+    assert c.p_value == pytest.approx(2 / 12870)
+    assert c.reject is True and c.fdr_corrected is True
     assert c.effect is not None and c.ci is not None
     assert meta["n_in_family"] == 0   # no e-value-bearing candidate
+    assert meta["n_in_p_family"] == 1
+    assert meta["method"] == "BH"     # the correction that was actually applied
+
+
+def test_two_group_candidates_pay_for_multiplicity():
+    # 9/20 against 2/20 failures: p is about 0.03 on its own, so it rejects
+    # alone but not among twenty candidates of which it is the best.
+    borderline = {"kind": "two_group", "a": [1] * 2 + [0] * 18, "b": [1] * 9 + [0] * 11}
+    alone = _sig("alone", dict(borderline))
+    assert adjudicate_signals([alone])["rejected"] == ["alone"]
+
+    noise = {"kind": "two_group", "a": [1, 0] * 10, "b": [1, 0] * 10}
+    crowd = [_sig("candidate", dict(borderline))] + [
+        _sig(f"noise{i}", dict(noise)) for i in range(19)
+    ]
+    meta = adjudicate_signals(crowd)
+    assert meta["n_in_p_family"] == 20
+    assert meta["rejected"] == []
+    assert meta["raw_reject"] == ["candidate"]   # its own interval excluded zero
+    assert crowd[0].reject is False and crowd[0].fdr_corrected is False
+
+
+def test_two_group_with_group_ids_resamples_whole_groups():
+    # Forty rows per side from five source items per side, and rows of an
+    # item agree: the evidence is ten items, not eighty rows.
+    a = [0] * 32 + [1] * 8
+    b = [1] * 24 + [0] * 16
+    rows = {"kind": "two_group", "a": a, "b": b}
+    grouped = {**rows, "clusters_a": [f"a{i // 8}" for i in range(40)],
+               "clusters_b": [f"b{i // 8}" for i in range(40)]}
+    independent, clustered = _sig("rows", rows), _sig("groups", grouped)
+    adjudicate_signals([independent])
+    adjudicate_signals([clustered])
+    assert independent.reject is True
+    assert clustered.reject is False
+    assert clustered.p_value > 0.05 > independent.p_value
+
+    # Group ids that do not line up with the rows are not adjudicable.
+    broken = _sig("broken", {**rows, "clusters_a": ["a1"], "clusters_b": ["b1"]})
+    adjudicate_signals([broken])
+    assert broken.host_adjudicated is False and broken.descriptive_only is True
+
+
+def test_header_says_none_when_nothing_was_tested():
+    meta = adjudicate_signals([_sig("vibes"), _sig("more_vibes")])
+    assert meta["method"] == "none"
+    assert meta["n_host_adjudicated"] == 0
+
+
+def test_header_names_both_families_when_both_were_used():
+    paired = _sig("paired", {"kind": "paired_binary", "b": 15, "c": 0})
+    unpaired = _sig("unpaired", {"kind": "two_group", "a": [0] * 8, "b": [1] * 8})
+    meta = adjudicate_signals([paired, unpaired])
+    assert meta["method"] == "e-BH + BH"
+    assert meta["rejected"] == ["paired", "unpaired"]
 
 
 def test_no_sufficient_is_descriptive_only():
@@ -180,4 +238,6 @@ def test_self_declared_reject_and_evalue_are_ignored(tmp_path):
     adjudicate_report(report)
     assert cand.host_adjudicated is True
     assert cand.e_value is None          # two_group -> no e-value (not 999999)
-    assert cand.fdr_corrected is False
+    # 4 against 4 with a clean split: exactly 2 of the C(8, 4) tables.
+    assert cand.p_value == pytest.approx(2 / 70)
+    assert cand.fdr_corrected is True    # survived its (one-member) BH family

@@ -122,7 +122,8 @@ def test_top_level_explore_holdout_dispatch(monkeypatch):
     assert captured["holdout_frac"] == 0.4
     assert captured["holdout_confirm"] is True
     assert captured["holdout_seed"] == 7
-    assert captured["judge_model"] == "claude-opus-4-8"
+    # The judge follows --backend unless told otherwise; its model is resolved later.
+    assert captured["judge_backend"] == "same" and captured["judge_model"] == ""
     assert captured["open_report"] is False
 
 

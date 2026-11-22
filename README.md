@@ -69,7 +69,11 @@ evalrx explore ./results \
 
 `codex` can be replaced with `claude_code`, `opencode`, `gemini_cli`,
 `kimi_cli`, or `antigravity` — the selected coding-agent CLI must be installed
-and authenticated separately. Then open the run, or export a portable file:
+and authenticated separately. Add `--holdout-frac 0.4 --holdout-confirm` to
+re-test what it finds on rows it never saw, and `--group-col` when several
+rows come from one underlying item
+([held-out confirmation](https://evalvitals.github.io/evalrx/holdout_confirmation/)).
+Then open the run, or export a portable file:
 
 ```bash
 evalrx serve evalrx_explore_output                       # local report server
@@ -221,7 +225,7 @@ raising it rather than climbing on its own.
 | **L2** | Scaffolds around an unchanged model — multi-call, tools, aggregation | ✅ |
 | **L3a** | Read internals — attention-guided cropping, contrastive decoding | ✅ |
 | **L3b** | Write internals — attention reweighting, activation steering | ✅ |
-| **L4** | **Parameter space — build a dataset, fine-tune, re-test; or write a training-free weight edit** | ✅ LoRA on the LLM ([`internals.py`](evalrx/eval_agent/stages/fix/internals.py)); ✅ rank-one weight edit, opt-in ([`weight_edit.py`](evalrx/eval_agent/stages/fix/weight_edit.py)); other recipe shapes recorded, not yet executed |
+| **L4** | **Parameter space — build a dataset, fine-tune, re-test; or write a weight-space edit** | ✅ LoRA on the LLM ([`internals.py`](evalrx/eval_agent/stages/fix/internals.py)); ✅ rank-one weight edit, opt-in ([`weight_edit.py`](evalrx/eval_agent/stages/fix/weight_edit.py)); other recipe shapes recorded, not yet executed |
 
 **L3b and L4 only exist for open weights** — you cannot modify a forward pass
 or fine-tune through somebody's API.

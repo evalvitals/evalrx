@@ -20,8 +20,8 @@ for that, a separate, currently out-of-scope system).
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -64,23 +64,68 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class ExperimentPlan(BaseModel):
+    """An experiment the existing table cannot stand in for, in four parts.
+
+    A hypothesis about a cause usually cannot be settled by re-counting rows;
+    it needs something changed and re-run. Free text hides whether a plan is
+    complete, so the four parts are separate: a plan with no stated way to
+    fail is visible as such.
+    """
+
+    data_needed: str = Field("", description="rows or inputs to collect or re-run")
+    operation: str = Field("", description="what is changed or applied to them")
+    expected_result: str = Field("", description="what is seen if the hypothesis is right")
+    falsified_by: str = Field("", description="what result would show it is wrong")
+
+    def is_empty(self) -> bool:
+        return not any((self.data_needed, self.operation, self.expected_result,
+                        self.falsified_by))
+
+
+class HeldOutPrediction(BaseModel):
+    """A numeric prediction about one candidate signal's held-out effect.
+
+    The host checks it directly against the held-out rows, so the part of a
+    hypothesis that is a number is not left to a model to grade.
+    """
+
+    signal: str = Field(description="name of a candidate signal that has a recipe")
+    relation: Literal["nonzero", ">", "<", "abs<"] = "nonzero"
+    value: float = 0.0
+
+
 @dataclass
 class Hypothesis:
     """One M3-proposed, falsifiable candidate explanation. Proposed only —
-    ``test_design`` names how it *could* be checked, not a verdict."""
+    ``test_design`` names how it *could* be checked, not a verdict.
+
+    ``predictions`` are the parts of the claim the held-out rows can decide
+    (checked by the host); ``experiment`` is the plan for the part they
+    cannot (an intervention), or None when the hypothesis needs none.
+    """
 
     statement: str = ""
     plain_statement: str = ""
     basis: str = ""
     test_design: str = ""
+    predictions: list[dict[str, Any]] = field(default_factory=list)
+    experiment: dict[str, str] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "statement": self.statement,
             "plain_statement": self.plain_statement,
             "basis": self.basis,
             "test_design": self.test_design,
         }
+        # Optional parts appear only when stated, so a hypothesis without them
+        # serialises exactly as it did before they existed.
+        if self.predictions:
+            out["predictions"] = self.predictions
+        if self.experiment:
+            out["experiment"] = self.experiment
+        return out
 
 
 class HypothesisAgent:
@@ -123,9 +168,7 @@ class HypothesisAgent:
         observations = [str(o) for o in report.get("observations") or []][:max_items]
         observations_text = "\n".join(f"- {o}" for o in observations) or "(none recorded)"
         signals = [s for s in report.get("candidate_signals") or [] if isinstance(s, dict)][:max_items]
-        signals_text = "\n".join(
-            f"- {s.get('display_name') or s.get('name')}: {s.get('rationale', '')}" for s in signals
-        ) or "(none recorded)"
+        signals_text = "\n".join(_signal_line(s) for s in signals) or "(none recorded)"
 
         if not takeaways and not observations and not signals:
             return []
@@ -144,9 +187,17 @@ class HypothesisAgent:
         except JudgeError as exc:
             logger.warning("HypothesisAgent: no hypotheses: %s", exc)
             return []
+        known = {str(s.get("name")) for s in signals if isinstance(s.get("recipe"), dict)}
         return [
-            Hypothesis(statement=d.hypothesis, plain_statement=d.plain_statement,
-                       basis=d.basis, test_design=d.test)
+            Hypothesis(
+                statement=d.hypothesis, plain_statement=d.plain_statement,
+                basis=d.basis, test_design=d.test,
+                # A prediction about a signal with no recipe cannot be checked
+                # on held-out rows, so it is not carried forward as one.
+                predictions=[p.model_dump() for p in d.predictions if p.signal in known],
+                experiment=(None if d.experiment is None or d.experiment.is_empty()
+                            else d.experiment.model_dump()),
+            )
             for d in reply.output.hypotheses
         ]
 
@@ -158,11 +209,29 @@ class HypothesisAgent:
         return self._judge
 
 
+def _signal_line(signal: dict[str, Any]) -> str:
+    """One prompt line per candidate signal; names the recipe when there is one,
+    since only a signal with a recipe can carry a held-out prediction."""
+    label = signal.get("display_name") or signal.get("name")
+    line = f"- {label}: {signal.get('rationale', '')}"
+    recipe = signal.get("recipe")
+    if isinstance(recipe, dict) and recipe.get("expr"):
+        line += f" [signal name: {signal.get('name')}; recipe: {recipe.get('expr')}]"
+    return line
+
+
 class _Draft(BaseModel):
     hypothesis: str = Field(min_length=10, description="one falsifiable technical sentence")
     plain_statement: str = Field("", description="the same claim in one everyday sentence")
     basis: str = Field("", description="the takeaways or signals it rests on")
     test: str = Field("", description="the evidence that would confirm or refute it")
+    predictions: list[HeldOutPrediction] = Field(
+        default_factory=list, max_length=4,
+        description="numeric predictions about named candidate signals on held-out rows",
+    )
+    experiment: ExperimentPlan | None = Field(
+        None, description="the experiment needed when held-out rows cannot decide the claim",
+    )
 
 
 class _Proposal(BaseModel):

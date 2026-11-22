@@ -38,12 +38,14 @@ nav:
   - Exploratory Analysis (M2/M3): m2_analysis.md
   - Verification & Intervention (M4/M5): intervention.md
   - Weight Edits & Probe Tools: wsp_and_probe_tools.md
+  - Held-out Confirmation: holdout_confirmation.md
   - Stage Input/Output Reference: stage_io.md
   - Analyzer Zoo: analyzers.md
   - Architecture: architecture.md
   - Extending: extending.md
   - Roadmap: roadmap.md
   - Validation:
+      - Held-out designs calibration (2026-11-21): validation/holdout_calibration_20261121.md
       - Published weight edit on Qwen3.5-0.8B (2026-11-15): validation/astra_p50c_20261115.md
       - Gemini agentic run (2026-10-13): validation/gemini_agentic_20261013.md
       - Historical Gemma repairs (2026-08-30): validation/gemma_repair_20260830.md
