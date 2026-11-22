@@ -514,6 +514,18 @@ bookkeeping in one `evalrx.eval_agent.policy.RunState` (the agentic
 - `evalrx.agent_runtime.json_shape.validate_json_shape`: output models
   validate with pydantic.
 
+### Fixed — a re-sampling probe ran greedy on a model deployed greedy
+
+Since the local backends apply the deployed decoding (`RuntimeConfig.sampling`) to
+every call, a benchmark cell with greedy Stage 0 deploys `do_sample=False`, and a call
+that asked for `temperature=1.0` kept it: `self_consistency` and
+`coverage_verification_gap` drew the greedy answer every time (Qwen3.5-2B on ChartQA's
+machine questions: five identical samples on each of 112 cases, where 14 of the 32
+measured before the backends changed had varied), so the triage's re-sampling check
+never fired and M1 read every case as fully consistent. A call that names a temperature and no `do_sample` is now read by its
+temperature alone (`backends.base.call_sampling`, used by `hf_local`, `jax_local` and
+`vllm_offline`); a call that names neither keeps the deployed decoding.
+
 ### Changed — probing after the 0.2.0 reorganisation and the batch calls
 
 The triage follows the package's new layout (`loop.partition.split_cases` for the

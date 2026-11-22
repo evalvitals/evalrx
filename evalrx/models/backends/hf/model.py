@@ -29,7 +29,7 @@ from evalrx.core.model import Model, TokenLogprob, Trace
 from evalrx.core.spec import AttnSemantics
 from evalrx.core.tool import ChatTurn
 from evalrx.models._media import AUDIO_SAMPLE_RATE, resolve_audio
-from evalrx.models.backends.base import Backend, RuntimeConfig
+from evalrx.models.backends.base import Backend, RuntimeConfig, call_sampling
 from evalrx.models.backends.hf._util import (  # noqa: F401
     _check_audio_duration,
     _collect_message_images,
@@ -458,7 +458,7 @@ class HFLocalModel(ContrastiveDecodingMixin, SpecialistRepairsMixin, Model):
         The call's own *kwargs* win over ``runtime.sampling``, the decoding the
         model is deployed with.
         """
-        kwargs = {**self.runtime.sampling, **kwargs}
+        kwargs = call_sampling(self.runtime.sampling, kwargs)
         # "max_tokens" is the OpenAI-style name FixAgent's judge-proposed L2
         # PipelineSpecs use (see fix_tools._safe_generation_kwargs and the
         # _L2_PROMPT schema); transformers' generate() only recognises

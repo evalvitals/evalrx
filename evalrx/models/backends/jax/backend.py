@@ -43,7 +43,7 @@ from evalrx.core.case import Inputs
 from evalrx.core.model import Model, TokenLogprob, Trace
 from evalrx.core.tokentype import TokenTypeMap
 from evalrx.core.tool import ChatTurn
-from evalrx.models.backends.base import Backend, RuntimeConfig
+from evalrx.models.backends.base import Backend, RuntimeConfig, call_sampling
 from evalrx.models.backends.jax.protocol import (
     CAPTURE_ATTN,
     CAPTURE_HIDDEN,
@@ -172,7 +172,7 @@ class JaxLocalModel(Model):
         ``max_tokens``; ``temperature <= 0`` (or ``do_sample=False``) is greedy;
         ``do_sample=True`` without a temperature samples at 1.0. The call's own
         kwargs win over ``runtime.sampling``."""
-        kwargs = {**self.runtime.sampling, **kwargs}
+        kwargs = call_sampling(self.runtime.sampling, kwargs)
         max_new = kwargs.pop("max_new_tokens", None)
         if max_new is None:
             max_new = kwargs.pop("max_tokens", self.runtime.max_new_tokens)

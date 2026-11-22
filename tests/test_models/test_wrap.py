@@ -490,6 +490,26 @@ def test_hf_local_uses_the_runtime_sampling_unless_the_call_passes_its_own():
     assert not {"temperature", "top_p"} & set(lm.calls[-1])
 
 
+def test_hf_local_samples_when_a_call_names_a_temperature_on_a_greedy_runtime():
+    m = evalrx.wrap(FakeCausalLM(), FakeTokenizer())
+    m.runtime.sampling = {"do_sample": False}            # how a greedy benchmark cell deploys the model
+    lm = _RecordingLM()
+    m._hf = (lm, FakeTokenizer())
+
+    m.generate(Inputs(prompt="hi"))
+    assert lm.calls[-1]["do_sample"] is False
+
+    m.generate(Inputs(prompt="hi"), temperature=1.0, top_p=0.95)   # a re-sampling probe
+    assert {k: lm.calls[-1][k] for k in ("do_sample", "temperature", "top_p")} == {
+        "do_sample": True, "temperature": 1.0, "top_p": 0.95}
+
+    m.generate(Inputs(prompt="hi"), top_p=0.9)           # no temperature of its own: still greedy
+    assert lm.calls[-1]["do_sample"] is False
+
+    m.generate(Inputs(prompt="hi"), temperature=0.0)
+    assert lm.calls[-1]["do_sample"] is False
+
+
 def test_vllm_offline_hands_the_engine_every_prompt_at_once(monkeypatch):
     import sys
     import types
