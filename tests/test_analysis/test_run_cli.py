@@ -168,7 +168,7 @@ def test_default_runner_constructs_agentic_pipeline_for_every_modality(monkeypat
 
 
 def test_triage_explainer_is_the_chain_judge_and_never_the_model_under_test(monkeypatch):
-    from evalrx.eval_agent.probing.explanations import Explainer
+    from evalrx.eval_agent.triage.explanations import Explainer
 
     seen = {}
 

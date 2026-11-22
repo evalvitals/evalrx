@@ -34,11 +34,11 @@ Nothing here is imported by the default ``judge`` path.
 
 from __future__ import annotations
 
-from evalrx.eval_agent.probing.actions import Observation, PlanStep, ProbeAction
-from evalrx.eval_agent.probing.controller import BATTERY, POLICY_VERSION, run_triage
-from evalrx.eval_agent.probing.partition import explore_confirm_split
-from evalrx.eval_agent.probing.rules import LAYERS, RULES_VERSION
-from evalrx.eval_agent.probing.sampler import SampleDraw, matched_sample
+from evalrx.eval_agent.triage.actions import Observation, PlanStep, ProbeAction
+from evalrx.eval_agent.triage.controller import BATTERY, POLICY_VERSION, run_triage
+from evalrx.eval_agent.triage.partition import explore_confirm_split
+from evalrx.eval_agent.triage.rules import LAYERS, RULES_VERSION
+from evalrx.eval_agent.triage.sampler import SampleDraw, matched_sample
 
 __all__ = [
     "BATTERY",

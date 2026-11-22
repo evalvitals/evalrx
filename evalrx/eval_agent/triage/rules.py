@@ -44,8 +44,8 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from evalrx.analyzers.perturbation.prompt_contrast import _DEFAULT_STRATEGIES as _PROMPT_STRATEGIES
-from evalrx.eval_agent.probing.actions import PlanStep
-from evalrx.eval_agent.probing.evidence import StepEvidence
+from evalrx.eval_agent.triage.actions import PlanStep
+from evalrx.eval_agent.triage.evidence import StepEvidence
 
 RULES_VERSION = "mvp4-rules-5"
 ROUTE_ORDER = ("H", "N", "U", "S", "X")

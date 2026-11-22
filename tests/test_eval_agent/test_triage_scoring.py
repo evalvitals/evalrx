@@ -13,12 +13,12 @@ from __future__ import annotations
 
 import json
 
-from evalrx.eval_agent.probing import BATTERY, LAYERS, run_triage
-from evalrx.eval_agent.probing.actions import OK, UNFAITHFUL, UNSUPPORTED, Observation
-from evalrx.eval_agent.probing.compare import compare
-from evalrx.eval_agent.probing.evidence import StepEvidence
-from evalrx.eval_agent.probing.rules import candidate_steps
-from evalrx.eval_agent.probing.scoring import (
+from evalrx.eval_agent.triage import BATTERY, LAYERS, run_triage
+from evalrx.eval_agent.triage.actions import OK, UNFAITHFUL, UNSUPPORTED, Observation
+from evalrx.eval_agent.triage.compare import compare
+from evalrx.eval_agent.triage.evidence import StepEvidence
+from evalrx.eval_agent.triage.rules import candidate_steps
+from evalrx.eval_agent.triage.scoring import (
     Scored,
     availability,
     choose,
@@ -26,7 +26,7 @@ from evalrx.eval_agent.probing.scoring import (
     per_case_costs,
     step_cost,
 )
-from tests.test_eval_agent.test_probing_mvp2 import _kw, _pope_like, _Table
+from tests.test_eval_agent.test_triage_expansion import _kw, _pope_like, _Table
 
 
 def _step(key):
@@ -158,8 +158,8 @@ def test_scored_run_is_traceable_deterministic_on_resume_and_comparable_with_the
 
 
 def test_scored_runs_a_batch_dependent_step_once_after_the_last_expansion(tmp_path):
-    from evalrx.eval_agent.probing.actions import PlanStep
-    from evalrx.eval_agent.probing.rules import Layer
+    from evalrx.eval_agent.triage.actions import PlanStep
+    from evalrx.eval_agent.triage.rules import Layer
 
     cases, table = _pope_like()
     batchy = PlanStep("prompt_contrast", {"strategies": {"baseline": "{prompt}", "q": "Q: {prompt}"}}, "Z",

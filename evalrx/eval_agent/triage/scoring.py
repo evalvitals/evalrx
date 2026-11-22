@@ -92,8 +92,8 @@ import random
 from dataclasses import dataclass, field
 from typing import Any
 
-from evalrx.eval_agent.probing.actions import OK, UNSUPPORTED, PlanStep
-from evalrx.eval_agent.probing.evidence import StepEvidence
+from evalrx.eval_agent.triage.actions import OK, UNSUPPORTED, PlanStep
+from evalrx.eval_agent.triage.evidence import StepEvidence
 
 SCORING_VERSION = "mvp3-score-5"
 

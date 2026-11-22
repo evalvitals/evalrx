@@ -25,7 +25,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from evalrx.eval_agent.probing.actions import TERMINAL, Observation, canonical
+from evalrx.eval_agent.triage.actions import TERMINAL, Observation, canonical
 
 
 class Ledger:

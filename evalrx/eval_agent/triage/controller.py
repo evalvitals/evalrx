@@ -45,7 +45,7 @@ A run goes through three phases:
    check is X).
 
 3. **Follow-ups.** Each active route proposes its next layer's candidate (see
-   :mod:`~evalrx.eval_agent.probing.rules`), and the candidate runs on the
+   :mod:`~evalrx.eval_agent.triage.rules`), and the candidate runs on the
    route's FAIL cases plus matched PASS controls.
 
 Every decision is a trace event that names its rule, the condition it read,
@@ -85,7 +85,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, cast
 
 from evalrx.analyzers.perturbation.prompt_contrast import _DEFAULT_STRATEGIES as _PROMPT_STRATEGIES
-from evalrx.eval_agent.probing.actions import (
+from evalrx.eval_agent.triage.actions import (
     FAILED,
     OK,
     SKIPPED,
@@ -93,9 +93,9 @@ from evalrx.eval_agent.probing.actions import (
     ProbeAction,
     canonical,
 )
-from evalrx.eval_agent.probing.evidence import StepEvidence
-from evalrx.eval_agent.probing.executor import execute, gate
-from evalrx.eval_agent.probing.explanations import (
+from evalrx.eval_agent.triage.evidence import StepEvidence
+from evalrx.eval_agent.triage.executor import execute, gate
+from evalrx.eval_agent.triage.explanations import (
     CARDS,
     EXPLAIN_VERSION,
     Explainer,
@@ -110,9 +110,18 @@ from evalrx.eval_agent.probing.explanations import (
     outcome,
     restates_route,
 )
-from evalrx.eval_agent.probing.explanations import spread as reading_spread
-from evalrx.eval_agent.probing.ledger import Ledger
-from evalrx.eval_agent.probing.rules import (
+from evalrx.eval_agent.triage.explanations import spread as reading_spread
+from evalrx.eval_agent.triage.ledger import Ledger
+from evalrx.eval_agent.triage.routes import (
+    ROUTE_STEPS,
+    commits_to_answers,
+    common_answers,
+    follow_up_reading,
+    follow_up_values,
+    summarize,
+    triage_cases,
+)
+from evalrx.eval_agent.triage.rules import (
     LAYER_READOUT,
     LAYERS,
     MEDIA_ATTENTION_CUT,
@@ -130,8 +139,8 @@ from evalrx.eval_agent.probing.rules import (
     route_fail_ids,
     route_states,
 )
-from evalrx.eval_agent.probing.sampler import matched_sample, rank
-from evalrx.eval_agent.probing.scoring import (
+from evalrx.eval_agent.triage.sampler import matched_sample, rank
+from evalrx.eval_agent.triage.scoring import (
     SCORING_VERSION,
     Scored,
     Weights,
@@ -143,15 +152,6 @@ from evalrx.eval_agent.probing.scoring import (
     public_units,
     step_cost,
     value,
-)
-from evalrx.eval_agent.probing.triage import (
-    ROUTE_STEPS,
-    commits_to_answers,
-    common_answers,
-    follow_up_reading,
-    follow_up_values,
-    summarize,
-    triage_cases,
 )
 
 if TYPE_CHECKING:
@@ -280,7 +280,7 @@ def code_version() -> dict[str, Any]:
     """The code this process runs: recorded in the reports and on every planned action.
 
     ``tree`` hashes every ``*.py`` file of the evalrx package, ``parts`` the same per
-    package directory (``models``, ``eval_agent/probing``, ...; ``.`` = the top-level
+    package directory (``models``, ``eval_agent/triage``, ...; ``.`` = the top-level
     modules), so a reader can tell a backend change from a scheduler change. Neither
     enters an action identity (only :func:`tool_version` does): a change outside the
     analyzer still reads the ledger back, and these hashes are what tells such
@@ -715,7 +715,7 @@ def run_triage(
                              with a counterfactual donor. Donors are drawn from the
                              whole of *explore*, never from outside it. Elsewhere the
                              same holds per case for an answer that is a common gold
-                             of *explore* (:func:`~.triage.common_answers`).
+                             of *explore* (:func:`~.routes.common_answers`).
         task_kind:           the task's kind; steps limited to other kinds are
                              recorded as ``not_applicable`` and not run.
         answer_fn:           ``(case, output) -> answer key`` (``""`` = no readable

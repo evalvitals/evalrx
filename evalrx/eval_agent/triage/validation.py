@@ -81,8 +81,8 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
-from evalrx.eval_agent.probing.actions import PlanStep
-from evalrx.eval_agent.probing.explanations import (
+from evalrx.eval_agent.triage.actions import PlanStep
+from evalrx.eval_agent.triage.explanations import (
     CARDS,
     MIN_N,
     Metric,
@@ -94,17 +94,8 @@ from evalrx.eval_agent.probing.explanations import (
     verdict,
     z_quantile,
 )
-from evalrx.eval_agent.probing.ledger import Ledger
-from evalrx.eval_agent.probing.rules import (
-    LAYERS,
-    RULES_VERSION,
-    Layer,
-    candidate_steps,
-    matched_controls,
-    route_fail_ids,
-)
-from evalrx.eval_agent.probing.sampler import matched_sample, rank
-from evalrx.eval_agent.probing.triage import (
+from evalrx.eval_agent.triage.ledger import Ledger
+from evalrx.eval_agent.triage.routes import (
     ROUTE_STEPS,
     commits_to_answers,
     common_answers,
@@ -112,6 +103,15 @@ from evalrx.eval_agent.probing.triage import (
     follow_up_values,
     triage_cases,
 )
+from evalrx.eval_agent.triage.rules import (
+    LAYERS,
+    RULES_VERSION,
+    Layer,
+    candidate_steps,
+    matched_controls,
+    route_fail_ids,
+)
+from evalrx.eval_agent.triage.sampler import matched_sample, rank
 
 if TYPE_CHECKING:
     from evalrx.core.case import CaseBatch
@@ -554,7 +554,7 @@ def validate(model: Any, discovery: "CaseBatch", validation: "CaseBatch", famili
              battery: "tuple[PlanStep, ...] | None" = None, layers: "tuple[Layer, ...]" = LAYERS,
              run_logger: Any = None, progress: "Callable[[str], None] | None" = print) -> dict[str, Any]:
     """Validate the union of the arms' frozen *families* once on *validation*; credit every arm."""
-    from evalrx.eval_agent.probing.controller import (
+    from evalrx.eval_agent.triage.controller import (
         BATTERY,
         POLICY_VERSION,
         _Run,
@@ -771,7 +771,7 @@ def _check_explanations(explanations: dict[str, list[dict[str, Any]]], run: Any,
 
 
 def markdown(report: dict[str, Any]) -> str:
-    from evalrx.eval_agent.probing.controller import code_label
+    from evalrx.eval_agent.triage.controller import code_label
 
     part = report.get("partition") or {}
     lines = [f"# Diagnostic validation ({report['version']}; {code_label(report.get('code'))})", "",

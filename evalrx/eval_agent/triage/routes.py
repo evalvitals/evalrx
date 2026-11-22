@@ -52,8 +52,8 @@ from typing import Any, Callable, cast
 
 from evalrx.analyzers.perturbation.prompt_contrast import _norm_answer
 from evalrx.core.case import MEDIA_SLOTS
-from evalrx.eval_agent.probing.actions import OK, Observation
-from evalrx.eval_agent.probing.evidence import StepEvidence, pick
+from evalrx.eval_agent.triage.actions import OK, Observation
+from evalrx.eval_agent.triage.evidence import StepEvidence, pick
 
 FIRED, CLEAR, UNTESTED, NOT_APPLICABLE = "fired", "clear", "untested", "not_applicable"
 
@@ -461,7 +461,7 @@ def triage_cases(cases: Any, observations: "Mapping[str, Observation | StepEvide
     stratum, so it must be the rule the sample was drawn with. Open-answer tasks draw with ``"none"``;
     a gold stratum there leaves almost no PASS case with a FAIL case's gold to serve as its control.
     """
-    from evalrx.eval_agent.probing.sampler import STRATA
+    from evalrx.eval_agent.triage.sampler import STRATA
 
     answer, agree = answer_fn or default_answer, agree_fn or exact_answer
     stratum_of = STRATA[stratum]

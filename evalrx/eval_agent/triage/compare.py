@@ -14,7 +14,7 @@ from itertools import combinations
 from pathlib import Path
 from typing import Any
 
-from evalrx.eval_agent.probing.explanations import CARDS, primary_readings, verdict
+from evalrx.eval_agent.triage.explanations import CARDS, primary_readings, verdict
 
 
 def discrimination(explained: dict[str, Any], report: dict[str, Any]) -> dict[str, Any]:
@@ -117,7 +117,7 @@ def markdown(diff: dict[str, Any]) -> str:
 
 
 def main(argv: "list[str] | None" = None) -> int:
-    """``python -m evalrx.eval_agent.probing.compare <baseline.json> <other.json> [--json]``: two arms'
+    """``python -m evalrx.eval_agent.triage.compare <baseline.json> <other.json> [--json]``: two arms'
     triage reports side by side, as Markdown (default) or as the JSON diff."""
     p = argparse.ArgumentParser(description="two triage reports side by side: selection order, evidence cost, "
                                             "coverage and, with an explaining run, the explanations told apart")

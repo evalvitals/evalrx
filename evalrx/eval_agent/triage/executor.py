@@ -1,4 +1,4 @@
-"""Strict execution of one :class:`~evalrx.eval_agent.probing.actions.ProbeAction`.
+"""Strict execution of one :class:`~evalrx.eval_agent.triage.actions.ProbeAction`.
 
 Unlike ``ProbeAgent.probe``, nothing here selects, filters, backfills, caps or
 generates: the analyzer runs once on exactly the planned cases, and the
@@ -25,7 +25,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Any, cast
 
-from evalrx.eval_agent.probing.actions import (
+from evalrx.eval_agent.triage.actions import (
     FAILED,
     OK,
     UNFAITHFUL,
@@ -34,7 +34,7 @@ from evalrx.eval_agent.probing.actions import (
     ProbeAction,
     canonical,
 )
-from evalrx.eval_agent.probing.metering import (
+from evalrx.eval_agent.triage.metering import (
     MeteredModel,
     gpu_peak_mb,
     gpu_peak_reset,

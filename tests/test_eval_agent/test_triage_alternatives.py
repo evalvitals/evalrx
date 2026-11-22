@@ -17,13 +17,13 @@ import json
 
 import pytest
 
-import evalrx.eval_agent.probing.controller as controller
-from evalrx.eval_agent.probing import LAYERS, run_triage
-from evalrx.eval_agent.probing.actions import PlanStep
-from evalrx.eval_agent.probing.explanations import CARDS, Explainer, Metric
-from evalrx.eval_agent.probing.rules import Layer
-from evalrx.eval_agent.probing.scoring import Weights
-from tests.test_eval_agent.test_probing_mvp2 import _kw, _pope_like, _Table
+import evalrx.eval_agent.triage.controller as controller
+from evalrx.eval_agent.triage import LAYERS, run_triage
+from evalrx.eval_agent.triage.actions import PlanStep
+from evalrx.eval_agent.triage.explanations import CARDS, Explainer, Metric
+from evalrx.eval_agent.triage.rules import Layer
+from evalrx.eval_agent.triage.scoring import Weights
+from tests.test_eval_agent.test_triage_expansion import _kw, _pope_like, _Table
 
 
 def _wrapper(key, text, evidence):

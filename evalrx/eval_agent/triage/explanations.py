@@ -83,8 +83,8 @@ from itertools import combinations
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from evalrx.eval_agent.probing.metering import usage_counters, usage_delta
-from evalrx.eval_agent.probing.triage import difference_interval
+from evalrx.eval_agent.triage.metering import usage_counters, usage_delta
+from evalrx.eval_agent.triage.routes import difference_interval
 
 EXPLAIN_VERSION = "mvp4-explain-6"
 DIRECTIONS = ("up", "down", "same", "unknown")

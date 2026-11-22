@@ -18,17 +18,17 @@ import pytest
 from evalrx.core.capability import Capability
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.core.model import Model
-from evalrx.eval_agent.probing import BATTERY, LAYERS, run_triage
-from evalrx.eval_agent.probing.actions import FAILED, OK, UNFAITHFUL, Observation
-from evalrx.eval_agent.probing.evidence import StepEvidence
-from evalrx.eval_agent.probing.rules import (
+from evalrx.eval_agent.triage import BATTERY, LAYERS, run_triage
+from evalrx.eval_agent.triage.actions import FAILED, OK, UNFAITHFUL, Observation
+from evalrx.eval_agent.triage.evidence import StepEvidence
+from evalrx.eval_agent.triage.routes import difference_interval
+from evalrx.eval_agent.triage.rules import (
     active_routes,
     candidate_steps,
     expansion_gaps,
     next_for_route,
     next_size,
 )
-from evalrx.eval_agent.probing.triage import difference_interval
 
 OBJECTS = ("cat", "dog", "car", "cup")
 
@@ -179,8 +179,8 @@ def test_describe_first_asks_for_its_own_output_room_where_the_backend_honours_i
 
     # dropped per call (an OpenAI-compatible endpoint): the step runs without its
     # gen_kwargs, so the host's 16-token cap applies and leaves no room
-    from evalrx.eval_agent.probing.controller import _Run
-    from evalrx.eval_agent.probing.ledger import Ledger
+    from evalrx.eval_agent.triage.controller import _Run
+    from evalrx.eval_agent.triage.ledger import Ledger
 
     step, ids = _step("describe_first"), [str(c.id) for c in cases][:4]
     for per_call, expected in ((True, None), (False, "not_applicable")):
@@ -290,7 +290,7 @@ def test_a_refusal_on_any_chunk_refuses_the_step_on_every_case():
     plain = StepEvidence(_step("self_consistency"), [_obs("sc", ["a", "b"]), _obs("sc", ["c"], status=FAILED)])
     assert plain.for_case("a").status == OK and plain.for_case("c").status == FAILED
     assert plain.todo(["a", "b", "c", "d"]) == ["d"]
-    from evalrx.eval_agent.probing.actions import PlanStep
+    from evalrx.eval_agent.triage.actions import PlanStep
 
     batchy = StepEvidence(PlanStep("x", {}, "S", "reads the batch", reuse=False, reuse_note="test"),
                           [_obs("el", ["a", "b"])])
@@ -321,8 +321,8 @@ def test_expansion_gaps_and_sizes():
 
 
 def test_budget_estimates_come_from_the_same_steps_earlier_seconds_and_charge_the_evidence(tmp_path):
-    from evalrx.eval_agent.probing.controller import _Run
-    from evalrx.eval_agent.probing.ledger import Ledger
+    from evalrx.eval_agent.triage.controller import _Run
+    from evalrx.eval_agent.triage.ledger import Ledger
 
     cases, table = _pope_like()
     ledger = Ledger(tmp_path / "b")
@@ -367,7 +367,7 @@ def test_every_reuse_step_is_covered_by_a_decomposability_check():
 
 
 def _rows(result):
-    from evalrx.eval_agent.probing.actions import canonical
+    from evalrx.eval_agent.triage.actions import canonical
 
     findings = canonical(result.findings or {})
     rows = {str(r["sample_id"]): r for r in findings.get("per_case") or []}
@@ -453,7 +453,7 @@ def test_behavioural_reuse_steps_give_the_same_rows_whatever_shares_the_batch():
 
 
 def test_a_layer_that_narrows_its_route_states_its_filter():
-    from evalrx.eval_agent.probing.rules import public, route_states
+    from evalrx.eval_agent.triage.rules import public, route_states
 
     records = _records() + [{"case_id": f"x{i}", "label": "fail", "stratum": "no", "routes": ["X"], "stable": False,
                              "N": {"state": "untested", "reason": "no counterfactual donor"}} for i in range(3)]

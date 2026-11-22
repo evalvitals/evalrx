@@ -17,8 +17,8 @@ import json
 
 import pytest
 
-from evalrx.eval_agent.probing import run_triage
-from evalrx.eval_agent.probing.explanations import (
+from evalrx.eval_agent.triage import run_triage
+from evalrx.eval_agent.triage.explanations import (
     CARDS,
     Explainer,
     Hypothesis,
@@ -31,7 +31,7 @@ from evalrx.eval_agent.probing.explanations import (
     parse,
     verdict,
 )
-from tests.test_eval_agent.test_probing_mvp2 import _kw, _pope_like, _Table
+from tests.test_eval_agent.test_triage_expansion import _kw, _pope_like, _Table
 
 
 def test_verdicts_follow_the_interval_against_the_predicted_region():
@@ -79,7 +79,7 @@ def test_disagreement_is_the_share_of_live_pairs_whose_predictions_conflict():
 
 
 def test_decidability_asks_whether_the_routes_cases_can_settle_a_conflict():
-    from evalrx.eval_agent.probing.explanations import (
+    from evalrx.eval_agent.triage.explanations import (
         cases_needed,
         decidability,
         half_width,
@@ -263,9 +263,9 @@ def test_scored_run_asks_once_the_sample_settles_and_resumes_without_asking(tmp_
 def _wrapper_on_s(monkeypatch):
     """The layers with an S step the table model ignores: prompt_sensitivity is 0 on every case, so an
     "up" prediction on it misses at once."""
-    from evalrx.eval_agent.probing import LAYERS
-    from evalrx.eval_agent.probing.actions import PlanStep
-    from evalrx.eval_agent.probing.rules import Layer
+    from evalrx.eval_agent.triage import LAYERS
+    from evalrx.eval_agent.triage.actions import PlanStep
+    from evalrx.eval_agent.triage.rules import Layer
 
     monkeypatch.setitem(CARDS, "wrapped", (Metric("prompt_sensitivity", "the answer moves with a wrapper", 0.1),))
     step = PlanStep("prompt_contrast", {"strategies": {"baseline": "{prompt}", "w": "Q: {prompt}"}}, "Z1",
@@ -292,7 +292,7 @@ def test_a_decided_prediction_that_thins_a_route_asks_the_judge_again(tmp_path, 
 
 
 def test_a_route_left_with_only_steps_the_judge_is_not_asked_about_does_not_ask_again(tmp_path, monkeypatch):
-    import evalrx.eval_agent.probing.controller as controller
+    import evalrx.eval_agent.triage.controller as controller
 
     judge = _Judge(primary={"wrapped"})
     # every S step re-measures S's cut here, the wrapper too once the judge has been asked: after the
@@ -321,7 +321,7 @@ def test_the_rules_scheduler_does_not_take_an_explainer(tmp_path):
 
 
 def test_compare_applies_the_explaining_runs_explanations_to_both_runs_evidence(tmp_path, capsys):
-    from evalrx.eval_agent.probing.compare import compare, main, markdown
+    from evalrx.eval_agent.triage.compare import compare, main, markdown
 
     out = tmp_path / "c"
     rules = run_triage(_Table(_pope_like()[1]), _pope_like()[0], **_kw(out, max_fail=8, min_route_fail=1))
@@ -341,7 +341,7 @@ def test_compare_applies_the_explaining_runs_explanations_to_both_runs_evidence(
 
 @pytest.mark.parametrize("scheduler", ["rules", "scored"])
 def test_a_budgeted_rerun_on_the_same_ledger_decides_as_the_run_that_executed(tmp_path, monkeypatch, scheduler):
-    import evalrx.eval_agent.probing.controller as controller
+    import evalrx.eval_agent.triage.controller as controller
 
     real = controller.execute
 
@@ -379,9 +379,9 @@ class _SlowExplainer(Explainer):
 
 
 def test_a_judge_call_is_asked_only_while_its_estimate_fits_the_budget(tmp_path, monkeypatch):
-    from evalrx.eval_agent.probing import LAYERS
-    from evalrx.eval_agent.probing.actions import PlanStep
-    from evalrx.eval_agent.probing.rules import Layer
+    from evalrx.eval_agent.triage import LAYERS
+    from evalrx.eval_agent.triage.actions import PlanStep
+    from evalrx.eval_agent.triage.rules import Layer
 
     # the re-ask scenario: two asks when nothing binds; the evidence costs milliseconds
     monkeypatch.setitem(CARDS, "wrapped", (Metric("prompt_sensitivity", "the answer moves with a wrapper", 0.1),))
@@ -435,7 +435,7 @@ def _offered_on(out):
 
 
 def test_the_judge_is_not_asked_to_predict_the_check_a_route_is_cut_on(tmp_path, monkeypatch):
-    import evalrx.eval_agent.probing.controller as controller
+    import evalrx.eval_agent.triage.controller as controller
 
     with monkeypatch.context() as m:
         m.setattr(controller, "restates_route", lambda route, step: False)
@@ -445,7 +445,7 @@ def test_the_judge_is_not_asked_to_predict_the_check_a_route_is_cut_on(tmp_path,
 
 
 def test_a_route_with_nothing_left_to_run_is_explained_on_the_tools_already_run(tmp_path):
-    from evalrx.eval_agent.probing.explanations import restates_route
+    from evalrx.eval_agent.triage.explanations import restates_route
 
     report, judge = _wavering(tmp_path / "w")
     (prompt,) = judge.prompts
@@ -461,7 +461,7 @@ def test_a_route_with_nothing_left_to_run_is_explained_on_the_tools_already_run(
 
 
 def test_a_new_ask_keeps_the_live_explanations_and_adds_only_competing_ones():
-    from evalrx.eval_agent.probing.explanations import carry_over
+    from evalrx.eval_agent.triage.explanations import carry_over
 
     on = (("gradcam", "gc_top5_share"),)
     kept = [Hypothesis("S.h2", "S", "flat", {"gradcam": {"gc_top5_share": "same"}}, primary=on)]

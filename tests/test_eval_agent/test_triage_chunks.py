@@ -16,9 +16,9 @@ import json
 
 import pytest
 
-import evalrx.eval_agent.probing.controller as controller
-from evalrx.eval_agent.probing import run_triage
-from tests.test_eval_agent.test_probing_mvp2 import _kw, _pope_like, _strip, _Table
+import evalrx.eval_agent.triage.controller as controller
+from evalrx.eval_agent.triage import run_triage
+from tests.test_eval_agent.test_triage_expansion import _kw, _pope_like, _strip, _Table
 
 DESCRIBE_SEC = 10.0   # an expensive step whose cost no prior knows
 
@@ -116,8 +116,8 @@ def test_further_chunks_of_a_taken_step_do_not_use_up_max_actions(tmp_path):
 def test_the_control_schedulers_run_over_the_scored_pool_and_never_explore(tmp_path):
     import pytest
 
-    from evalrx.eval_agent.probing.controller import report_name
-    from tests.test_eval_agent.test_probing_mvp2 import _kw, _pope_like, _Table
+    from evalrx.eval_agent.triage.controller import report_name
+    from tests.test_eval_agent.test_triage_expansion import _kw, _pope_like, _Table
 
     cases, table = _pope_like()
     reports = {}

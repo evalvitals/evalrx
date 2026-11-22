@@ -21,7 +21,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
-from evalrx.eval_agent.probing.actions import OK, UNFAITHFUL, Observation, PlanStep
+from evalrx.eval_agent.triage.actions import OK, UNFAITHFUL, Observation, PlanStep
 
 
 @dataclass

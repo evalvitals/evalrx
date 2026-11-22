@@ -7,7 +7,7 @@ re-implementing the stratified split (and drifting from it), this calls
 
 ``by="media"`` is the triage protocol's own variant: the cases are grouped by
 their media content and whole groups go to one side, so DISCOVERY and CONFIRM
-never share an image and :func:`~evalrx.eval_agent.probing.validation.partition_bundle`
+never share an image and :func:`~evalrx.eval_agent.triage.validation.partition_bundle`
 leaves nothing out (under the per-case split 207 of ChartQA's 500 CONFIRM cases
 shared a chart with DISCOVERY and were dropped). A judge-driven run still splits
 by case, so the two policies are compared case for case under ``by="case"`` only.
@@ -45,7 +45,7 @@ def split_by_media(data: "CaseBatch", confirm_split: float, seed: int) -> "tuple
     4 cases or when a side would be empty (then ``(data, None)``)."""
     from evalrx.core.case import CaseBatch
     from evalrx.eval_agent.loop.partition import _strat_key
-    from evalrx.eval_agent.probing.validation import source_key
+    from evalrx.eval_agent.triage.validation import source_key
     from evalrx.stats.subset_sampling import stratified_subset
 
     cases = list(data)

@@ -21,11 +21,11 @@ import json
 
 import pytest
 
-from evalrx.eval_agent.probing import LAYERS, explore_confirm_split, run_triage
-from evalrx.eval_agent.probing.controller import BATTERY
-from evalrx.eval_agent.probing.explanations import CARDS, Metric, label_bound
-from evalrx.eval_agent.probing.rules import Layer, candidate_steps
-from evalrx.eval_agent.probing.validation import (
+from evalrx.eval_agent.triage import LAYERS, explore_confirm_split, run_triage
+from evalrx.eval_agent.triage.controller import BATTERY
+from evalrx.eval_agent.triage.explanations import CARDS, Metric, label_bound
+from evalrx.eval_agent.triage.rules import Layer, candidate_steps
+from evalrx.eval_agent.triage.validation import (
     ALPHA,
     IssueRecord,
     credit_arms,
@@ -37,8 +37,8 @@ from evalrx.eval_agent.probing.validation import (
     validate,
     within_group_rho,
 )
-from tests.test_eval_agent.test_probing_alternatives import FIRST, _Flipper
-from tests.test_eval_agent.test_probing_mvp2 import _kw, _pope_like, _yes_no
+from tests.test_eval_agent.test_triage_alternatives import FIRST, _Flipper
+from tests.test_eval_agent.test_triage_expansion import _kw, _pope_like, _yes_no
 
 SEED = 7
 
@@ -197,7 +197,7 @@ def test_an_effect_that_holds_on_new_cases_is_supported_and_frozen_before_valida
     assert (tmp_path / "validation" / "selection_trace.jsonl").is_file()
     assert "## Arms" in (tmp_path / "validation" / "validation_report.md").read_text()
     # both reports and every planned action say which code ran
-    from evalrx.eval_agent.probing.controller import code_version
+    from evalrx.eval_agent.triage.controller import code_version
 
     assert out["code"] == report["code"] == code_version()
     assert all(e["code"] == out["code"]["tree"] for e in planned)

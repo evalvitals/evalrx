@@ -190,7 +190,7 @@ def _sampling_kwargs(resolved: Resolved, args) -> "dict | None":
 
 def _usage_cost(model, before: "dict | None") -> dict:
     """Provider usage since *before* and its listed-price USD (``{}`` for a model with no counters)."""
-    from evalrx.eval_agent.probing.metering import usage_counters, usage_delta
+    from evalrx.eval_agent.triage.metering import usage_counters, usage_delta
     from evalrx.models.backends.api.prices import usd
 
     usage = usage_delta(before, usage_counters(model))
@@ -691,7 +691,7 @@ def _triage_explainer(args, spec):
 
     Triage runs no coding stage, so the judge is built without the coder checks
     the Gemini judge otherwise needs. The judge must not be the model under test."""
-    from evalrx.eval_agent.probing.explanations import Explainer
+    from evalrx.eval_agent.triage.explanations import Explainer
     from evalrx.models.backends.api.prices import usd
 
     if args.triage_scheduler != "scored":
@@ -748,9 +748,9 @@ def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs:
     the issues the report supports are frozen and validated once on
     DIAGNOSTIC_VALIDATION (``<run>/validation/``).
     """
-    from evalrx.eval_agent.probing import explore_confirm_split, run_triage
-    from evalrx.eval_agent.probing.scoring import Weights
-    from evalrx.eval_agent.probing.validation import freeze_issues, partition_bundle, validate
+    from evalrx.eval_agent.triage import explore_confirm_split, run_triage
+    from evalrx.eval_agent.triage.scoring import Weights
+    from evalrx.eval_agent.triage.validation import freeze_issues, partition_bundle, validate
 
     from .run import triage_weights
 
@@ -813,7 +813,7 @@ def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs:
                    "confirm_visible_to_controller": False},
         run_logger=ctx.logger, **shared,
     )
-    from evalrx.eval_agent.probing.controller import report_name
+    from evalrx.eval_agent.triage.controller import report_name
 
     name = report_name(args.triage_scheduler, explainer is not None)
     checked = None
@@ -892,7 +892,7 @@ def run(args, task: T.Task, resolved: Resolved) -> int:
             batch_case_ids=[c.id for c in candidates],
         )
 
-    from evalrx.eval_agent.probing.metering import usage_counters
+    from evalrx.eval_agent.triage.metering import usage_counters
 
     usage_before = usage_counters(model)
     discovery, elapsed = _discover(discovery_model, candidates, protocol, gen_kwargs, args, task)

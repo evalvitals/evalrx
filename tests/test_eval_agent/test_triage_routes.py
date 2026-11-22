@@ -18,8 +18,8 @@ import pytest
 from evalrx.core.capability import Capability
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label
 from evalrx.core.model import Model
-from evalrx.eval_agent.probing import explore_confirm_split, matched_sample, run_triage
-from evalrx.eval_agent.probing.actions import (
+from evalrx.eval_agent.triage import explore_confirm_split, matched_sample, run_triage
+from evalrx.eval_agent.triage.actions import (
     FAILED,
     OK,
     UNFAITHFUL,
@@ -27,8 +27,8 @@ from evalrx.eval_agent.probing.actions import (
     Observation,
     ProbeAction,
 )
-from evalrx.eval_agent.probing.executor import execute
-from evalrx.eval_agent.probing.triage import summarize, triage_cases
+from evalrx.eval_agent.triage.executor import execute
+from evalrx.eval_agent.triage.routes import summarize, triage_cases
 
 
 def _cases(n_fail=6, n_pass=8, gold_fail="No"):
@@ -261,7 +261,7 @@ def _no_answer(case, output):
 
 
 def test_u_is_not_applicable_where_outputs_commit_to_no_answer_and_s_needs_h_and_n():
-    from evalrx.eval_agent.probing.triage import commits_to_answers
+    from evalrx.eval_agent.triage.routes import commits_to_answers
 
     cases = CaseBatch([
         _yn_case("s", Label.FAIL, "Yes", "A cat on a sofa."),   # H and N clear: S without U
@@ -281,7 +281,7 @@ def test_u_is_not_applicable_where_outputs_commit_to_no_answer_and_s_needs_h_and
 
 
 def test_common_answers_are_the_golds_a_share_of_discovery_has():
-    from evalrx.eval_agent.probing.triage import common_answers
+    from evalrx.eval_agent.triage.routes import common_answers
 
     golds = ["small"] * 3 + ["large"] * 2 + [f"x{i}" for i in range(95)]
     cases = CaseBatch([FailureCase(id=f"c{i}", inputs=Inputs(prompt="q"), expected=g, observed=g, label=Label.PASS)
@@ -313,7 +313,7 @@ def test_a_content_swap_does_not_test_n_where_the_answer_is_a_common_gold():
 
 
 def test_open_answer_records_match_controls_without_the_gold_answer():
-    from evalrx.eval_agent.probing.rules import matched_controls
+    from evalrx.eval_agent.triage.rules import matched_controls
 
     cases = CaseBatch([
         FailureCase(id="f1", inputs=Inputs(prompt="q1"), expected="1.577", observed="1.5", label=Label.FAIL),
@@ -474,7 +474,7 @@ def test_u_and_s_compare_answers_under_the_tasks_tolerance():
     """ChartQA grades 12.6 against 12.5 as right (5 %), so the triage must not call them two answers:
     the host's agreement rule (``agree_fn``) decides, and the samples are clustered by it."""
     from evalrx.benchmark import tasks
-    from evalrx.eval_agent.probing.triage import _contrast_values
+    from evalrx.eval_agent.triage.routes import _contrast_values
 
     cases = CaseBatch([_num_case("r", "100"), _num_case("p", "12.5"), _num_case("w", "12.4")])
     ids = [c.id for c in cases]
@@ -668,7 +668,7 @@ def _rerun(report):
 
 
 def test_mvp0_changed_tool_code_is_a_new_action(tmp_path, vlm_cases, monkeypatch):
-    from evalrx.eval_agent.probing import controller
+    from evalrx.eval_agent.triage import controller
     from tests.tiny_whitebox import TinyVLM
 
     model = TinyVLM("qwen2_5_vl")
@@ -683,7 +683,7 @@ def test_mvp0_changed_tool_code_is_a_new_action(tmp_path, vlm_cases, monkeypatch
 
 
 def test_mvp0_code_version_is_recorded_but_not_part_of_the_identity(tmp_path, vlm_cases, monkeypatch):
-    from evalrx.eval_agent.probing import controller
+    from evalrx.eval_agent.triage import controller
     from tests.tiny_whitebox import TinyVLM
 
     model = TinyVLM("qwen2_5_vl")
@@ -691,7 +691,7 @@ def test_mvp0_code_version_is_recorded_but_not_part_of_the_identity(tmp_path, vl
               stage0_cost={"wall_sec": 1.0, "calls": {"generate": 8}}, progress=None)
     first = run_triage(model, vlm_cases, **kw)
     code = controller.code_version()
-    assert first["code"] == code and "eval_agent/probing" in code["parts"]
+    assert first["code"] == code and "eval_agent/triage" in code["parts"]
     out = tmp_path / "c"
     planned = [json.loads(line) for line in (out / "selection_trace.jsonl").read_text().splitlines()
                if '"planned"' in line]
@@ -722,28 +722,28 @@ def test_mvp0_steps_that_compare_answers_do_not_run_where_outputs_commit_to_none
 
 
 def test_code_version_hashes_per_package_directory_and_reads_a_snapshot_ref(tmp_path):
-    from evalrx.eval_agent.probing.controller import _code_version, code_label
+    from evalrx.eval_agent.triage.controller import _code_version, code_label
 
     root = tmp_path / "evalrx"
-    for rel, text in {"__init__.py": "", "models/hf.py": "a = 1\n", "eval_agent/probing/rules.py": "b = 2\n",
+    for rel, text in {"__init__.py": "", "models/hf.py": "a = 1\n", "eval_agent/triage/rules.py": "b = 2\n",
                       "reporting/web/node_modules/gyp/x.py": "", "models/__pycache__/hf.py": ""}.items():
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_text(text)
     first = _code_version(root)
-    assert sorted(first["parts"]) == [".", "eval_agent/probing", "models"]
+    assert sorted(first["parts"]) == [".", "eval_agent/triage", "models"]
     assert first["git"] is None and code_label(first).endswith("commit unknown")
     (root / "models" / "hf.py").write_text("a = 3\n")
     (tmp_path / "CODE_REF.json").write_text('{"commit": "0123456789abcdef", "dirty": true}')
     second = _code_version(root)
     assert second["tree"] != first["tree"] and second["parts"]["models"] != first["parts"]["models"]
-    assert second["parts"]["eval_agent/probing"] == first["parts"]["eval_agent/probing"]
+    assert second["parts"]["eval_agent/triage"] == first["parts"]["eval_agent/triage"]
     assert second["git"] == {"commit": "0123456789abcdef", "dirty": True}
     assert code_label(second) == f"code tree `{second['tree']}`, commit `0123456789` + uncommitted changes"
     assert code_label(None) == "code not recorded"
 
 
 def test_mvp0_uncertain_attempt_gets_a_new_number(tmp_path, vlm_cases):
-    from evalrx.eval_agent.probing.ledger import Ledger
+    from evalrx.eval_agent.triage.ledger import Ledger
     from tests.tiny_whitebox import TinyVLM
 
     model = TinyVLM("qwen2_5_vl")
@@ -868,7 +868,7 @@ def test_per_call_sampling_is_requested_only_where_the_backend_honours_it():
 
 
 def test_metered_model_counts_batch_calls_per_input():
-    from evalrx.eval_agent.probing.metering import MeteredModel
+    from evalrx.eval_agent.triage.metering import MeteredModel
 
     class Batched:
         def generate_batch(self, inputs, **kwargs):
