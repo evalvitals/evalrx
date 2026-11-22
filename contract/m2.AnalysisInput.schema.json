@@ -1,0 +1,121 @@
+{
+  "$defs": {
+    "CaseBatchRef": {
+      "additionalProperties": false,
+      "description": "A batch referenced by file rather than inlined (the normal case).",
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "n_cases": {
+          "title": "N Cases",
+          "type": "integer"
+        },
+        "split": {
+          "anyOf": [
+            {
+              "enum": [
+                "all",
+                "explore",
+                "confirm",
+                "discovery"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Split"
+        }
+      },
+      "required": [
+        "path",
+        "n_cases"
+      ],
+      "title": "CaseBatchRef",
+      "type": "object"
+    },
+    "ProtocolWire": {
+      "additionalProperties": true,
+      "description": "The user's natural-language statement of what to investigate.\n\nCarried through to M2 (tool selection), M3 (prompt) and M4 (the\nprotocol-consistency gate) — a hypothesis can be statistically real and still\nbe off-topic, and only this makes that judgeable.",
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "task_domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Domain"
+        },
+        "probe_hints": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Probe Hints",
+          "type": "array"
+        }
+      },
+      "required": [
+        "description"
+      ],
+      "title": "ProtocolWire",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "M2 needs BOTH halves of the join: M1's numbers and the cases' labels.\n\n``data`` is not optional in practice — without labels there is nothing to\ncorrelate against and M2 degrades to threshold rules only.",
+  "properties": {
+    "results_ref": {
+      "description": "Path to the M1 ProbeOutput this analyzes.",
+      "title": "Results Ref",
+      "type": "string"
+    },
+    "data": {
+      "$ref": "#/$defs/CaseBatchRef"
+    },
+    "model_name": {
+      "title": "Model Name",
+      "type": "string"
+    },
+    "protocol": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProtocolWire"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "confirmatory": {
+      "default": true,
+      "description": "False defers the e-BH validity verdict to the confirm phase; the report then carries effect sizes and charts but NO reject decision.",
+      "title": "Confirmatory",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "results_ref",
+    "data",
+    "model_name"
+  ],
+  "title": "AnalysisInput",
+  "type": "object",
+  "$id": "https://evalrx.dev/contract/m2.AnalysisInput.json",
+  "x-stage": "m2",
+  "x-role": "input",
+  "x-schema-version": 5,
+  "x-optional-stage": false
+}

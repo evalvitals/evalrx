@@ -1,0 +1,1895 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Failure case analysis for LLMs and VLMs">
+      
+      
+      
+        <link rel="canonical" href="https://evalvitals.github.io/evalrx/wsp_and_probe_tools/">
+      
+      
+        <link rel="prev" href="../intervention/">
+      
+      
+        <link rel="next" href="../holdout_confirmation/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.2">
+    
+    
+      
+        <title>Weight Edits & Probe Tools - EvalRX</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#weight-edits-and-probe-tools" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="EvalRX" class="md-header__button md-logo" aria-label="EvalRX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            EvalRX
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Weight Edits & Probe Tools
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/evalvitals/evalrx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    evalvitals/evalrx
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../overview/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Overview
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../quickstart/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Quickstart
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../colab_tpu/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Colab TPU Tutorial
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../cli/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Command-Line Interface
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../m2_analysis/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Exploratory Analysis (M2/M3)
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../intervention/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Verification & Intervention (M4/M5)
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Weight Edits & Probe Tools
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../holdout_confirmation/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Held-out Confirmation
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../stage_io/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Stage Input/Output Reference
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../analyzers/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Analyzer Zoo
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../architecture/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Architecture
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../extending/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Extending
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../roadmap/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Roadmap
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../validation/holdout_calibration_20261121/" class="md-tabs__link">
+          
+  
+  
+  Validation
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../local_artifacts/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Local Artifacts
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="EvalRX" class="md-nav__button md-logo" aria-label="EvalRX" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    EvalRX
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/evalvitals/evalrx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    evalvitals/evalrx
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../colab_tpu/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Colab TPU Tutorial
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Command-Line Interface
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../m2_analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exploratory Analysis (M2/M3)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../intervention/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verification & Intervention (M4/M5)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Weight Edits & Probe Tools
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Weight Edits & Probe Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#probe-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Probe tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Probe tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#describe-what-can-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Describe what can run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#route-a-question-to-probes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Route a question to probes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#call-a-probe-by-name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Call a probe by name
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#in-the-agentic-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In the agentic loop
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#weight-edits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Weight edits
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Weight edits">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#build-and-apply" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build and apply
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#derive-an-edit-from-failing-and-passing-cases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Derive an edit from failing and passing cases
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#compare-and-re-express-edits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compare and re-express edits
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#audit-an-edit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Audit an edit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#audit-an-edit-along-a-generation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Audit an edit along a generation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#as-a-repair-fix-tier-l4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        As a repair (fix tier L4)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-has-and-has-not-been-checked" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What has and has not been checked
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../holdout_confirmation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Held-out Confirmation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../stage_io/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stage Input/Output Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../analyzers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analyzer Zoo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../extending/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Extending
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_14" >
+        
+          
+          <label class="md-nav__link" for="__nav_14" id="__nav_14_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validation
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_14_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_14">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Validation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../validation/holdout_calibration_20261121/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Held-out designs calibration (2026-11-21)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../validation/astra_p50c_20261115/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Published weight edit on Qwen3.5-0.8B (2026-11-15)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../validation/gemini_agentic_20261013/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gemini agentic run (2026-10-13)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../validation/gemma_repair_20260830/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Historical Gemma repairs (2026-08-30)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../local_artifacts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local Artifacts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#probe-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Probe tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Probe tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#describe-what-can-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Describe what can run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#route-a-question-to-probes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Route a question to probes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#call-a-probe-by-name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Call a probe by name
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#in-the-agentic-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In the agentic loop
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#weight-edits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Weight edits
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Weight edits">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#build-and-apply" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build and apply
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#derive-an-edit-from-failing-and-passing-cases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Derive an edit from failing and passing cases
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#compare-and-re-express-edits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compare and re-express edits
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#audit-an-edit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Audit an edit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#audit-an-edit-along-a-generation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Audit an edit along a generation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#as-a-repair-fix-tier-l4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        As a repair (fix tier L4)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-has-and-has-not-been-checked" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What has and has not been checked
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="weight-edits-and-probe-tools">Weight Edits and Probe Tools</h1>
+<p>Two additions that work together:</p>
+<ul>
+<li><strong>Probe tools</strong> (<code>evalrx.probing</code>): every registered analyzer described as a
+  tool — what it answers, what it needs, what arguments it takes, and whether
+  it can run on the model and data in hand. The agentic loop can list them and
+  call one by name.</li>
+<li><strong>Weight-space programming</strong> (<code>evalrx.wsp</code>): build, apply, control and
+  inspect direct weight edits such as <code>w' = w - alpha * u (u^T w)</code>, audit an
+  edit against controls (<code>evalrx.analyzers.weights</code>), and try one as a
+  training-free repair at fix tier L4.</li>
+</ul>
+<h2 id="probe-tools">Probe tools</h2>
+<h3 id="describe-what-can-run">Describe what can run</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.probing</span><span class="w"> </span><span class="kn">import</span> <span class="n">ProbeToolbox</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">box</span> <span class="o">=</span> <span class="n">ProbeToolbox</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">cases</span><span class="p">)</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">report</span> <span class="o">=</span> <span class="n">box</span><span class="o">.</span><span class="n">describe</span><span class="p">()</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">report</span><span class="p">[</span><span class="s2">"attention_knockout"</span><span class="p">]</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="c1"># {"family": "causal", "access": "white_box", "cost": "heavy", "intervenes": True,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1">#  "question": "Which internal route carries the effect, measured by intervening on it?",</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="c1">#  "parameters": {...JSON schema...},</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="c1">#  "available": False,</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="c1">#  "missing": ["needs a local white-box model that provides: attention, logits"],</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="c1">#  "codes": ["capability"], ...}</span>
+</code></pre></div>
+<p>Every probe is listed. An unavailable one says why, with all reasons rather
+than the first, so "cannot run here" is never read as "ran and found nothing".
+No forward pass is made. The reasons and their codes:</p>
+<table>
+<thead>
+<tr>
+<th>Code</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>capability</code></td>
+<td>The model does not provide a required capability.</td>
+</tr>
+<tr>
+<td><code>modality</code></td>
+<td>The probe applies to modalities the model does not declare.</td>
+</tr>
+<tr>
+<td><code>data_slot</code></td>
+<td>The batch fills none of the modality slots the probe reads.</td>
+</tr>
+<tr>
+<td><code>trajectories</code></td>
+<td>The probe reads agent trajectories; the batch has none.</td>
+</tr>
+<tr>
+<td><code>data_precondition</code></td>
+<td>The cases lack labels or metadata the probe reads.</td>
+</tr>
+<tr>
+<td><code>injection</code></td>
+<td>A constructor argument must come from the host (a judge model, a weight edit).</td>
+</tr>
+<tr>
+<td><code>not_implemented</code></td>
+<td>Registered placeholder.</td>
+</tr>
+</tbody>
+</table>
+<p>The description is read from the analyzer class: family from its
+<code>analyzers/&lt;package&gt;</code> location, arguments from its constructor, signals from
+<code>signal_docs</code>. An analyzer may set <code>question</code>, <code>probe_cost</code>, <code>probe_family</code> or
+<code>probe_intervenes</code> to override what is derived.</p>
+<h3 id="route-a-question-to-probes">Route a question to probes</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">route</span> <span class="o">=</span> <span class="n">box</span><span class="o">.</span><span class="n">route</span><span class="p">(</span><span class="n">failure_modes</span><span class="o">=</span><span class="p">[</span><span class="s2">"visual_neglect"</span><span class="p">],</span> <span class="n">max_probes</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">route</span><span class="o">.</span><span class="n">names</span>          <span class="c1"># ranked: probes mapped to the failure mode first</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">route</span><span class="o">.</span><span class="n">unavailable</span>    <span class="c1"># requested probes that cannot run, with reasons</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="nb">print</span><span class="p">(</span><span class="n">route</span><span class="o">.</span><span class="n">to_prompt</span><span class="p">())</span>
+</code></pre></div>
+<p>Ranking is <code>StrategyProbe</code>'s (slot-composed priority plus failure-mode boosts),
+restricted to probes that can run. Filters: <code>families</code>, <code>access</code>
+(<code>"black_box"</code> / <code>"white_box"</code>), <code>allow_interventions</code>, <code>only_matching</code>.</p>
+<h3 id="call-a-probe-by-name">Call a probe by name</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">result</span> <span class="o">=</span> <span class="n">box</span><span class="o">.</span><span class="n">call</span><span class="p">(</span><span class="s2">"logit_lens"</span><span class="p">,</span> <span class="p">{</span><span class="s2">"top_k"</span><span class="p">:</span> <span class="mi">5</span><span class="p">})</span>     <span class="c1"># arguments checked against the schema</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">tools</span> <span class="o">=</span> <span class="n">box</span><span class="o">.</span><span class="n">tools</span><span class="p">()</span>                               <span class="c1"># evalrx.core.tool.Tool objects</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">tools</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">to_openai_schema</span><span class="p">()</span>
+</code></pre></div>
+<p>A call with an unknown argument, a wrong type, or an unavailable probe raises
+<code>ProbeCallError</code> before any model work, with the accepted arguments in the
+message. Arguments that cannot be written as JSON are never part of a call;
+pass a constructed analyzer through <code>overrides={name: analyzer}</code>.</p>
+<h3 id="in-the-agentic-loop">In the agentic loop</h3>
+<p>The judge-decided mode (<code>JudgePolicy</code>) gains one tool and extends another:</p>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Arguments</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>list_probes</code></td>
+<td><code>failure_modes</code>, <code>families</code>, <code>access</code>, <code>allow_interventions</code>, <code>only_matching</code>, <code>max_probes</code></td>
+<td>Shows the ranked runnable probes with arguments and reasons. Runs no model. Defaults to the failure modes of the current hypotheses.</td>
+</tr>
+<tr>
+<td><code>run_probe</code></td>
+<td>none</td>
+<td>As before: the probe agent selects the analyzers.</td>
+</tr>
+<tr>
+<td><code>run_probe</code></td>
+<td><code>name</code> + <code>params</code>, or <code>probes: [{name, params}]</code></td>
+<td>Runs exactly the named probes. Results are added to the evidence gathered so far.</td>
+</tr>
+</tbody>
+</table>
+<p>A named call runs what was named and nothing else: <code>max_analyzers</code> does not cap
+it and no substitute is run for a probe that turns out inapplicable. A rejected
+call does no model work. When the held-out confirmation re-runs the same probes
+on the confirm split, it replays the arguments of the named call.</p>
+<h2 id="weight-edits">Weight edits</h2>
+<h3 id="build-and-apply">Build and apply</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.wsp</span><span class="w"> </span><span class="kn">import</span> <span class="n">TensorEdit</span><span class="p">,</span> <span class="n">WeightEdit</span><span class="p">,</span> <span class="n">applied</span><span class="p">,</span> <span class="n">edit_structure</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">edit</span> <span class="o">=</span> <span class="n">WeightEdit</span><span class="p">([</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="n">TensorEdit</span><span class="o">.</span><span class="n">rank_one</span><span class="p">(</span><span class="s2">"layers.15.mlp.down_proj.weight"</span><span class="p">,</span> <span class="n">u</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">6.0</span><span class="p">,</span> <span class="n">cols</span><span class="o">=</span><span class="n">columns</span><span class="p">),</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="p">])</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="n">edit_structure</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">edit</span><span class="p">)</span>        <span class="c1"># size, location, rank, the alpha the change follows</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="k">with</span> <span class="n">applied</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">edit</span><span class="p">)</span> <span class="k">as</span> <span class="n">report</span><span class="p">:</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>    <span class="n">answer</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">generate</span><span class="p">(</span><span class="n">case</span><span class="o">.</span><span class="n">inputs</span><span class="p">)</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="c1"># the original weights are back, also if the block raised</span>
+</code></pre></div>
+<p>A <code>TensorEdit</code> holds one tensor's change in the form it was written in: the
+rank-one rule, low-rank factors, a dense delta, or a sparse overwrite.
+<code>alpha = 1</code> removes the component along <code>u</code>, <code>alpha = 2</code> reflects it, larger
+values reflect and amplify.</p>
+<p><code>applied</code> computes every edited tensor before writing any, so a bad name or
+shape leaves the model untouched. <code>verify_base=True</code> requires the live tensors
+to match the hashes recorded in the edit, and <code>max_relative_change</code> refuses an
+edit above a size limit.</p>
+<p>Tensor names match a parameter exactly, or by the suffix starting at the
+indexed container, so an edit written for
+<code>model.language_model.layers.15.mlp.down_proj.weight</code> applies to a module that
+names it <code>model.layers.15.mlp.down_proj.weight</code>. The layer index is never
+dropped, and a name that fits two parameters is an error.</p>
+<p><code>WeightEdit.save(dir)</code> / <code>WeightEdit.load(dir)</code> persist an edit.
+<code>WeightEdit.from_astra(dir)</code> reads the <code>edit.npz</code> + <code>manifest.json</code> layout
+published with <em>Sparks of Weight-Space Programming</em>.</p>
+<h3 id="derive-an-edit-from-failing-and-passing-cases">Derive an edit from failing and passing cases</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.wsp</span><span class="w"> </span><span class="kn">import</span> <span class="n">contrast_edit</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">edit</span> <span class="o">=</span> <span class="n">contrast_edit</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">fail_cases</span><span class="p">,</span> <span class="n">pass_cases</span><span class="p">,</span> <span class="n">n_layers</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">n_columns</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span>
+</code></pre></div>
+<p>The direction at a layer is the difference between the mean MLP output on
+failing and on passing cases; the neurons are the columns that push hardest
+along it on failing cases. No gradient step is taken. This proposes an edit; it
+does not show that the edit helps. Activations are read at the last prompt
+position, so a failure that only develops during generation is not visible to
+it.</p>
+<p>For a failure that only exists during generation, contrast positions instead of
+cases. <code>continuation_contrast_edit</code> appends each case's recorded output to its
+prompt and contrasts positions inside a repeated stretch with positions outside
+one:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.wsp</span><span class="w"> </span><span class="kn">import</span> <span class="n">continuation_contrast_edit</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">edit</span> <span class="o">=</span> <span class="n">continuation_contrast_edit</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">looping_cases</span><span class="p">,</span> <span class="n">repeat_ngram</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">n_columns</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">6.0</span><span class="p">)</span>
+</code></pre></div>
+<p><code>collect_continuation_stats</code> returns the per-layer group means on their own, and
+<code>rank_columns</code> the direction with each neuron's push, projection and activation
+difference, for comparing ranking signals.</p>
+<h3 id="compare-and-re-express-edits">Compare and re-express edits</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.wsp</span><span class="w"> </span><span class="kn">import</span> <span class="n">edit_agreement</span><span class="p">,</span> <span class="n">fit_rank_one</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">rule</span> <span class="o">=</span> <span class="n">fit_rank_one</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">published</span><span class="p">)</span>      <span class="c1"># u, columns and alpha that reproduce the edit</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="n">rule</span><span class="o">.</span><span class="n">metadata</span><span class="p">[</span><span class="s2">"fit"</span><span class="p">]</span>                       <span class="c1"># alpha and the unexplained share, per tensor</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="n">edit_agreement</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">mine</span><span class="p">,</span> <span class="n">published</span><span class="p">)</span>     <span class="c1"># shared tensors, direction cosine, neuron overlap</span>
+</code></pre></div>
+<p>An edit stored as overwritten entries cannot be scaled; its rank-one fit can,
+which gives a dose curve over <code>alpha</code>. Check <code>rank_one_residual</code> before treating
+the fit as the edit.</p>
+<h3 id="audit-an-edit">Audit an edit</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.analyzers.weights</span><span class="w"> </span><span class="kn">import</span> <span class="n">WeightEditAudit</span><span class="p">,</span> <span class="n">WeightEditStructure</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">WeightEditStructure</span><span class="p">(</span><span class="n">edit</span><span class="o">=</span><span class="n">edit</span><span class="p">)</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">cases</span><span class="p">)</span><span class="o">.</span><span class="n">findings</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="n">audit</span> <span class="o">=</span> <span class="n">WeightEditAudit</span><span class="p">(</span><span class="n">edit</span><span class="o">=</span><span class="n">edit</span><span class="p">,</span> <span class="n">target</span><span class="o">=</span><span class="s2">"gold"</span><span class="p">,</span> <span class="n">n_seeds</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">cases</span><span class="p">)</span><span class="o">.</span><span class="n">findings</span>
+</code></pre></div>
+<p><code>weight_edit_audit</code> measures the edit on the next-token distribution at the end
+of the prompt, beside three alternatives on the same cases:</p>
+<table>
+<thead>
+<tr>
+<th>Finding</th>
+<th>Reading</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>specificity_random_direction</code></td>
+<td>Output movement of the edit over that of an equally large change along a random direction. Near 1: the direction is not what matters.</td>
+</tr>
+<tr>
+<td><code>specificity_random_columns</code></td>
+<td>The same ratio against the same rule on other neurons. Near 1: the choice of neurons is not what matters.</td>
+</tr>
+<tr>
+<td><code>steer_recovery</code></td>
+<td>Share of the edit's per-case margin change reproduced by a constant activation shift with the weights untouched. Near 1: the edit acts like a fixed bias.</td>
+</tr>
+<tr>
+<td><code>mean_delta_edit_pass</code>, <code>frac_flips_pass</code></td>
+<td>Side effects on cases the model already got right.</td>
+</tr>
+</tbody>
+</table>
+<p>The controls are random draws; with few draws or few cases a ratio is an
+estimate, not a test. Both analyzers are registered, so they appear in the
+probe catalog under the <code>weight_edit</code> family once the host passes a constructed
+instance:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">box</span> <span class="o">=</span> <span class="n">ProbeToolbox</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">cases</span><span class="p">,</span> <span class="n">overrides</span><span class="o">=</span><span class="p">{</span><span class="s2">"weight_edit_audit"</span><span class="p">:</span> <span class="n">WeightEditAudit</span><span class="p">(</span><span class="n">edit</span><span class="o">=</span><span class="n">edit</span><span class="p">)})</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">box</span><span class="o">.</span><span class="n">call</span><span class="p">(</span><span class="s2">"weight_edit_audit"</span><span class="p">,</span> <span class="p">{</span><span class="s2">"target"</span><span class="p">:</span> <span class="s2">"gold"</span><span class="p">,</span> <span class="s2">"n_seeds"</span><span class="p">:</span> <span class="mi">5</span><span class="p">})</span>
+</code></pre></div>
+<h3 id="audit-an-edit-along-a-generation">Audit an edit along a generation</h3>
+<p>Some edits act only during generation. <code>weight_edit_continuation_audit</code> appends
+each case's recorded output (<code>case.observed</code>) to its prompt and scores every
+continuation position on the token that actually came next:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">evalrx.analyzers.weights</span><span class="w"> </span><span class="kn">import</span> <span class="n">WeightEditContinuationAudit</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="n">findings</span> <span class="o">=</span> <span class="n">WeightEditContinuationAudit</span><span class="p">(</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>    <span class="n">edit</span><span class="o">=</span><span class="n">edit</span><span class="p">,</span> <span class="n">groups</span><span class="o">=</span><span class="s2">"repetition"</span><span class="p">,</span> <span class="n">repeat_ngram</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">n_seeds</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="p">)</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">cases</span><span class="p">)</span><span class="o">.</span><span class="n">findings</span>
+</code></pre></div>
+<p>A prediction counts as in-loop when the <code>repeat_ngram</code> tokens before the
+predicted token already occurred earlier in the sequence, and as productive
+otherwise. Per group the findings give the change in negative log-likelihood of
+the recorded token (<code>mean_dnll_&lt;state&gt;_&lt;group&gt;</code>), the KL divergence from the
+unedited distribution, <code>specificity_&lt;control&gt;_&lt;group&gt;</code> and
+<code>steer_recovery_&lt;group&gt;</code>; <code>dnll_edit_loop_minus_productive</code> is positive when the
+edit makes looped text less likely than ordinary text.</p>
+<p>This is teacher-forced on text the unedited model wrote. It measures what each
+state does to the probability of that text, not what an edited model would
+write. Positions within one generation are not independent, so compare the
+<code>per_case</code> rows before drawing a conclusion from the pooled means. The model
+handle must tokenise the prompt exactly as it was when the text was generated.</p>
+<p><code>tools/check_astra_edit_qwen35.py</code> and <code>tools/audit_astra_edit_qwen35.py</code> run
+the structure check and this audit for the published p50c edit on Qwen3.5-0.8B;
+<code>tools/recover_astra_edit_qwen35.py</code> derives an edit from the loop contrast and
+compares it with the published one; <code>tools/generate_astra_edit_qwen35.py</code> lets
+the baseline, the edited model and a control generate GSM8K answers through the
+L4 fix path.</p>
+<h3 id="as-a-repair-fix-tier-l4">As a repair (fix tier L4)</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">agent</span> <span class="o">=</span> <span class="n">FixAgent</span><span class="p">(</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>    <span class="n">judge</span><span class="o">=</span><span class="n">judge</span><span class="p">,</span> <span class="n">max_tier</span><span class="o">=</span><span class="s2">"L4"</span><span class="p">,</span> <span class="n">score_fn</span><span class="o">=</span><span class="n">score</span><span class="p">,</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>    <span class="n">finetune_pool</span><span class="o">=</span><span class="n">diagnosis_cases</span><span class="p">,</span>          <span class="c1"># labelled, disjoint from what is validated</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>    <span class="n">weight_edit</span><span class="o">=</span><span class="p">{</span><span class="s2">"alpha"</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span> <span class="s2">"n_columns"</span><span class="p">:</span> <span class="mi">64</span><span class="p">,</span> <span class="s2">"n_layers"</span><span class="p">:</span> <span class="mi">2</span><span class="p">},</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="p">)</span>
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="n">outcome</span> <span class="o">=</span> <span class="n">agent</span><span class="o">.</span><span class="n">propose_and_validate</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">cases</span><span class="p">,</span> <span class="n">hypotheses</span><span class="p">)</span>
+</code></pre></div>
+<p><code>weight_edit</code> is opt-in (<code>True</code> for the defaults, or a dict of
+<code>WeightEditSpec</code> fields). The candidate <code>rank_one_weight_edit</code>:</p>
+<ul>
+<li>builds its edit from <code>finetune_pool</code> with <code>contrast_edit</code>, or loads one from
+  <code>edit_dir</code>; a pool that shares cases with the validated batch is refused;</li>
+<li>generates the batch with the edit written in, then restores the weights;</li>
+<li>is validated by the same paired test as every other tier, breaks included;</li>
+<li>also generates the batch under a matched random-direction control and records
+  both pass counts in <code>candidate.payload["audit"]</code>, with the edit's structure.</li>
+</ul>
+<p>Without a pool (and without <code>edit_dir</code>) the candidate is recorded with the
+reason it did not run. The judge never writes the edit or any hook code.</p>
+<h2 id="what-has-and-has-not-been-checked">What has and has not been checked</h2>
+<ul>
+<li>The edit arithmetic, the restore contract, the structure read-out and the
+  controls are tested on small tensors with known answers.</li>
+<li>The contrast heuristic, the audit and the fix path are tested on a hand-built
+  model with one planted rank-one defect (<code>tests/toy_wsp.py</code>): the derived edit
+  finds the planted layer, neuron and direction, repairs held-out cases, breaks
+  none, and a matched random direction does not repair them.</li>
+<li>Mechanics (hooks, name resolution, restoration) are tested on tiny
+  random-weight Qwen2.5-VL and Llama modules.</li>
+<li>The published-layout loader reproduces a re-implementation of the published
+  rebuild rule bit for bit on synthetic bfloat16 tensors, and reads the
+  published edit files. It has not been run against the original base
+  checkpoint.</li>
+<li>On Qwen3.5-0.8B with the published p50c edit, the base and rebuilt tensor
+  hashes match the manifest and the structure read-out gives 64 columns per
+  layer, rank one, alpha = 6.000 at layers 15 and 19.</li>
+<li>The continuation audit of p50c on Qwen3.5-0.8B (12 unfinished GSM8K
+  generations of the unedited model, 48,099 positions, teacher-forced) gives a
+  change in next-token NLL of +0.079 at loop positions and +0.047 at productive
+  positions; a matched random direction gives +0.011 / +0.010, the same rule on
+  other neurons -0.000 / +0.000, and a constant activation shift of the edit's
+  mean size +0.029 / +0.125. EditLens reports +0.093 / +0.053 for the edit on 6
+  texts. The edit is specific and acts more in loops, and it is not free on
+  ordinary text: the most likely token changes at 4.9% of productive positions.</li>
+<li>Generated through the L4 fix path on 64 GSM8K problems, the same edit takes
+  the model from 6 to 37 correct, with 31 fixed and 0 broken; a matched random
+  direction gives 7.</li>
+<li>A loop-vs-productive contrast on that model recovers about half of the
+  published neurons at the published layers, and neither the direction nor the
+  layers. No edit PROPOSED by evalrx has been shown to repair a real model.</li>
+</ul>
+<p>Numbers, commands and limits: <a href="../validation/astra_p50c_20261115/">validation report</a>.</p>
+<h2 id="references">References</h2>
+<ul>
+<li>Takehi, Teoh, Zhang &amp; Khattab (2026). <em>Sparks of Weight-Space Programming.</em>
+  <a href="https://rikiyat.github.io/blog/weight-space-programming/">https://rikiyat.github.io/blog/weight-space-programming/</a></li>
+<li>Zhang, Shang &amp; Li (2026). <em>EditLens: What Did Astra's Edit Actually Do?</em>
+  <a href="https://xxlya.github.io/editlens/">https://xxlya.github.io/editlens/</a></li>
+<li>VLMProbe: <a href="https://github.com/ubc-tea/vlm-probe">https://github.com/ubc-tea/vlm-probe</a></li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "content.code.copy"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+    
+  </body>
+</html>
