@@ -7,8 +7,7 @@
 * exploration spends at most its share of the evidence and draws only from its
   targets, the actions the value never takes (an inactive route's next
   candidate, another route's representative); what it started on a route is
-  completed on value (T); ``explore_from="candidates"`` (ablation) draws from
-  the candidates other than the best instead, alternatives included.
+  completed on value (T).
 """
 
 from __future__ import annotations
@@ -144,7 +143,7 @@ def test_exploration_takes_its_targets_within_its_share_and_pays_for_completing_
     # one case a chunk, so that an explored step has chunks left on the route
     report = _run(tmp_path / "e", wrappers, explore_share=0.3, chunk=1)
     explored = [d for d in report["decisions"] if d.get("choice") == "explore"]
-    assert explored and report["explore_share"] == 0.3 and report["explore_from"] == "targets"
+    assert explored and report["explore_share"] == 0.3
     # within the share, but for the one chunk whose estimate fell short
     assert 0 < report["explored"]["wall_sec"] <= 0.3 * report["cost"]["evidence"]["wall_sec"] + 2.0
     for d in explored:   # a target, never a candidate the value could take, and never an alternative
@@ -184,10 +183,3 @@ def test_exploration_takes_a_route_too_small_to_be_active(tmp_path, wrappers, me
     assert small == ["N"]
     assert any(d.get("choice") == "explore" and d["route"] == "N" and "too small" in d["explore_target"]
                for d in report["decisions"])
-
-
-def test_the_candidates_ablation_explores_the_other_candidates_alternatives_included(tmp_path, wrappers, metered):
-    report = _run(tmp_path / "c", wrappers, explore_share=0.3, chunk=2, explore_from="candidates")
-    explored = {d["key"] for d in report["decisions"] if d.get("choice") == "explore"}
-    assert explored & {"wrap_b", "wrap_c"} and report["explore_from"] == "candidates"
-    assert not any(d.get("explore_targets") for d in report["decisions"])

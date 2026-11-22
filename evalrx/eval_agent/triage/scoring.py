@@ -1,4 +1,4 @@
-"""MVP-3: the value of a candidate action and the scored scheduler's choice.
+"""The value of a candidate action and the scored scheduler's choice.
 
     U(a | E) = q(a) · [w_D·D(a) + w_T·T(a) + w_C·C(a) − w_R·R(a)]₊ / (c(a) + ε)
 
@@ -73,21 +73,11 @@ target on its route is exploration too, until the cases measured so far show a
 reading outside its band: then the step has found something, and its
 completion is an incomplete step that T values like any other. A gain below
 ``min_gain`` is not worth an action: the run stops once no candidate reaches it
-and no target fits (the minimum exploration is met). ``explore_from="candidates"``
-(an ablation) draws from the candidates other than the top one instead,
-alternatives included.
-
-**Controls.** Two schedulers take the scored scheduler's candidates and stop
-rules and differ only in the pick, so a comparison with them isolates the
-value ordering: ``random`` draws uniformly (seeded) among the candidates at or
-above the gain floor, ``cheapest`` takes the lowest-cost one (an unpriced
-candidate last, ties by soft order). Neither explores or reads explanations
-(D is 0): their nearest value arm is the scored scheduler without exploration.
+and no target fits (the minimum exploration is met).
 """
 
 from __future__ import annotations
 
-import math
 import random
 from dataclasses import dataclass, field
 from typing import Any
@@ -95,7 +85,7 @@ from typing import Any
 from evalrx.eval_agent.triage.actions import OK, UNSUPPORTED, PlanStep
 from evalrx.eval_agent.triage.evidence import StepEvidence
 
-SCORING_VERSION = "mvp3-score-5"
+SCORING_VERSION = "score-5"
 
 
 @dataclass(frozen=True)
@@ -266,40 +256,17 @@ def value(s: Scored, weights: Weights, axis: str) -> Scored:
     return s
 
 
-#: How a decision picks among the scored candidates: the value (the scored scheduler) or a control.
-POLICIES = ("value", "random", "cheapest")
-
-
 def choose(candidates: list[Scored], *, decision_no: int, seed: int, explore_share: float, explored: float,
-           spent: float, min_gain: float, targets: "list[Scored] | None" = None,
-           policy: str = "value") -> "tuple[Scored | None, str]":
-    """The candidate to run, and why: ``best`` / ``explore`` / ``random`` / ``cheapest`` /
-    ``below_threshold`` / ``none``.
+           spent: float, min_gain: float, targets: "list[Scored]") -> "tuple[Scored | None, str]":
+    """The candidate to run, and why: ``best`` / ``explore`` / ``below_threshold`` / ``none``.
 
     *explored* and *spent* are what exploration and the run's evidence have cost so far, on the
-    candidates' cost axis. Exploration draws from *targets*, the candidates only it takes; with
-    ``targets=None`` it draws from the other candidates instead (below the gain floor, from all
-    of them). A seeded draw among those that keep exploration within *explore_share* of the
-    spending runs instead of the best.
-
-    *policy* ``"value"`` is the scored scheduler. The controls take the candidates at or above the
-    gain floor and never explore: ``"random"`` a seeded uniform draw among them, ``"cheapest"``
-    the lowest-cost one (an unpriced candidate last, ties by soft order)."""
-    if policy not in POLICIES:
-        raise ValueError(f"policy must be one of {POLICIES}; got {policy!r}")
-    if policy != "value":
-        eligible = [s for s in candidates if s.gain >= min_gain]
-        if not eligible:
-            return None, "below_threshold" if candidates else "none"
-        if policy == "random":
-            return random.Random(f"{seed}:{decision_no}").choice(eligible), "random"
-        return min(eligible, key=lambda s: (s.cost if s.cost is not None else math.inf, s.order)), "cheapest"
+    candidates' cost axis. Exploration draws from *targets*, the candidates only it takes: a
+    seeded draw among those that keep exploration within *explore_share* of the spending runs
+    instead of the best."""
     ranked = sorted(candidates, key=lambda s: (-s.U, s.order))
     best = ranked[0] if ranked else None
-    if targets is None:
-        others = ranked[1:] if best is not None and best.gain >= min_gain else ranked
-    else:
-        others = sorted(targets, key=lambda s: s.order)
+    others = sorted(targets, key=lambda s: s.order)
     fits = [s for s in others if explored + (s.cost or 0.0) <= explore_share * (spent + (s.cost or 0.0))]
     if explore_share > 0 and fits:
         return random.Random(f"{seed}:{decision_no}").choice(fits), "explore"

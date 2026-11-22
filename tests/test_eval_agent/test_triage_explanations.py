@@ -1,4 +1,4 @@
-"""MVP-3b: D from competing explanations the judge proposes, checked by code.
+"""D from competing explanations the judge proposes, checked by code.
 
 * a prediction is a hit when the 95% interval of FAIL - control lies in its
   region, a miss when it lies outside, undetermined otherwise;
@@ -318,25 +318,6 @@ def test_the_rules_scheduler_does_not_take_an_explainer(tmp_path):
     with pytest.raises(ValueError, match="scored scheduler"):
         run_triage(_Table(_pope_like()[1]), _pope_like()[0],
                    **_kw(tmp_path / "r", explainer=Explainer(_Judge(), identity={})))
-
-
-def test_compare_applies_the_explaining_runs_explanations_to_both_runs_evidence(tmp_path, capsys):
-    from evalrx.eval_agent.triage.compare import compare, main, markdown
-
-    out = tmp_path / "c"
-    rules = run_triage(_Table(_pope_like()[1]), _pope_like()[0], **_kw(out, max_fail=8, min_route_fail=1))
-    explained = _explained(out, _Judge())
-    diff = compare(rules, explained)
-    d = diff["discrimination"]
-    assert d["baseline"]["revision"] == d["other"]["revision"] == explained["explanations"]["sets"][-1]["revision"]
-    assert d["other"]["n_conflicting_pairs"] >= 1 and d["baseline"]["n_conflicting_pairs"] == d["other"][
-        "n_conflicting_pairs"]
-    assert diff["judge"]["other"]["n_calls"] == 1 and "tells apart" in markdown(diff)
-    json.dumps(diff)
-    a, b = tmp_path / "a.json", tmp_path / "b.json"
-    a.write_text(json.dumps(rules, default=str)), b.write_text(json.dumps(explained, default=str))
-    assert main([str(a), str(b)]) == 0 and "tells apart" in capsys.readouterr().out
-    assert main([str(a), str(b), "--json"]) == 0 and json.loads(capsys.readouterr().out)["same_sample"] is True
 
 
 @pytest.mark.parametrize("scheduler", ["rules", "scored"])

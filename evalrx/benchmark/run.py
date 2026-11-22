@@ -155,24 +155,24 @@ def build_parser(p: argparse.ArgumentParser | None = None) -> argparse.ArgumentP
     p.add_argument("--m1-policy", choices=["judge", "triage_active"], default="judge",
                    help="judge = the current diagnosis (decision judge over M1-M4, then M5/fix); "
                         "triage_active = triage controller: after Stage 0, run the triage battery "
-                        "strictly on a matched EXPLORE sample, expand it and run route follow-ups "
-                        "chosen by fixed rules, write the trace, cost ledger and triage report "
+                        "strictly on a matched EXPLORE sample, then expand it and run route follow-ups one "
+                        "action at a time (--triage-scheduler), write the trace, cost ledger and triage report "
                         "under <run>/probing/, and stop. M2-M5 do not run; a judge is built only with "
                         "--triage-explanations judge; the controller never sees CONFIRM (only "
                         "--triage-validate reads it, after the stop)")
     p.add_argument("--triage-n-fail", type=int, default=8,
                    help="triage_active: FAIL cases in the sample (PASS controls are matched per gold answer)")
-    p.add_argument("--triage-max-fail", type=int, default=32,
+    p.add_argument("--triage-max-fail", type=int, default=128,
                    help="triage_active: the most FAIL cases the expansion rule may grow the sample to "
                         "(doubling from --triage-n-fail; a value at or below it disables expansion)")
-    p.add_argument("--triage-max-actions", type=int, default=12,
+    p.add_argument("--triage-max-actions", type=int, default=30,
                    help="triage_active: decisions after the battery (expansions + route follow-ups; the "
                         "scored scheduler's further chunks of a step it already took do not count)")
-    p.add_argument("--triage-scheduler", choices=["rules", "scored", "random", "cheapest"], default="rules",
-                   help="triage_active: rules = MVP-2 fixed rounds over the routes' layers; scored = MVP-3 "
-                        "value per cost, U = q*[D+T+C-R]+/(c+eps) (report: triage_report.scored.*); random / "
-                        "cheapest = controls over the scored candidates and stop rules that differ in the pick "
-                        "only (a seeded uniform draw, or the lowest cost), never exploring")
+    p.add_argument("--triage-scheduler", choices=["scored", "rules"], default="scored",
+                   help="triage_active: scored = the candidate with the highest value per cost, "
+                        "U = q*[D+T+C-R]+/(c+eps), with a share of the spending for exploration (report: "
+                        "triage_report.scored.*); rules = fixed rounds over the routes' layers, no value "
+                        "estimate and no exploration (report: triage_report.*)")
     p.add_argument("--triage-budget-usd", type=float, default=0.0,
                    help="triage_active: USD cap on priced API models (0 = none), charged like "
                         "--triage-budget-sec")
@@ -185,16 +185,9 @@ def build_parser(p: argparse.ArgumentParser | None = None) -> argparse.ArgumentP
                         "--judge-model judge proposes competing explanations with predictions once the "
                         "sample has settled (and again when the evidence thins them), giving D (none = D "
                         "stays 0, no judge is built)")
-    p.add_argument("--triage-weights", default="d=1,t=1,c=1,r=1",
-                   help="triage_active with --triage-scheduler scored: the weights of D, T, C and R in U, "
-                        "as k=v pairs (keys left out keep 1; an ablation sets one to 0)")
     p.add_argument("--triage-explore-share", type=float, default=0.1,
                    help="triage_active with --triage-scheduler scored: the share of the evidence spending "
                         "exploration may take (0 = none)")
-    p.add_argument("--triage-explore-from", choices=["targets", "candidates"], default="targets",
-                   help="triage_active with --triage-scheduler scored: what exploration draws from: targets = "
-                        "inactive routes' next candidates and other routes' representatives (actions the value "
-                        "never takes); candidates = the candidates other than the best (an ablation)")
     p.add_argument("--triage-validate", action=argparse.BooleanOptionalAction, default=False,
                    help="triage_active: freeze the issues the triage report supports and validate them once on "
                         "the CONFIRM cases whose media EXPLORE does not contain (<run>/validation/)")
@@ -287,7 +280,6 @@ def run_args(args) -> int:
     if triage and args.triage_max_actions < 0:
         raise ValueError("--triage-max-actions must be non-negative")
     if triage:
-        triage_weights(args.triage_weights)
         if not 0.0 <= args.triage_explore_share < 1.0:
             raise ValueError("--triage-explore-share must be in [0, 1)")
     dataset = args.dataset or T.DEFAULT_TASK[args.modality]
@@ -299,20 +291,6 @@ def run_args(args) -> int:
     from .runner import run
 
     return run(args, task, resolved)
-
-
-def triage_weights(text: str) -> dict[str, float]:
-    """``"d=1,t=1,c=0"`` -> ``{"d": 1.0, "t": 1.0, "c": 0.0, "r": 1.0}``: the scored scheduler's weights."""
-    out = {"d": 1.0, "t": 1.0, "c": 1.0, "r": 1.0}
-    for part in filter(None, (x.strip() for x in str(text).split(","))):
-        key, sep, value = part.partition("=")
-        key = key.strip().lower()
-        if not sep or key not in out:
-            raise ValueError(f"--triage-weights: {part!r} is not one of d=, t=, c=, r=")
-        out[key] = float(value)
-        if out[key] < 0:
-            raise ValueError(f"--triage-weights: {key} must be non-negative")
-    return out
 
 
 if __name__ == "__main__":

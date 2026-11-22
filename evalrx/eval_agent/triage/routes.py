@@ -54,6 +54,7 @@ from evalrx.analyzers.perturbation.prompt_contrast import _norm_answer
 from evalrx.core.case import MEDIA_SLOTS
 from evalrx.eval_agent.triage.actions import OK, Observation
 from evalrx.eval_agent.triage.evidence import StepEvidence, pick
+from evalrx.stats.intervals import newcombe_interval
 
 FIRED, CLEAR, UNTESTED, NOT_APPLICABLE = "fired", "clear", "untested", "not_applicable"
 
@@ -643,25 +644,6 @@ def _s_readings(records: list[dict[str, Any]]) -> dict[str, Any]:
     return out
 
 
-def _wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
-    p, z2 = k / n, z * z
-    centre = (p + z2 / (2 * n)) / (1 + z2 / n)
-    half = z * math.sqrt(p * (1 - p) / n + z2 / (4 * n * n)) / (1 + z2 / n)
-    return max(0.0, centre - half), min(1.0, centre + half)
-
-
-def difference_interval(k1: int, n1: int, k2: int, n2: int, z: float = 1.96) -> "list[float] | None":
-    """Interval of ``k1/n1 - k2/n2`` (Newcombe's hybrid score method; 95% at the default *z*),
-    ``None`` if a side is empty."""
-    if not n1 or not n2:
-        return None
-    p1, p2 = k1 / n1, k2 / n2
-    (l1, u1), (l2, u2) = _wilson(k1, n1, z), _wilson(k2, n2, z)
-    d = p1 - p2
-    return [round(d - math.sqrt((p1 - l1) ** 2 + (u2 - p2) ** 2), 4),
-            round(d + math.sqrt((u1 - p1) ** 2 + (p2 - l2) ** 2), 4)]
-
-
 def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
     """Per-route FAIL/PASS rates on this sample, the S cohort and its descriptive readings.
 
@@ -682,7 +664,7 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
         signal = (round(max(0.0, fail["rate"] - pas["rate"]), 4)
                   if fail["rate"] is not None and pas["rate"] is not None else None)
         out[tag] = {"fail": fail, "pass": pas, "routing_signal": signal,
-                    "signal_ci95": difference_interval(fail["n_fired"], fail["n_tested"],
+                    "signal_ci95": newcombe_interval(fail["n_fired"], fail["n_tested"],
                                                        pas["n_fired"], pas["n_tested"])}
     out["H_any_audit_only"] = {
         label: _rate(records, label, lambda r: r["H"]["state"]) for label in ("fail", "pass")

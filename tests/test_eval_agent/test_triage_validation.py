@@ -1,4 +1,4 @@
-"""MVP-4: issues frozen from a diagnosis and validated once on cases it never saw.
+"""Issues frozen from a diagnosis and validated once on cases it never saw.
 
 * the partition keeps every validation case off the media DISCOVERY saw;
 * freezing keeps route signals and readings whose discovery interval clears the
@@ -35,8 +35,8 @@ from evalrx.eval_agent.triage.validation import (
     source_key,
     supported_curve,
     validate,
-    within_group_rho,
 )
+from evalrx.stats.intervals import within_group_spearman
 from tests.test_eval_agent.test_triage_alternatives import FIRST, _Flipper
 from tests.test_eval_agent.test_triage_expansion import _kw, _pope_like, _yes_no
 
@@ -255,7 +255,7 @@ def test_the_validator_refuses_a_report_from_another_rules_version(tmp_path):
     _, _, explore, confirm = _split(16)
     _, validation = partition_bundle(explore, confirm, seed=SEED, confirm_split=0.5)
     with pytest.raises(ValueError, match="another rules version"):
-        validate(None, explore, validation, {"old": []}, {"old": {"rules_version": "mvp2-rules-1"}},
+        validate(None, explore, validation, {"old": []}, {"old": {"rules_version": "rules-1"}},
                  out_dir=tmp_path, model_identity={}, progress=None)
 
 
@@ -276,8 +276,8 @@ def test_readings_that_go_together_within_groups_are_one_phenomenon_and_a_shift_
                          check="U")
     per_case = {a.issue_id: (base, fail, ctrl), b.issue_id: (same, fail, ctrl), c.issue_id: (shifted, fail, ctrl),
                 d.issue_id: (base, fail, ctrl)}
-    assert within_group_rho(base, same, [fail, ctrl]) == pytest.approx(1.0)
-    assert within_group_rho(base, shifted, [fail, ctrl]) == pytest.approx(-3 / 35)
+    assert within_group_spearman(base, same, [fail, ctrl]) == pytest.approx(1.0)
+    assert within_group_spearman(base, shifted, [fail, ctrl]) == pytest.approx(-3 / 35)
     results = {signal.issue_id: {"verdict": "inconclusive"}, a.issue_id: {"verdict": "supported"},
                b.issue_id: {"verdict": "inconclusive"}, c.issue_id: {"verdict": "supported"},
                d.issue_id: {"verdict": "refuted"}}

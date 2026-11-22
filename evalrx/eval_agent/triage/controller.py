@@ -57,16 +57,16 @@ and the candidates it passed over and why. The run stops when:
   step's own measured cost per case, else the most expensive case measured in
   this run; there is no per-analyzer cost prior).
 
-Four schedulers decide after the battery (``scheduler``): ``rules`` (rounds over
-the routes' soft layer order; no judge, no hypothesis), ``scored`` (the candidate
-of highest value, :mod:`.scoring`), and the controls ``random`` and ``cheapest``
-over the same candidates. The scored scheduler may take an explainer: the judge
+Two schedulers decide after the battery (``scheduler``): ``scored`` (the candidate
+of highest value, :mod:`.scoring`; the default) and ``rules`` (rounds over the
+routes' soft layer order; no value estimate, no judge, no hypothesis). The scored
+scheduler may take an explainer: the judge
 then proposes competing explanations once the sample has settled, and their
 predictions give each candidate its D (:mod:`.explanations`); no explanation is a
 finding. CONFIRM never enters the controller (:mod:`.validation` reads it after
 the stop, when asked). Outputs land in ``out_dir``::
 
-    split_manifest.json  triage_report[.<scheduler>[_d]].json  triage_report[.<scheduler>[_d]].md
+    split_manifest.json  triage_report[.scored[_d]].json  triage_report[.scored[_d]].md
     selection_trace.jsonl  cost_ledger.jsonl  observations/<action_id>.json
     explanations/<key>.json   (with an explainer: each judge call's prompt, reply and cost)
 """
@@ -159,11 +159,9 @@ if TYPE_CHECKING:
 
 #: Part of every action identity (with the model identity and the tool version): bumped only
 #: when the controller changes what an action executes or records, never for a rename, since a
-#: bump re-executes every stored observation on resume. The label dates from MVP-2.
-POLICY_VERSION = "mvp2-0"
-SCHEDULERS = ("rules", "scored", "random", "cheapest")
-#: The schedulers that decide over the scored candidate pool: the value, or a control differing in the pick only.
-VALUE_SCHEDULERS = ("scored", "random", "cheapest")
+#: bump re-executes every stored observation on resume.
+POLICY_VERSION = "policy-2"
+SCHEDULERS = ("scored", "rules")
 
 #: Neutral wrappers around the question, kept verbatim (with its output
 #: contract): the meaning cannot change, only the surface. A wrapper whose
@@ -659,7 +657,7 @@ def run_triage(
     model_identity: dict[str, Any],
     n_fail: int = 8,
     max_fail: "int | None" = None,
-    max_actions: int = 12,
+    max_actions: int = 30,
     min_route_fail: int = 3,
     min_cohort: int = 8,
     seed: int = 0,
@@ -678,10 +676,9 @@ def run_triage(
     stage0_cost: "dict[str, Any] | None" = None,
     partition: "dict[str, Any] | None" = None,
     per_call_generation: bool = True,
-    scheduler: str = "rules",
+    scheduler: str = "scored",
     weights: "Weights | None" = None,
     explore_share: float = 0.1,
-    explore_from: str = "targets",
     min_gain: float = 0.01,
     min_cover: int = 8,
     budget_usd: float = 0.0,
@@ -715,7 +712,7 @@ def run_triage(
                              with a counterfactual donor. Donors are drawn from the
                              whole of *explore*, never from outside it. Elsewhere the
                              same holds per case for an answer that is a common gold
-                             of *explore* (:func:`~.routes.common_answers`).
+                             of *explore* (:func:`~.triage.common_answers`).
         task_kind:           the task's kind; steps limited to other kinds are
                              recorded as ``not_applicable`` and not run.
         answer_fn:           ``(case, output) -> answer key`` (``""`` = no readable
@@ -739,20 +736,14 @@ def run_triage(
                              OpenAI-compatible endpoint drops them): when it does
                              not, steps run without their ``gen_kwargs`` and are gated
                              on the host's output cap.
-        scheduler:           ``"rules"`` (MVP-2: rounds over the routes' soft layer order);
-                             ``"random"`` / ``"cheapest"``: controls over the scored scheduler's
-                             candidates and stop rules, differing in the pick only (a seeded
-                             uniform draw, or the lowest cost); they never explore and take no
-                             explainer (report ``triage_report.random`` / ``.cheapest``)
-                             or ``"scored"`` (MVP-3: the candidate with the highest
-                             U = q·[D+T+C−R]₊/(c+ε), see :mod:`.scoring`). Both share
-                             the ledger; the scored report is ``triage_report.scored``.
+        scheduler:           ``"scored"`` (the candidate with the highest
+                             U = q·[D+T+C−R]₊/(c+ε), see :mod:`.scoring`; report
+                             ``triage_report.scored``) or ``"rules"`` (fixed rounds over the
+                             routes' layers in their soft order, no value estimate; report
+                             ``triage_report``). Both share the ledger.
         weights, explore_share, min_gain, min_cover: the scored scheduler's weights,
                              exploration's share of the evidence spending, value floor
                              and per-unit coverage target.
-        explore_from:        ``"targets"`` (exploration takes inactive routes' next candidates
-                             and other routes' representatives, see :mod:`.scoring`) or
-                             ``"candidates"`` (an ablation: the candidates other than the top).
         budget_usd:          USD cap (0 = none), charged like ``budget_sec`` and checked
                              with the step's earlier USD per case.
         chunk:               cases per chunk of a ``reuse`` step (FAIL and PASS alternating;
@@ -771,9 +762,7 @@ def run_triage(
         raise ValueError(f"scheduler must be one of {SCHEDULERS}; got {scheduler!r}")
     if explainer is not None and scheduler != "scored":
         raise ValueError("explanations give D to the scored scheduler; the other schedulers do not read them")
-    share = float(explore_share) if scheduler == "scored" else 0.0   # the controls never explore
-    if explore_from not in ("targets", "candidates"):
-        raise ValueError(f"explore_from must be 'targets' or 'candidates'; got {explore_from!r}")
+    share = float(explore_share) if scheduler == "scored" else 0.0   # the fixed rounds never explore
     weights = weights or Weights()
     started = time.monotonic()
     say = progress or (lambda _msg: None)
@@ -849,7 +838,7 @@ def run_triage(
         """What ``max_actions`` caps: expansions, follow-ups and scheduled battery steps. The scored
         scheduler's further chunks of a step it already took (``extend``) do not count: chunking a
         step must not use up the cap a whole step used before."""
-        kinds = ("expand", "follow_up", "battery") if scheduler in VALUE_SCHEDULERS else spending
+        kinds = ("expand", "follow_up", "battery") if scheduler == "scored" else spending
         return sum(1 for d in decisions if d["kind"] in kinds)
 
     def expansion_plan() -> "tuple[Any, Any, list[str], float | None] | None":
@@ -1348,8 +1337,7 @@ def run_triage(
         return pool, filtered, axis
 
     explored: dict[str, float] = {}   # what exploration decisions spent, per cost axis
-    if scheduler in VALUE_SCHEDULERS:
-        policy = "value" if scheduler == "scored" else scheduler
+    if scheduler == "scored":
         current: "ExplanationSet | None" = None
         while stop is None:
             records = triage(sample, run.evidence)
@@ -1371,17 +1359,13 @@ def run_triage(
                     current.decided_at_ask = _decided(verdicts)
             live = [h for h in (current.hypotheses if current is not None else []) if verdicts[h.id]["state"] == "live"]
             pool, filtered, axis = scored_pool(records, gaps, states, options, growing, live, outcome_of)
-            targets: "list[Scored] | None" = None
-            held_targets: list[dict[str, Any]] = []
-            if explore_from == "targets" and policy == "value":
-                targets, completions, held, held_targets = exploration_targets(records, states, growing, axis,
-                                                                               outcome_of)
-                pool, filtered = pool + completions, filtered + held
+            targets, completions, held, held_targets = exploration_targets(records, states, growing, axis,
+                                                                           outcome_of)
+            pool, filtered = pool + completions, filtered + held
             # exploration's share is of the evidence: the judge's calls are not an opportunity to explore
             spent = run.charged(axis) - float(run.judge_cost.get(axis) or 0.0)
             pick, why = choose(pool, decision_no=n_spent(), seed=seed, explore_share=share,
-                               explored=explored.get(axis, 0.0), spent=spent, min_gain=min_gain, targets=targets,
-                               policy=policy)
+                               explored=explored.get(axis, 0.0), spent=spent, min_gain=min_gain, targets=targets)
             if pick is None:
                 over = [f for f in filtered if not f["reason"].startswith("batch-dependent")]
                 # a candidate the budget filtered out binds before the gain floor does
@@ -1441,7 +1425,7 @@ def run_triage(
             elif record["status"] == SKIPPED:
                 stop = {"reason": "budget", "detail": record.get("reason")}
                 break
-            if why == "explore" and targets is not None and pick in targets:
+            if why == "explore" and pick in targets:
                 explored_on.add((pick.route, pick.key))
             if pick.kind != "battery":
                 step_done = (cast(str, pick.route), cast(str, pick.rule_id), pick.key)   # a follow-up has both
@@ -1542,9 +1526,8 @@ def run_triage(
         "policy": POLICY_VERSION,
         "scheduler": scheduler,
         **({"scoring_version": SCORING_VERSION, "weights": weights.__dict__, "explore_share": share,
-            "explore_from": explore_from,
             "explored": {a: round(v, 6) for a, v in explored.items()},
-            "min_gain": min_gain, "min_cover": min_cover} if scheduler in VALUE_SCHEDULERS else {}),
+            "min_gain": min_gain, "min_cover": min_cover} if scheduler == "scored" else {}),
         "rules_version": RULES_VERSION,
         "code": code_version(),
         "model": model_identity,
@@ -1595,18 +1578,13 @@ def _scored_rationale(pick: Scored, why: str, explored: float, spent: float, sha
         target = f" of {pick.note}" if pick.note else ""
         return (f"exploration{target} ({explored:.4g} of the {spent:.4g} spent on evidence so far went to "
                 f"exploration; share {share}): " + terms)
-    if why == "random":
-        return f"control: a seeded uniform draw among the candidates at or above the gain floor: {terms}"
-    if why == "cheapest":
-        return f"control: the cheapest candidate at or above the gain floor: {terms}"
     alt = f"; an alternative to {pick.alternative_to}" if pick.alternative_to else ""
     return f"highest value: {terms}{alt}"
 
 
 def report_name(scheduler: str, explained: bool = False) -> str:
-    """``triage_report`` (rules), ``triage_report.scored``, ``triage_report.scored_d`` (with D), or
-    ``triage_report.random`` / ``triage_report.cheapest`` (the controls): the arms of a comparison can
-    share one probing directory and its ledger."""
+    """``triage_report.scored``, ``triage_report.scored_d`` (with D) or ``triage_report`` (rules):
+    runs under different schedulers can share one output directory and its ledger."""
     if scheduler == "rules":
         return "triage_report"
     return f"triage_report.{scheduler}" + ("_d" if explained else "")

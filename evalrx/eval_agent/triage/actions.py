@@ -147,7 +147,7 @@ class ProbeAction:
     case_ids: tuple[str, ...]
     route: str
     purpose: str
-    source: str = "mvp0_fixed_order"
+    source: str = "battery"
     reserve: dict[str, int] = field(default_factory=dict)
 
     def identity(self, context: dict[str, Any]) -> str:

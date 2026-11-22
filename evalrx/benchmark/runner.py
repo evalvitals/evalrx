@@ -733,8 +733,8 @@ def _validation_source(args, task: T.Task, model, gen_kwargs: dict, protocol, ru
 
 def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs: dict,
                 cases, ctx, run_dir: Path, baseline: dict, source=None) -> int:
-    """``--m1-policy triage_active``: the triage battery, rule-chosen expansions and
-    follow-ups on EXPLORE, then stop.
+    """``--m1-policy triage_active``: the triage battery, then expansions and
+    follow-ups on EXPLORE one action at a time, then stop.
 
     Same Stage 0 and the same EXPLORE/CONFIRM split as the diagnosis loop; the
     controller sees EXPLORE only and runs no M2-M5; it calls the judge only with
@@ -749,10 +749,7 @@ def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs:
     DIAGNOSTIC_VALIDATION (``<run>/validation/``).
     """
     from evalrx.eval_agent.triage import explore_confirm_split, run_triage
-    from evalrx.eval_agent.triage.scoring import Weights
     from evalrx.eval_agent.triage.validation import freeze_issues, partition_bundle, validate
-
-    from .run import triage_weights
 
     explore, confirm = explore_confirm_split(cases, float(args.confirm_split), CONFIRM_SPLIT_SEED,
                                              by=args.confirm_split_by)
@@ -803,8 +800,7 @@ def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs:
                      "n_cases": baseline["n"],
                      **{k: baseline[k] for k in ("api_usage", "usd") if k in baseline}},
         scheduler=args.triage_scheduler, budget_usd=float(args.triage_budget_usd), explainer=explainer,
-        weights=Weights(**triage_weights(args.triage_weights)), explore_share=float(args.triage_explore_share),
-        explore_from=args.triage_explore_from,
+        explore_share=float(args.triage_explore_share),
         partition={"confirm_split": float(args.confirm_split), "split_by": args.confirm_split_by,
                    "seed": CONFIRM_SPLIT_SEED,
                    "n_explore": len(explore), "n_confirm": len(confirm) if confirm is not None else 0,

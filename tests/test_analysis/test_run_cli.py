@@ -183,7 +183,7 @@ def test_triage_explainer_is_the_chain_judge_and_never_the_model_under_test(monk
     explainer = runner._triage_explainer(args, spec)
     assert isinstance(explainer, Explainer) and seen == {'allow_codegen': False, 'skip_m5': True}
     assert explainer.identity == {'provider': 'gemini', 'model': 'gemini-2.5-flash', 'effort': 'medium'}
-    rules = build_parser().parse_args(['--triage-explanations', 'judge'])
+    rules = build_parser().parse_args(['--triage-scheduler', 'rules', '--triage-explanations', 'judge'])
     with pytest.raises(SystemExit, match='--triage-scheduler scored'):
         runner._triage_explainer(rules, spec)
     same = build_parser().parse_args(['--judge-provider', 'gemini', '--judge-model', 'Qwen/Qwen3.5-0.8B',
@@ -192,17 +192,12 @@ def test_triage_explainer_is_the_chain_judge_and_never_the_model_under_test(monk
         runner._triage_explainer(same, spec)
 
 
-def test_triage_weights_and_exploration_share_parse_and_are_checked():
+def test_triage_defaults_are_the_scored_scheduler_and_the_exploration_share_is_checked():
     from evalrx.benchmark.run import main as run_main
-    from evalrx.benchmark.run import triage_weights
 
-    assert triage_weights('d=1,t=1,c=1,r=1') == {'d': 1.0, 't': 1.0, 'c': 1.0, 'r': 1.0}
-    assert triage_weights('c=0, r=0.5') == {'d': 1.0, 't': 1.0, 'c': 0.0, 'r': 0.5}   # left out = 1
-    for bad in ('x=1', 'd', 'd=-1'):
-        with pytest.raises(ValueError, match='--triage-weights'):
-            triage_weights(bad)
     args = build_parser().parse_args([])
-    assert (args.triage_weights, args.triage_explore_share) == ('d=1,t=1,c=1,r=1', 0.1)
+    assert (args.triage_scheduler, args.triage_max_fail, args.triage_max_actions, args.triage_explore_share) == (
+        'scored', 128, 30, 0.1)
     with pytest.raises(ValueError, match='--triage-explore-share'):
         run_main(['--modality', 'vlm', '--model', 'qwen3.5-0.8b', '--m1-policy', 'triage_active',
                   '--triage-explore-share', '1.0'])

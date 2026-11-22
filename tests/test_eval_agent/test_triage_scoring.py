@@ -1,4 +1,4 @@
-"""MVP-3 scored scheduler: U(a) = q·[D + T + C − R]₊ / (c + ε), against the rules.
+"""The scored scheduler: U(a) = q·[D + T + C − R]₊ / (c + ε), against the rules.
 
 * q counts distinct observations (a read-back once), a refusal as a failure;
 * c comes from the step's own cost per case, else measured per-call rates;
@@ -11,11 +11,8 @@
 
 from __future__ import annotations
 
-import json
-
 from evalrx.eval_agent.triage import BATTERY, LAYERS, run_triage
 from evalrx.eval_agent.triage.actions import OK, UNFAITHFUL, UNSUPPORTED, Observation
-from evalrx.eval_agent.triage.compare import compare
 from evalrx.eval_agent.triage.evidence import StepEvidence
 from evalrx.eval_agent.triage.rules import candidate_steps
 from evalrx.eval_agent.triage.scoring import (
@@ -69,32 +66,6 @@ def test_costs_come_from_the_steps_own_measurement_else_the_runs_typical_or_wors
     assert step_cost(_step("causal_trace"), 2, {}, "wall_sec") == (None, "none")
 
 
-def test_the_random_and_cheapest_controls_pick_among_the_same_candidates_without_exploring():
-    import pytest
-
-    def s(key, U, gain, order, cost=10.0):
-        return Scored(kind="follow_up", key=key, U=U, gain=gain, order=order, cost=cost)
-
-    pool = [s("late", 0.5, 0.2, (1, 2), cost=10.0), s("early", 0.5, 0.2, (1, 0), cost=30.0),
-            s("cheap", 0.1, 0.3, (0, 0), cost=1.0), s("zero", 0.0, 0.0, (0, 1), cost=0.5)]
-    # exploration would fit here (90 spent, share 0.5): the controls still never explore
-    kw = dict(seed=0, explore_share=0.5, min_gain=0.01, explored=0.0, spent=90.0)
-    assert choose(pool, decision_no=0, **kw)[1] == "explore"
-    draws = [choose(pool, decision_no=n, policy="random", **kw) for n in range(30)]
-    assert {why for _, why in draws} == {"random"} and {p.key for p, _ in draws} == {"late", "early", "cheap"}
-    assert choose(pool, decision_no=3, policy="random", **kw) == choose(pool, decision_no=3, policy="random", **kw)
-    assert choose(pool, decision_no=0, policy="cheapest", **kw) == (pool[2], "cheapest")   # not "zero": below the floor
-    # cheapest: ties by soft order, an unpriced candidate last
-    tie = [s("b", 0.5, 0.2, (1, 1), cost=5.0), s("a", 0.5, 0.2, (1, 0), cost=5.0), s("u", 0.9, 0.9, (0, 0), cost=None)]
-    assert choose(tie, decision_no=0, policy="cheapest", **kw)[0].key == "a"
-    assert choose([tie[2]], decision_no=0, policy="cheapest", **kw)[0].key == "u"
-    # the same stops as the scored scheduler
-    assert choose([pool[3]], decision_no=0, policy="random", **kw) == (None, "below_threshold")
-    assert choose([], decision_no=0, policy="cheapest", **kw) == (None, "none")
-    with pytest.raises(ValueError):
-        choose(pool, decision_no=0, policy="greedy", **kw)
-
-
 def test_coverage_gain_is_the_gap_removed_over_all_units():
     units = {"S1:yes": {"rule_id": "S1", "stratum": "yes", "need": 2, "measured": 0, "gap": 1.0, "_ids": ["a", "b"]},
              "S1:no": {"rule_id": "S1", "stratum": "no", "need": 2, "measured": 1, "gap": 0.5, "_ids": ["c", "d"]},
@@ -110,31 +81,31 @@ def test_choose_takes_the_best_value_breaks_ties_by_soft_order_explores_within_i
         return Scored(kind="follow_up", key=key, U=U, gain=gain, order=order, cost=cost)
 
     pool = [s("late", 0.5, 0.2, (1, 2)), s("early", 0.5, 0.2, (1, 0)), s("cheap", 0.1, 0.3, (0, 0))]
+    targets = [s("t1", 0.0, 0.0, (2, 98)), s("t2", 0.0, 0.0, (2, 99))]
     kw = dict(seed=0, explore_share=0.1, min_gain=0.01)
     # 10 s of exploration would be 10/(50+10) of the spending: over the share, so the best runs
-    best, why = choose(pool, decision_no=0, explored=0.0, spent=50.0, **kw)
+    best, why = choose(pool, decision_no=0, explored=0.0, spent=50.0, targets=targets, **kw)
     assert (best.key, why) == ("early", "best")
-    # at 90 s spent it fits (10 <= 0.1 * 100): a seeded draw among the others runs instead
-    picked, why = choose(pool, decision_no=3, explored=0.0, spent=90.0, **kw)
-    assert why == "explore" and picked.key != "early"
-    assert choose(pool, decision_no=3, explored=0.0, spent=90.0, **kw)[0].key == picked.key   # seeded
-    assert choose(pool, decision_no=3, explored=10.0, spent=100.0, **kw)[1] == "best"         # share used up
-    assert choose(pool, decision_no=3, explored=0.0, spent=1e6, **{**kw, "explore_share": 0.0})[1] == "best"
-    # below the gain floor every candidate is an exploration candidate; once none fits, the run stops
+    # at 90 s spent it fits (10 <= 0.1 * 100): a seeded draw among the targets runs instead
+    picked, why = choose(pool, decision_no=3, explored=0.0, spent=90.0, targets=targets, **kw)
+    assert why == "explore" and picked in targets
+    assert choose(pool, decision_no=3, explored=0.0, spent=90.0, targets=targets, **kw)[0].key == picked.key   # seeded
+    assert choose(pool, decision_no=3, explored=10.0, spent=100.0, targets=targets, **kw)[1] == "best"   # share used up
+    assert choose(pool, decision_no=3, explored=0.0, spent=1e6, targets=targets,
+                  **{**kw, "explore_share": 0.0})[1] == "best"
+    # exploration draws only from its targets: without one the best runs, and below the gain floor the run stops
     low = [s("x", 0.0, 0.0, (0, 0)), s("y", 0.0, 0.0, (0, 1), cost=100.0)]
-    assert choose(low, decision_no=0, explored=0.0, spent=90.0, **kw) == (low[0], "explore")
-    assert choose(low, decision_no=0, explored=0.0, spent=50.0, **kw) == (None, "below_threshold")
-    assert choose([], decision_no=0, explored=0.0, spent=0.0, **kw) == (None, "none")
-    # with targets, exploration draws only from them, even with no candidate left
-    target = s("t", 0.0, 0.0, (2, 99), cost=5.0)
-    assert choose(pool, decision_no=3, explored=0.0, spent=90.0, targets=[target], **kw) == (target, "explore")
-    assert choose(pool, decision_no=3, explored=0.0, spent=10.0, targets=[target], **kw)[1] == "best"   # no fit
     assert choose(pool, decision_no=3, explored=0.0, spent=90.0, targets=[], **kw)[1] == "best"
-    assert choose([], decision_no=0, explored=0.0, spent=90.0, targets=[target], **kw) == (target, "explore")
     assert choose(low, decision_no=0, explored=0.0, spent=90.0, targets=[], **kw) == (None, "below_threshold")
+    assert choose([], decision_no=0, explored=0.0, spent=0.0, targets=[], **kw) == (None, "none")
+    # a target that fits runs even with no candidate left; one that does not fit leaves the best
+    target = s("t", 0.0, 0.0, (2, 99), cost=5.0)
+    assert choose([], decision_no=0, explored=0.0, spent=90.0, targets=[target], **kw) == (target, "explore")
+    assert choose(low, decision_no=0, explored=0.0, spent=90.0, targets=[target], **kw) == (target, "explore")
+    assert choose(pool, decision_no=3, explored=0.0, spent=10.0, targets=[target], **kw)[1] == "best"
 
 
-def test_scored_run_is_traceable_deterministic_on_resume_and_comparable_with_the_rules(tmp_path):
+def test_scored_run_is_traceable_deterministic_on_resume_and_shares_the_sample_with_the_rules(tmp_path):
     cases, table = _pope_like()
     out = tmp_path / "p"
     rules = run_triage(_Table(table), cases, **_kw(out, max_fail=8, min_route_fail=1))
@@ -152,9 +123,8 @@ def test_scored_run_is_traceable_deterministic_on_resume_and_comparable_with_the
     again = run_triage(_Table(table), cases, **_kw(out, max_fail=8, min_route_fail=1, scheduler="scored"))
     assert [(d["kind"], d.get("key")) for d in again["decisions"]] == [(d["kind"], d.get("key"))
                                                                       for d in scored["decisions"]]
-    diff = compare(rules, scored)
-    assert diff["same_sample"] and diff["schedulers"] == ["rules", "scored"]
-    json.dumps(diff)
+    assert rules["sample"]["case_ids"] == scored["sample"]["case_ids"]   # the same nested sample, one ledger
+    assert (rules["scheduler"], scored["scheduler"]) == ("rules", "scored")
 
 
 def test_scored_runs_a_batch_dependent_step_once_after_the_last_expansion(tmp_path):

@@ -1,4 +1,4 @@
-"""MVP-3b: competing explanations, their predictions per tool, and the D they give a candidate.
+"""Competing explanations, their predictions per tool, and the D they give a candidate.
 
 The chain's judge (the model ``runner.build_judge`` builds for M1-M5) is asked,
 for every active route, for up to ``max_per_route`` local explanations of why
@@ -84,9 +84,9 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from evalrx.eval_agent.triage.metering import usage_counters, usage_delta
-from evalrx.eval_agent.triage.routes import difference_interval
+from evalrx.stats.intervals import newcombe_interval, t_quantile, z_quantile
 
-EXPLAIN_VERSION = "mvp4-explain-6"
+EXPLAIN_VERSION = "explain-6"
 DIRECTIONS = ("up", "down", "same", "unknown")
 _ALIASES = {"↑": "up", "↓": "down", "≈": "same", "=": "same", "~": "same", "?": "unknown",
             "higher": "up", "lower": "down", "increase": "up", "decrease": "down", "none": "unknown"}
@@ -216,72 +216,6 @@ CARDS: dict[str, tuple[Metric, ...]] = {
 
 # -- checking predictions --------------------------------------------------------------------
 
-_T975 = (12.706, 4.303, 3.182, 2.776, 2.571, 2.447, 2.365, 2.306, 2.262, 2.228, 2.201, 2.179, 2.160, 2.145,
-         2.131, 2.120, 2.110, 2.101, 2.093, 2.086, 2.080, 2.074, 2.069, 2.064, 2.060, 2.056, 2.052, 2.048,
-         2.045, 2.042)
-
-
-def _t975(df: float) -> float:
-    """Two-sided 95% Student-t quantile at ``floor(df)`` (conservative), normal beyond 120."""
-    k = max(1, int(math.floor(df)))
-    if k <= 30:
-        return _T975[k - 1]
-    return 2.021 if k < 60 else 2.000 if k < 120 else 1.960
-
-
-def z_quantile(level: float) -> float:
-    """Two-sided normal quantile: ``z`` with ``P(|Z| <= z) = level``."""
-    from statistics import NormalDist
-
-    return NormalDist().inv_cdf(0.5 + level / 2)
-
-
-def _betacf(a: float, b: float, x: float) -> float:
-    """Continued fraction of the regularised incomplete beta function (modified Lentz)."""
-    tiny, qab, qap, qam = 1e-300, a + b, a + 1.0, a - 1.0
-    c, d = 1.0, 1.0 - qab * x / qap
-    d = 1.0 / (d if abs(d) > tiny else tiny)
-    h = d
-    for m in range(1, 300):
-        m2 = 2 * m
-        for aa in (m * (b - m) * x / ((qam + m2) * (a + m2)), -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))):
-            d = 1.0 + aa * d
-            d = 1.0 / (d if abs(d) > tiny else tiny)
-            c = 1.0 + aa / c
-            c = c if abs(c) > tiny else tiny
-            h *= d * c
-        if abs(d * c - 1.0) < 1e-14:
-            break
-    return h
-
-
-def _t_two_sided(t: float, k: int) -> float:
-    """``P(|T| <= t)`` for Student's t with *k* degrees of freedom: ``1 - I_{k/(k+t^2)}(k/2, 1/2)``."""
-    x = k / (k + t * t)
-    a, b = k / 2.0, 0.5
-    front = math.exp(math.lgamma(a + b) - math.lgamma(a) - math.lgamma(b) + a * math.log(x) + b * math.log1p(-x))
-    ibeta = front * _betacf(a, b, x) / a if x < (a + 1) / (a + b + 2) else 1.0 - front * _betacf(b, a, 1 - x) / b
-    return 1.0 - ibeta
-
-
-def t_quantile(level: float, df: float) -> float:
-    """Two-sided Student-t quantile at ``floor(df)`` degrees of freedom (conservative): the table
-    above at 95%, else the CDF (incomplete beta) inverted by bisection, e.g. for a family-wise
-    adjusted interval."""
-    if abs(level - 0.95) < 1e-12:
-        return _t975(df)
-    k = max(1, int(math.floor(df)))
-    lo, hi = 0.0, 1.0
-    while _t_two_sided(hi, k) < level:
-        hi *= 2.0
-    for _ in range(200):
-        mid = (lo + hi) / 2
-        lo, hi = (mid, hi) if _t_two_sided(mid, k) < level else (lo, mid)
-        if hi - lo < 1e-10:
-            break
-    return hi
-
-
 def _mean(xs: list[float]) -> float:
     return sum(xs) / len(xs)
 
@@ -293,8 +227,8 @@ def difference(fail: list[float], control: list[float], kind: str,
         return None
     diff = _mean(fail) - _mean(control)
     if kind == "rate":
-        ci = difference_interval(sum(1 for x in fail if x >= 0.5), len(fail),
-                                 sum(1 for x in control if x >= 0.5), len(control), z=z_quantile(level))
+        ci = newcombe_interval(sum(1 for x in fail if x >= 0.5), len(fail),
+                               sum(1 for x in control if x >= 0.5), len(control), z=z_quantile(level))
         return diff, list(ci or [diff, diff])
     vf = sum((x - _mean(fail)) ** 2 for x in fail) / (len(fail) - 1) / len(fail)
     vc = sum((x - _mean(control)) ** 2 for x in control) / (len(control) - 1) / len(control)
@@ -361,7 +295,7 @@ _MAX_CASES = 1 << 20
 def half_width(n: int) -> float:
     """The verdict interval's half-width in standard deviations of the reading, with *n* cases on
     each side of equal spread (Welch's degrees of freedom are then ``2n - 2``)."""
-    return _t975(2 * n - 2) * math.sqrt(2.0 / n)
+    return t_quantile(0.95, 2 * n - 2) * math.sqrt(2.0 / n)
 
 
 def spread(groups: "list[list[float]]", kind: str) -> "float | None":
@@ -446,7 +380,7 @@ class Hypothesis:
 
 def primary_readings(h: dict[str, Any]) -> set[tuple[str, str]]:
     """The (step, reading) pairs an explanation (as a dict) stands or falls on. One written before
-    explanations named them (``mvp4-explain-3`` and earlier) stands on every explicit prediction."""
+    explanations named them stands on every explicit prediction."""
     preds = h.get("predictions") or {}
     named = h.get("primary")
     if not named:

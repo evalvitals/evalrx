@@ -1,4 +1,4 @@
-"""MVP-4: issues frozen from a diagnosis, validated once on cases the diagnosis never saw.
+"""Issues frozen from a diagnosis, validated once on cases the diagnosis never saw.
 
 **Partition.** :func:`partition_bundle` fixes the data roles before the
 controller sees any case. DISCOVERY is the EXPLORE partition the controller
@@ -90,16 +90,13 @@ from evalrx.eval_agent.triage.explanations import (
     outcome,
     primary_readings,
     restates_route,
-    t_quantile,
     verdict,
-    z_quantile,
 )
 from evalrx.eval_agent.triage.ledger import Ledger
 from evalrx.eval_agent.triage.routes import (
     ROUTE_STEPS,
     commits_to_answers,
     common_answers,
-    difference_interval,
     follow_up_values,
     triage_cases,
 )
@@ -112,11 +109,12 @@ from evalrx.eval_agent.triage.rules import (
     route_fail_ids,
 )
 from evalrx.eval_agent.triage.sampler import matched_sample, rank
+from evalrx.stats.intervals import newcombe_interval, t_quantile, within_group_spearman, z_quantile
 
 if TYPE_CHECKING:
     from evalrx.core.case import CaseBatch
 
-VALIDATION_VERSION = "mvp4-validate-5"
+VALIDATION_VERSION = "validate-5"
 ALPHA = 0.05
 #: A route signal is a difference of shares of cases: the band the CARDS use for shares.
 ROUTE_BAND = 0.1
@@ -411,47 +409,13 @@ def _route_signal(records: list[dict[str, Any]], tag: str, level: float) -> dict
     out: dict[str, Any] = {"fail": f"{kf}/{nf}", "pass": f"{kp}/{np_}", "n": [nf, np_]}
     if nf < MIN_N or np_ < MIN_N:
         return {**out, "verdict": "unavailable", "reason": f"fewer than {MIN_N} tested cases a side"}
-    ci = difference_interval(kf, nf, kp, np_, z=z_quantile(level))
-    ci95 = difference_interval(kf, nf, kp, np_)
+    ci = newcombe_interval(kf, nf, kp, np_, z=z_quantile(level))
+    ci95 = newcombe_interval(kf, nf, kp, np_)
     return {**out, "diff": round(kf / nf - kp / np_, 4), "ci": ci, "ci95": ci95,
             "verdict": _verdict("up", ci, ROUTE_BAND)}
 
 
 # -- phenomena ------------------------------------------------------------------------------------------
-
-
-def _ranks(xs: list[float]) -> list[float]:
-    """Ranks with ties averaged."""
-    order = sorted(range(len(xs)), key=lambda i: xs[i])
-    out = [0.0] * len(xs)
-    i = 0
-    while i < len(order):
-        j = i
-        while j + 1 < len(order) and xs[order[j + 1]] == xs[order[i]]:
-            j += 1
-        for k in range(i, j + 1):
-            out[order[k]] = (i + j) / 2
-        i = j + 1
-    return out
-
-
-def within_group_rho(a: dict[str, float], b: dict[str, float], groups: list[list[str]]) -> "float | None":
-    """Spearman correlation of two per-case readings inside each group of cases, pooled: ranks are
-    taken and centred within a group, so a shift between the groups does not count. ``None`` when no
-    group has ``MIN_PAIRED`` cases with both readings, or a reading is constant within every group."""
-    sxy = sxx = syy = 0.0
-    for ids in groups:
-        both = [c for c in ids if c in a and c in b]
-        if len(both) < MIN_PAIRED:
-            continue
-        ra, rb = _ranks([a[c] for c in both]), _ranks([b[c] for c in both])
-        ma, mb = sum(ra) / len(ra), sum(rb) / len(rb)
-        sxy += sum((x - ma) * (y - mb) for x, y in zip(ra, rb))
-        sxx += sum((x - ma) ** 2 for x in ra)
-        syy += sum((y - mb) ** 2 for y in rb)
-    if sxx <= 0 or syy <= 0:
-        return None
-    return sxy / math.sqrt(sxx * syy)
 
 
 def group_phenomena(family: list[IssueRecord], results: dict[str, dict[str, Any]],
@@ -467,7 +431,7 @@ def group_phenomena(family: list[IssueRecord], results: dict[str, dict[str, Any]
             if a.route != b.route:
                 continue
             va, fail_ids, controls = per_case[a.issue_id]
-            rho = within_group_rho(va, per_case[b.issue_id][0], [fail_ids, controls])
+            rho = within_group_spearman(va, per_case[b.issue_id][0], [fail_ids, controls], min_pairs=MIN_PAIRED)
             if rho is not None:
                 links.append({"issues": [a.issue_id, b.issue_id], "rho": round(rho, 3)})
     root = _components([i.issue_id for i in family], links, SAME_PHENOMENON_RHO)

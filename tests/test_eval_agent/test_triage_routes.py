@@ -1,4 +1,4 @@
-"""MVP-0 triage controller (``--m1-policy triage_active``): the acceptance behaviours.
+"""The triage controller (``--m1-policy triage_active``): the battery, the routes and the ledger.
 
 * the planned actions run exactly as planned (no backfill, cap or codegen);
 * unsupported / failed / unfaithful outcomes carry a reason and never a zero;
@@ -593,12 +593,12 @@ def _steps(report):
     return {e["key"]: e for e in report["executions"] if e["kind"] == "battery"}
 
 
-def test_mvp0_end_to_end_and_resume(tmp_path, vlm_cases):
+def test_triage_end_to_end_and_resume(tmp_path, vlm_cases):
     from tests.tiny_whitebox import TinyVLM
 
     model = TinyVLM("qwen2_5_vl")
     ident = {"spec": model.spec.key, "backend": "tiny"}
-    kw = dict(out_dir=tmp_path / "probing", model_identity=ident, n_fail=2, seed=0,
+    kw = dict(out_dir=tmp_path / "probing", model_identity=ident, n_fail=2, seed=0, scheduler="rules",
               host_assumed_finish=True, n_needs_counterfactual=True, task_kind="yes_no",
               analyzer_kwargs={"self_consistency": {"gen_kwargs": {"temperature": 1.0}}},
               stage0_cost={"wall_sec": 1.0, "calls": {"generate": 8}}, progress=None)
@@ -667,12 +667,12 @@ def _rerun(report):
     return [s["key"] for s in report["executions"] if s["status"] != "not_applicable" and not s["reused"]]
 
 
-def test_mvp0_changed_tool_code_is_a_new_action(tmp_path, vlm_cases, monkeypatch):
+def test_triage_changed_tool_code_is_a_new_action(tmp_path, vlm_cases, monkeypatch):
     from evalrx.eval_agent.triage import controller
     from tests.tiny_whitebox import TinyVLM
 
     model = TinyVLM("qwen2_5_vl")
-    kw = dict(out_dir=tmp_path / "v", model_identity={"spec": "tiny"}, n_fail=2, progress=None)
+    kw = dict(out_dir=tmp_path / "v", model_identity={"spec": "tiny"}, n_fail=2, progress=None, scheduler="rules")
     first = run_triage(model, vlm_cases, **kw)
     real = controller.tool_version
     monkeypatch.setattr(controller, "tool_version",
@@ -682,12 +682,12 @@ def test_mvp0_changed_tool_code_is_a_new_action(tmp_path, vlm_cases, monkeypatch
     assert _steps(second)["attention_knockout"]["action_id"] != _steps(first)["attention_knockout"]["action_id"]
 
 
-def test_mvp0_code_version_is_recorded_but_not_part_of_the_identity(tmp_path, vlm_cases, monkeypatch):
+def test_triage_code_version_is_recorded_but_not_part_of_the_identity(tmp_path, vlm_cases, monkeypatch):
     from evalrx.eval_agent.triage import controller
     from tests.tiny_whitebox import TinyVLM
 
     model = TinyVLM("qwen2_5_vl")
-    kw = dict(out_dir=tmp_path / "c", model_identity={"spec": "tiny"}, n_fail=2,
+    kw = dict(out_dir=tmp_path / "c", model_identity={"spec": "tiny"}, n_fail=2, scheduler="rules",
               stage0_cost={"wall_sec": 1.0, "calls": {"generate": 8}}, progress=None)
     first = run_triage(model, vlm_cases, **kw)
     code = controller.code_version()
@@ -705,12 +705,12 @@ def test_mvp0_code_version_is_recorded_but_not_part_of_the_identity(tmp_path, vl
     assert [c["code"] for c in costs if c["kind"] == "stage0"] == [code["tree"], "000000000000"]
 
 
-def test_mvp0_steps_that_compare_answers_do_not_run_where_outputs_commit_to_none(tmp_path, vlm_cases):
+def test_triage_steps_that_compare_answers_do_not_run_where_outputs_commit_to_none(tmp_path, vlm_cases):
     from tests.tiny_whitebox import TinyVLM
 
     model = TinyVLM("qwen2_5_vl")
     report = run_triage(model, vlm_cases, out_dir=tmp_path / "cap", model_identity={"spec": "tiny"}, n_fail=2,
-                        task_kind="chair_caption", answer_fn=_no_answer, progress=None,
+                        task_kind="chair_caption", answer_fn=_no_answer, progress=None, scheduler="rules",
                         analyzer_kwargs={"self_consistency": {"gen_kwargs": {"temperature": 1.0}}})
     steps = _steps(report)
     for key in ("self_consistency", "prompt_reword", "prompt_threshold"):
@@ -742,12 +742,12 @@ def test_code_version_hashes_per_package_directory_and_reads_a_snapshot_ref(tmp_
     assert code_label(None) == "code not recorded"
 
 
-def test_mvp0_uncertain_attempt_gets_a_new_number(tmp_path, vlm_cases):
+def test_triage_uncertain_attempt_gets_a_new_number(tmp_path, vlm_cases):
     from evalrx.eval_agent.triage.ledger import Ledger
     from tests.tiny_whitebox import TinyVLM
 
     model = TinyVLM("qwen2_5_vl")
-    kw = dict(out_dir=tmp_path / "p", model_identity={"spec": "tiny"}, n_fail=2, progress=None)
+    kw = dict(out_dir=tmp_path / "p", model_identity={"spec": "tiny"}, n_fail=2, progress=None, scheduler="rules")
     first = run_triage(model, vlm_cases, **kw)
     ko_id = _steps(first)["attention_knockout"]["action_id"]
     ledger = Ledger(tmp_path / "p")
@@ -759,10 +759,10 @@ def test_mvp0_uncertain_attempt_gets_a_new_number(tmp_path, vlm_cases):
     assert _rerun(second) == ["attention_knockout"]
 
 
-def test_mvp0_black_box_gates_off_the_white_box_step(tmp_path, vlm_cases):
+def test_triage_black_box_gates_off_the_white_box_step(tmp_path, vlm_cases):
     model = _BlackBox()
     report = run_triage(model, vlm_cases, out_dir=tmp_path / "bb", model_identity={"spec": "bb"},
-                             n_fail=2, progress=None)
+                             n_fail=2, progress=None, scheduler="rules")
     steps = _steps(report)
     assert steps["attention_knockout"]["status"] == UNSUPPORTED
     assert steps["attention_knockout"]["cost"]["calls"] == {}
@@ -803,7 +803,7 @@ def test_api_run_meters_tokens_and_dollars_and_runs_its_behavioural_follow_up(tm
     model = _FakeAPI()
     report = run_triage(
         model, vlm_cases, out_dir=tmp_path / "api", model_identity={"spec": "fake-api"}, n_fail=2,
-        min_route_fail=1, task_kind="yes_no", n_needs_counterfactual=True, progress=None,
+        min_route_fail=1, task_kind="yes_no", n_needs_counterfactual=True, progress=None, scheduler="rules",
         analyzer_kwargs={"self_consistency": {"gen_kwargs": {"temperature": 1.0}}},
         price_fn=lambda u: usd("gemini-3.1-flash-lite", u),
         stage0_cost={"wall_sec": 1.0, "calls": {"generate": 8}, "api_usage": {"requests": 8}, "usd": 0.001})

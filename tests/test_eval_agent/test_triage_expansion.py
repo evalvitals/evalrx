@@ -1,4 +1,4 @@
-"""MVP-2 triage: nested expansion with per-case reuse, and follow-ups chosen by fixed rules.
+"""Nested expansion with per-case reuse, and follow-ups chosen by fixed rules.
 
 * expanding 4 -> 8 FAIL cases gives every case the same record as drawing 8 at
   once, for the same model calls: only the new cases run;
@@ -21,7 +21,6 @@ from evalrx.core.model import Model
 from evalrx.eval_agent.triage import BATTERY, LAYERS, run_triage
 from evalrx.eval_agent.triage.actions import FAILED, OK, UNFAITHFUL, Observation
 from evalrx.eval_agent.triage.evidence import StepEvidence
-from evalrx.eval_agent.triage.routes import difference_interval
 from evalrx.eval_agent.triage.rules import (
     active_routes,
     candidate_steps,
@@ -29,6 +28,7 @@ from evalrx.eval_agent.triage.rules import (
     next_for_route,
     next_size,
 )
+from evalrx.stats.intervals import newcombe_interval
 
 OBJECTS = ("cat", "dog", "car", "cup")
 
@@ -80,6 +80,7 @@ def _kw(out, **over):
     kw = dict(out_dir=out, model_identity={"spec": "table"}, n_fail=4, seed=0, host_assumed_finish=True,
               n_needs_counterfactual=True, task_kind="yes_no", answer_fn=_yes_no, min_cohort=100,
               analyzer_kwargs={"self_consistency": {"gen_kwargs": {"temperature": 1.0}}}, progress=None,
+              scheduler="rules",   # the fixed rounds, unless a test names the scored scheduler
               explore_share=0.0)   # the scored scheduler explores only in the tests about exploration
     return {**kw, **over}
 
@@ -298,15 +299,15 @@ def test_a_refusal_on_any_chunk_refuses_the_step_on_every_case():
 
 
 def test_expansion_gaps_and_sizes():
-    lo, hi = difference_interval(3, 8, 0, 8)
+    lo, hi = newcombe_interval(3, 8, 0, 8)
     assert lo < 0 < hi                      # 3/8 vs 0/8: not sure the difference is not zero
-    assert difference_interval(13, 32, 1, 32)[0] > 0
-    assert difference_interval(1, 0, 0, 4) is None
+    assert newcombe_interval(13, 32, 1, 32)[0] > 0
+    assert newcombe_interval(1, 0, 0, 4) is None
 
     def summary(k_fail, k_pass, n):
         rate = {"fail": {"n_fired": k_fail, "n_tested": n}, "pass": {"n_fired": k_pass, "n_tested": n}}
         d = (k_fail - k_pass) / n
-        return {"U": {**rate, "routing_signal": max(0.0, d), "signal_ci95": difference_interval(k_fail, n, k_pass, n)},
+        return {"U": {**rate, "routing_signal": max(0.0, d), "signal_ci95": newcombe_interval(k_fail, n, k_pass, n)},
                 "N": {**rate, "routing_signal": 0.0, "signal_ci95": None},
                 "H_label_free": {**rate, "routing_signal": None, "signal_ci95": None}}
 

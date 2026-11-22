@@ -1,8 +1,9 @@
-"""MVP-2 rules: what each route runs next, and when the sample is expanded.
+"""The rules: what each route runs next, and when the sample is expanded.
 
-Fixed rules, no scores (scoring candidates against each other is MVP-3). They
-write down the cold-start prior of the design's method table, so a different
-choice is a new rule version rather than an unrecorded preference.
+Fixed rules, no scores (:mod:`.scoring` ranks the candidates they offer). They
+write down a cold-start prior, the order a route's questions are asked in with
+no evidence yet, so a different choice is a new rule version rather than an
+unrecorded preference.
 
 **Layers.** Each route has ordered layers (the soft layer order). A layer is
 one question; its candidates are the default representative, then its
@@ -47,7 +48,7 @@ from evalrx.analyzers.perturbation.prompt_contrast import _DEFAULT_STRATEGIES as
 from evalrx.eval_agent.triage.actions import PlanStep
 from evalrx.eval_agent.triage.evidence import StepEvidence
 
-RULES_VERSION = "mvp4-rules-5"
+RULES_VERSION = "rules-5"
 ROUTE_ORDER = ("H", "N", "U", "S", "X")
 DESCRIBE_STRATEGIES = {"baseline": "{prompt}", "describe_first": _PROMPT_STRATEGIES["describe_first"]}
 
@@ -91,7 +92,7 @@ class Layer:
     served_by: tuple[str, ...] = ()
     case_filter: "Callable[[dict[str, Any]], bool] | None" = None
     filter_note: str = ""
-    source: str = "probing_design_mix.md method table (cold-start prior)"
+    source: str = "cold-start prior (rules.LAYERS)"
 
 
 LAYERS: tuple[Layer, ...] = (
