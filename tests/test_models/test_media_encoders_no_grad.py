@@ -42,11 +42,18 @@ def _inputs():
     return enc
 
 
+def _requires_grad(out) -> bool:
+    """Whether an encoder's output carries a graph: a tensor (transformers 4) or a
+    ``ModelOutput`` / tuple of tensors (transformers 5)."""
+    parts = [out] if torch.is_tensor(out) else list(out.values() if hasattr(out, "values") else out)
+    return any(t.requires_grad for t in parts if torch.is_tensor(t))
+
+
 def _visual_output_requires_grad(module, enc) -> "tuple[bool, bool]":
     """``(the vision tower's output requires grad, the logits do)`` for one forward."""
     seen = []
     (name, visual), = media_encoders(module)
-    handle = visual.register_forward_hook(lambda m, i, out: seen.append(bool(getattr(out, "requires_grad", False))))
+    handle = visual.register_forward_hook(lambda m, i, out: seen.append(_requires_grad(out)))
     try:
         with torch.set_grad_enabled(True):
             out = module(**enc)
