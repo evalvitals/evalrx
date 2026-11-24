@@ -10,6 +10,7 @@ the modality), outputs in ``<run-dir>/<model>/<dataset>[.<tag>]/``.
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 from . import tasks as T  # noqa: E402
 from .models import BACKENDS, MODALITIES, SIZES, default_backend, matrix_text, resolve  # noqa: E402
@@ -188,6 +189,14 @@ def build_parser(p: argparse.ArgumentParser | None = None) -> argparse.ArgumentP
     p.add_argument("--triage-explore-share", type=float, default=0.1,
                    help="triage_active with --triage-scheduler scored: the share of the evidence spending "
                         "exploration may take (0 = none)")
+    p.add_argument("--triage-cost-table", default=None, metavar="JSON",
+                   help="triage_active: fixed prices for the scheduler, {\"axis\": \"wall_sec\", \"steps\": {<step key>: "
+                        "{\"per_case\": <s>, \"fixed\": <s>}}}: per_case is a step's price per case, fixed a one-time "
+                        "price it pays with its first action of a run (a tuned-lens fit). The scored scheduler then "
+                        "prices its candidates, and counts what the evidence and exploration have spent, from the "
+                        "table, so its decisions do not depend on the run's timings; a step the table does not list "
+                        "gets the table's median price. Budgets are still checked against measured spending. "
+                        "Default: costs measured in this run (a repeat may then order its follow-ups differently)")
     p.add_argument("--triage-validate", action=argparse.BooleanOptionalAction, default=False,
                    help="triage_active: freeze the issues the triage report supports and validate them once on "
                         "the CONFIRM cases whose media EXPLORE does not contain (<run>/validation/)")
@@ -282,6 +291,8 @@ def run_args(args) -> int:
     if triage:
         if not 0.0 <= args.triage_explore_share < 1.0:
             raise ValueError("--triage-explore-share must be in [0, 1)")
+        if args.triage_cost_table and not Path(args.triage_cost_table).is_file():
+            raise ValueError(f"--triage-cost-table {args.triage_cost_table}: no such file")
     dataset = args.dataset or T.DEFAULT_TASK[args.modality]
     task = T.get(dataset)
     if task.modality != args.modality:

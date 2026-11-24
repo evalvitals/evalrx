@@ -39,12 +39,14 @@ from evalrx.eval_agent.triage.controller import BATTERY, POLICY_VERSION, run_tri
 from evalrx.eval_agent.triage.partition import explore_confirm_split
 from evalrx.eval_agent.triage.rules import LAYERS, RULES_VERSION
 from evalrx.eval_agent.triage.sampler import SampleDraw, matched_sample
+from evalrx.eval_agent.triage.scoring import CostTable
 
 __all__ = [
     "BATTERY",
     "LAYERS",
     "POLICY_VERSION",
     "RULES_VERSION",
+    "CostTable",
     "Observation",
     "PlanStep",
     "ProbeAction",

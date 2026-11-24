@@ -45,11 +45,23 @@ earns unchunked; C is counted per chunk already.
   counts once, so a resumed run decides the same way); ``ok`` and not refused
   by its own check is a success, and ``unsupported`` (a gate result, filtered
   before scoring) is not an attempt.
-* **c** (marginal cost): the step's own measured cost per case in this run,
-  times the new cases; a step that has not run yet is priced at the run's
-  median cost per case (budget checks use the maximum). There is no
-  per-analyzer prior: measured costs do not transfer across input sizes,
-  models or backends, and a reusable step's first chunk shows its real cost.
+* **c** (marginal cost): with a :class:`CostTable` (``--triage-cost-table``),
+  the table's price: the step's fixed seconds per case times the new cases,
+  plus its one-time cost (a fit, a calibration) while the step has not run in
+  this run; a step the table does not list is priced at the table's median
+  price per case (exploration's share and budget checks use its maximum). What
+  the evidence and exploration have spent is counted in the same prices, so a
+  decision reads no measured time: two runs with the same table, cases and
+  model outputs decide alike whatever the machine's load. Without a table, the
+  step's own measured cost per case in this run, times the new cases; a step
+  that has not run yet is priced at the run's median cost per case (budget
+  checks use the maximum), and its first chunk shows its real cost. Measured
+  costs enter the value and exploration's share, so such a run's decisions
+  depend on its timings: a repeat may order its follow-ups differently. A
+  table is data the host supplies for a model and a backend (costs do not
+  transfer across input sizes, models or backends); the package holds no
+  per-analyzer prior of its own. A budget is a real limit: it is always checked
+  against the measured spending, with the table's price as the estimate.
 
 Candidates are each route's open or stale layers (the layer's next candidate in
 its fallback order, as in the rules), the alternatives of its answered layers,
@@ -61,8 +73,8 @@ layer waits instead of falling back. Unlike the rules, the scored scheduler may
 take a later layer first, and says so when it does.
 
 **Exploration** has a share of the evidence spending (the judge's calls are not
-an opportunity to explore), not of the decisions (a decision may be one
-chunk). It draws from its own targets, the actions the rules and the value
+an opportunity to explore; with a cost table the spending is counted at the
+table's prices), not of the decisions (a decision may be one chunk). It draws from its own targets, the actions the rules and the value
 never take: the next candidate of each route with FAIL cases too few to be
 active (a low-frequency problem), and on each active route the representative
 of every other route's layer (outside the route's method family). A target fits
@@ -78,14 +90,17 @@ and no target fits (the minimum exploration is met).
 
 from __future__ import annotations
 
+import hashlib
+import json
 import random
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from evalrx.eval_agent.triage.actions import OK, UNSUPPORTED, PlanStep
 from evalrx.eval_agent.triage.evidence import StepEvidence
 
-SCORING_VERSION = "score-5"
+SCORING_VERSION = "score-6"
 
 
 @dataclass(frozen=True)
@@ -114,7 +129,8 @@ class Scored:
     cost: "float | None" = None
     gain: float = 0.0
     U: float = 0.0
-    basis: str = ""                    # what the cost rests on: "own" / "typical" / "none"
+    basis: str = ""                    # what the cost rests on: "own" / "typical" / "max" / "none", or the
+                                       # table's "table" / "table+fixed" / "table_typical" / "table_max"
     alternative_to: str = ""           # the step that already answered the layer (an alternative)
     gaps: list[str] = field(default_factory=list)
     units: list[str] = field(default_factory=list)
@@ -171,12 +187,94 @@ def per_case_costs(evidence: dict[str, StepEvidence], axis: str) -> list[float]:
     return list(seen.values())
 
 
+def _costed(obs: Any) -> bool:
+    """An observation that cost something to make: it called the model, or completed without
+    calling it (an audit of stored outputs). A gate result (``unsupported``) is neither."""
+    return bool(((obs.cost or {}).get("calls") or obs.status == OK) and obs.planned_ids)
+
+
+@dataclass(frozen=True)
+class CostTable:
+    """Fixed prices for the scheduler's decisions, on one cost axis.
+
+    ``steps`` maps a step key to ``(per_case, fixed)``: the price of one case, and a one-time
+    price the step pays with its first action of a run (a tuned-lens fit; 0 for most steps).
+    The prices are whatever the host measured once for this model and backend and then froze:
+    a decision made from them does not depend on how long anything took in this run.
+    """
+
+    steps: dict[str, tuple[float, float]]
+    axis: str = "wall_sec"
+    source: Any = None                 # provenance, recorded as given
+    sha1: str = ""
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "CostTable":
+        """``{"axis": "wall_sec", "steps": {key: {"per_case": s, "fixed": s}}, "source": ...}``;
+        ``fixed`` may be left out (0)."""
+        axis = data.get("axis", "wall_sec")
+        if axis not in EPSILON:
+            raise ValueError(f"cost table axis must be one of {sorted(EPSILON)}; got {axis!r}")
+        rows = data.get("steps")
+        if not isinstance(rows, dict) or not rows:
+            raise ValueError("a cost table needs a non-empty 'steps' mapping")
+        steps: dict[str, tuple[float, float]] = {}
+        for key, row in rows.items():
+            if not isinstance(row, dict) or "per_case" not in row:
+                raise ValueError(f"cost table step {key!r} needs a 'per_case' price")
+            per_case, fixed = float(row["per_case"]), float(row.get("fixed") or 0.0)
+            if not (per_case >= 0 and fixed >= 0):   # also refuses NaN
+                raise ValueError(f"cost table step {key!r}: prices must be non-negative numbers")
+            steps[str(key)] = (per_case, fixed)
+        body = json.dumps({"axis": axis, "steps": {k: list(v) for k, v in sorted(steps.items())}}, sort_keys=True)
+        return cls(steps=steps, axis=axis, source=data.get("source"),
+                   sha1=hashlib.sha1(body.encode()).hexdigest()[:16])
+
+    @classmethod
+    def load(cls, path: "str | Path") -> "CostTable":
+        return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
+
+    def unlisted(self, unmeasured: str) -> float:
+        """The price per case of a step the table does not list: the median of its model-calling
+        steps' prices, or their maximum (``unmeasured="max"``), so an unknown tool cannot look cheap."""
+        pool = sorted(per_case for per_case, _ in self.steps.values() if per_case > 0) or [0.0]
+        return pool[-1] if unmeasured == "max" else (pool[(len(pool) - 1) // 2] + pool[len(pool) // 2]) / 2
+
+    def price(self, key: str, n_cases: int, *, first: bool, unmeasured: str = "typical") -> tuple[float, str]:
+        """The price of *key* on *n_cases* cases and its basis; *first* adds the one-time price."""
+        if key not in self.steps:
+            return self.unlisted(unmeasured) * n_cases, f"table_{unmeasured}"
+        per_case, fixed = self.steps[key]
+        if first and fixed:
+            return fixed + per_case * n_cases, "table+fixed"
+        return per_case * n_cases, "table"
+
+    def identity(self) -> dict[str, Any]:
+        return {"sha1": self.sha1, "axis": self.axis, "n_steps": len(self.steps), "source": self.source}
+
+
+def priced(evidence: dict[str, StepEvidence], table: CostTable) -> float:
+    """What the run's evidence costs at the table's prices: every distinct observation that cost
+    something, at its planned cases, and each step's one-time price once. The scheduler's
+    measure of spending when it decides from a table (a read-back counts once, as in ``q``)."""
+    total = 0.0
+    for key, ev in evidence.items():
+        ids = {o.action_id: len(o.planned_ids) for o in ev.chunks if _costed(o)}
+        if ids:
+            total += table.price(key, sum(ids.values()), first=True)[0]
+    return total
+
+
 def step_cost(step: PlanStep, n_cases: int, evidence: dict[str, StepEvidence], axis: str, *,
-              unmeasured: str = "typical") -> "tuple[float | None, str]":
+              unmeasured: str = "typical", table: "CostTable | None" = None) -> "tuple[float | None, str]":
     """Cost of running *step* on *n_cases* new cases, and its basis.
 
-    No analyzer-specific prior: a step that has run in this run is priced at its
-    own measured cost per case (``own``) over every observation that called the
+    With a *table* on this axis, its price (``table``; ``table+fixed`` while the step has not
+    run in this run and has a one-time price; ``table_typical`` / ``table_max`` for a step it
+    does not list): nothing measured is read.
+
+    Without one there is no analyzer-specific prior: a step that has run in this run is priced
+    at its own measured cost per case (``own``) over every observation that called the
     model or completed without calling it (an audit of stored outputs costs what
     it measured: next to nothing). One that has not run is priced at the run's
     ``typical`` (median) cost per case of the model-calling observations when
@@ -184,6 +282,9 @@ def step_cost(step: PlanStep, n_cases: int, evidence: dict[str, StepEvidence], a
     look cheap; ``None`` before anything was measured.
     """
     ev = evidence.get(step.name)
+    if table is not None and table.axis == axis:
+        return table.price(step.name, n_cases, first=not any(_costed(o) for o in (ev.chunks if ev else [])),
+                           unmeasured=unmeasured)
     rows = [(_amount(o.cost, axis), len(o.planned_ids)) for o in (ev.chunks if ev else [])
             if ((o.cost or {}).get("calls") or o.status == OK) and o.planned_ids
             and (o.cost or {}).get(axis) is not None]

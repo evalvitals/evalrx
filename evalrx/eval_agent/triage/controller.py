@@ -141,7 +141,9 @@ from evalrx.eval_agent.triage.rules import (
 )
 from evalrx.eval_agent.triage.sampler import matched_sample, rank
 from evalrx.eval_agent.triage.scoring import (
+    EPSILON,
     SCORING_VERSION,
+    CostTable,
     Scored,
     Weights,
     availability,
@@ -149,6 +151,7 @@ from evalrx.eval_agent.triage.scoring import (
     choose,
     coverage_gain,
     coverage_units,
+    priced,
     public_units,
     step_cost,
     value,
@@ -353,8 +356,9 @@ class _Run:
                  extras: dict[str, dict[str, Any]], task_kind: "str | None", budget_sec: float,
                  price_fn: Any, run_logger: Any, say: Callable[[str], None],
                  per_call_generation: bool = True, budget_usd: float = 0.0, chunk: int = 0,
-                 answer_keyed: bool = True) -> None:
+                 answer_keyed: bool = True, cost_table: "CostTable | None" = None) -> None:
         self.model, self.ledger, self.context, self.extras = model, ledger, context, extras
+        self.cost_table = cost_table   # fixed prices for decisions and estimates (None: measured costs)
         self.answer_keyed = answer_keyed  # the task's outputs commit to a categorical answer
         self.per_call_generation, self.budget_usd, self.chunk = per_call_generation, budget_usd, chunk
         self.task_kind, self.budget_sec, self.price_fn, self.run_logger, self.say = (
@@ -414,13 +418,14 @@ class _Run:
         return ("unsupported", why) if why else None
 
     def estimate_sec(self, step: PlanStep, n_cases: int) -> "float | None":
-        """Seconds a budget check assumes: the step's own cost per case, else the most
-        expensive case measured in this run (``None`` before anything was measured)."""
-        cost, _ = step_cost(step, n_cases, self.evidence, "wall_sec", unmeasured="max")
+        """Seconds a budget check assumes: the cost table's price when it is in seconds; else
+        the step's own cost per case, else the most expensive case measured in this run
+        (``None`` before anything was measured)."""
+        cost, _ = step_cost(step, n_cases, self.evidence, "wall_sec", unmeasured="max", table=self.cost_table)
         return round(cost, 1) if cost is not None else None
 
     def estimate_usd(self, step: PlanStep, n_cases: int) -> "float | None":
-        cost, _ = step_cost(step, n_cases, self.evidence, "usd", unmeasured="max")
+        cost, _ = step_cost(step, n_cases, self.evidence, "usd", unmeasured="max", table=self.cost_table)
         return round(cost, 6) if cost is not None else None
 
     def chunks(self, step: PlanStep, ids: "list[str]") -> "list[list[str]]":
@@ -447,6 +452,14 @@ class _Run:
             for obs in ev.chunks:
                 seen.setdefault(obs.action_id, float((obs.cost or {}).get(axis) or 0.0))
         return sum(seen.values()) + float(self.judge_cost.get(axis) or 0.0)
+
+    def spent(self, axis: str) -> float:
+        """What the scheduler counts as spent on evidence when it decides: with a cost table on
+        this axis, the evidence at the table's prices (nothing measured); else what it was
+        charged, without the judge's calls (they are not an opportunity to explore)."""
+        if self.cost_table is not None and self.cost_table.axis == axis:
+            return priced(self.evidence, self.cost_table)
+        return self.charged(axis) - float(self.judge_cost.get(axis) or 0.0)
 
     def over_budget(self, estimate: "float | None", estimate_usd: "float | None" = None) -> "str | None":
         """Why an action with these estimates may not start (``None`` = it may)."""
@@ -684,6 +697,7 @@ def run_triage(
     budget_usd: float = 0.0,
     chunk: int = 8,
     explainer: "Explainer | None" = None,
+    cost_table: "CostTable | None" = None,
     run_logger: Any = None,
     progress: "Callable[[str], None] | None" = print,
 ) -> dict[str, Any]:
@@ -756,6 +770,12 @@ def run_triage(
                              (at most ``explainer.max_asks`` times, and only while the largest
                              call so far fits the budget); its predictions give each
                              candidate its D. ``None`` = D stays 0.
+        cost_table:          fixed prices per step (:class:`~.scoring.CostTable`): the scored
+                             scheduler's cost of a candidate and its count of what the
+                             evidence and exploration have spent come from the table, so
+                             its decisions do not depend on this run's timings; budget
+                             estimates use it too, against the measured spending. ``None``
+                             = costs measured in this run (decisions then depend on them).
         run_logger:          optional RunLogger for per-call model logs.
     """
     if scheduler not in SCHEDULERS:
@@ -777,7 +797,7 @@ def run_triage(
     run = _Run(model, explore, ledger, context={"policy": POLICY_VERSION, "model": model_identity},
                extras=extras, task_kind=task_kind, budget_sec=budget_sec, price_fn=price_fn,
                run_logger=run_logger, say=say, per_call_generation=per_call_generation, budget_usd=budget_usd,
-               chunk=chunk, answer_keyed=commits_to_answers(explore, answer_fn))
+               chunk=chunk, answer_keyed=commits_to_answers(explore, answer_fn), cost_table=cost_table)
     rank_of = partial(rank, seed)
     triage = partial(triage_cases, host_assumed_finish=host_assumed_finish, answer_contract=answer_contract,
                      n_needs_counterfactual=n_needs_counterfactual, answer_fn=answer_fn, agree_fn=agree_fn,
@@ -1087,7 +1107,8 @@ def run_triage(
             if started:
                 why = (f"completing an exploration that found {', '.join(found)}" if found else
                        f"completing an exploration ({why}); no reading outside its band yet")
-            cost, basis = step_cost(step, len(part), run.evidence, axis, unmeasured="typical" if found else "max")
+            cost, basis = step_cost(step, len(part), run.evidence, axis, unmeasured="typical" if found else "max",
+                                    table=cost_table)
             cand = Scored(kind="extend" if started else "follow_up", key=step.name, route=route,
                           rule_id=layer.rule_id, order=(ROUTE_ORDER.index(route), li), n_new_cases=len(part),
                           T=share if found else 0.0, q=availability(step.analyzer, run.evidence), cost=cost,
@@ -1264,7 +1285,8 @@ def run_triage(
         # route reads it: while an expansion can still follow, running it is wasted. Its
         # layer waits for it (a battery step) rather than falling back to another tool.
         units = coverage_units(states, records, run.evidence, layers, min_cover=min_cover)
-        axis = axis_of(run.evidence)
+        # a cost table sets the axis its prices are on; else USD when every action has a price
+        axis = cost_table.axis if cost_table is not None else axis_of(run.evidence)
         by_id = {r["case_id"]: r for r in records}
         pool: list[Scored] = []
         filtered: list[dict[str, Any]] = []
@@ -1301,7 +1323,7 @@ def run_triage(
                 kind = "extend" if started else ("battery" if battery_step else "follow_up")
                 D, d_detail = (disagreement(route, step.name, live, readings.decidable(route, step.name))
                                if live else (0.0, {}))
-                cost, basis = step_cost(step, len(part), run.evidence, axis)
+                cost, basis = step_cost(step, len(part), run.evidence, axis, table=cost_table)
                 cand = Scored(kind=kind, key=step.name, route=route, rule_id=layer.rule_id,
                               order=(ROUTE_ORDER.index(route), li), n_new_cases=len(part), D=D * share, T=T, C=C,
                               R=R * share, d_detail=d_detail, q=availability(step.analyzer, run.evidence), cost=cost,
@@ -1324,7 +1346,7 @@ def run_triage(
                 steps = [s for s in immediate if run.inapplicable(s) is None]
                 qs = [availability(s.analyzer, run.evidence) for s in steps
                       if any(o.status != "unsupported" for o in run.evidence[s.name].chunks)]
-                costs = [step_cost(s, len(plan[2]), run.evidence, axis)[0] for s in steps]
+                costs = [step_cost(s, len(plan[2]), run.evidence, axis, table=cost_table)[0] for s in steps]
                 cand = Scored(kind="expand", key="expand", rule_id="E1", order=(-1, 0), n_new_cases=len(plan[2]),
                               T=0.5, q=sum(qs) / len(qs) if qs else 0.5,
                               cost=sum(c for c in costs if c is not None) if any(c is not None for c in costs) else None,
@@ -1363,7 +1385,7 @@ def run_triage(
                                                                            outcome_of)
             pool, filtered = pool + completions, filtered + held
             # exploration's share is of the evidence: the judge's calls are not an opportunity to explore
-            spent = run.charged(axis) - float(run.judge_cost.get(axis) or 0.0)
+            spent = run.spent(axis)
             pick, why = choose(pool, decision_no=n_spent(), seed=seed, explore_share=share,
                                explored=explored.get(axis, 0.0), spent=spent, min_gain=min_gain, targets=targets)
             if pick is None:
@@ -1385,6 +1407,7 @@ def run_triage(
             skipped = [c.rule_id for c in pool if why == "best" and pick.route and c.route == pick.route
                        and c.order < pick.order]
             extra = {"choice": why, "scoring_version": SCORING_VERSION, "axis": axis,
+                     "cost_basis": "table" if cost_table is not None else "measured",
                      "U": round(pick.U, 6), "gain": round(pick.gain, 6),
                      "rationale": _scored_rationale(pick, why, explored.get(axis, 0.0), spent, share),
                      **({"alternative_to": pick.alternative_to} if pick.alternative_to else {}),
@@ -1397,12 +1420,15 @@ def run_triage(
                         if current is not None else {}),
                      **({"soft_order_exception": f"{pick.rule_id} taken before open layer(s) {skipped} of route "
                                                  f"{pick.route}: higher value"} if skipped else {})}
-            before = {a: run.charged(a) for a in ("wall_sec", "usd")}
+            def meter(a: str) -> float:   # as the share is checked: the table's prices on its axis
+                return run.spent(a) if cost_table is not None and cost_table.axis == a else run.charged(a)
+
+            before = {a: meter(a) for a in EPSILON}
 
             def account() -> None:   # what an exploration decision spent counts against its share
                 if why == "explore":
                     for a in before:
-                        explored[a] = explored.get(a, 0.0) + run.charged(a) - before[a]
+                        explored[a] = explored.get(a, 0.0) + meter(a) - before[a]
 
             if pick.kind == "expand":
                 cut = do_expand(pick.payload, gaps, extra)
@@ -1527,7 +1553,9 @@ def run_triage(
         "scheduler": scheduler,
         **({"scoring_version": SCORING_VERSION, "weights": weights.__dict__, "explore_share": share,
             "explored": {a: round(v, 6) for a, v in explored.items()},
-            "min_gain": min_gain, "min_cover": min_cover} if scheduler == "scored" else {}),
+            "min_gain": min_gain, "min_cover": min_cover,
+            "cost_basis": "table" if cost_table is not None else "measured"} if scheduler == "scored" else {}),
+        **({"cost_table": cost_table.identity()} if cost_table is not None else {}),
         "rules_version": RULES_VERSION,
         "code": code_version(),
         "model": model_identity,
@@ -1553,6 +1581,7 @@ def run_triage(
                              **({"usd": round(run.charged("usd"), 6)} if budget_usd > 0 else {}),
                              "_note": "evidence at its first execution's cost plus judge calls: what the "
                                       "budgets are checked against"},
+                 **({"table": _table_cost(run, cost_table)} if cost_table is not None else {}),
                  "controller_sec": round(time.monotonic() - started - executed_wall - judge_wall, 3)},
         "coverage": coverage,
         "outcomes": outcomes,
@@ -1568,6 +1597,26 @@ def run_triage(
     _write_json(out / f"{name}.json", report)
     (out / f"{name}.md").write_text(_markdown(report), encoding="utf-8")
     return report
+
+
+def _table_cost(run: _Run, table: CostTable) -> dict[str, Any]:
+    """The evidence at the table's prices beside what it measured, per step: how far the table
+    is from this run (a table from another model, backend or input size shows here)."""
+    steps: dict[str, dict[str, Any]] = {}
+    for key, ev in sorted(run.evidence.items()):
+        seen: dict[str, tuple[int, float]] = {}
+        for obs in ev.chunks:   # the observations ``priced`` counts
+            cost = obs.cost or {}
+            if (cost.get("calls") or obs.status == OK) and obs.planned_ids:
+                seen.setdefault(obs.action_id, (len(obs.planned_ids), float(cost.get(table.axis) or 0.0)))
+        n = sum(k for k, _ in seen.values())
+        if n:
+            price, basis = table.price(key, n, first=True)
+            steps[key] = {"n_cases": n, "priced": round(price, 3), "basis": basis,
+                          "measured": round(sum(c for _, c in seen.values()), 3)}
+    return {"axis": table.axis, "priced": round(priced(run.evidence, table), 3), "steps": steps,
+            "_note": "decisions and exploration's share read 'priced' (the table), never 'measured'; "
+                     "budgets are checked against the measured spending"}
 
 
 def _scored_rationale(pick: Scored, why: str, explored: float, spent: float, share: float) -> str:
@@ -1803,6 +1852,16 @@ def _markdown(report: dict[str, Any]) -> str:
         f"Stopped: {report['stop']['reason']}"
         + (f" ({report['stop'].get('detail') or report['stop'].get('pending')})"
            if report["stop"].get("detail") or report["stop"].get("pending") else "") + ".",
+    ]
+    if report.get("cost_basis") == "table":
+        table = report["cost_table"]
+        lines += ["", f"Decisions priced from cost table `{table['sha1']}` ({table['n_steps']} steps, axis "
+                      f"`{table['axis']}`): {report['cost']['table']['priced']} at its prices, "
+                      f"{report['cost']['charged'].get(table['axis'], '-')} measured."]
+    elif report.get("cost_basis") == "measured":
+        lines += ["", "Decisions priced from this run's measured costs: a repeat may order its follow-ups differently "
+                      "(`--triage-cost-table` fixes the prices)."]
+    lines += [
         "", "## Sample revisions", "",
         "| revision | FAIL | PASS | H (label-free) | N | U | FAIL routes | gaps |", "|---:|---:|---:|---|---|---|---|---|",
     ]

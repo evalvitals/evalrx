@@ -6,6 +6,25 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — fixed prices for the triage scheduler (`--triage-cost-table`)
+
+The scored scheduler priced a candidate from the seconds its own run had
+measured, and gave exploration a share of the measured spending. Two runs of one
+configuration could therefore order their follow-ups differently when their
+timings differed, and freeze different readings. `--triage-cost-table table.json`
+(`run_triage(cost_table=CostTable.load(...))`) gives it fixed prices instead:
+`{"axis": "wall_sec", "steps": {"<step key>": {"per_case": <s>, "fixed": <s>}}}`.
+`per_case` is a step's price per case; `fixed` is a one-time price it pays with
+its first action of a run, so a tuned-lens fit is no longer spread over the
+cases of its first chunk. With a table the scheduler prices every candidate,
+and counts what the evidence and exploration have spent, at the table's prices,
+and reads no measured time when it decides; a step the table does not list gets
+the table's median price per case. Budgets are still checked against the
+measured spending. The report records the table (`cost_table`), each decision's
+`cost_basis`, and the evidence at the table's prices beside what it measured
+(`cost.table`). Without a table nothing changes, and the report says its
+decisions were priced from measured costs. The scoring version is `score-6`.
+
 ### Added — held-out confirmation that respects groups
 
 Rows cut from one underlying item (frames of a clip, one prompt answered by

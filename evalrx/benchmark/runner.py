@@ -749,6 +749,7 @@ def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs:
     DIAGNOSTIC_VALIDATION (``<run>/validation/``).
     """
     from evalrx.eval_agent.triage import explore_confirm_split, run_triage
+    from evalrx.eval_agent.triage.scoring import CostTable
     from evalrx.eval_agent.triage.validation import freeze_issues, partition_bundle, validate
 
     explore, confirm = explore_confirm_split(cases, float(args.confirm_split), CONFIRM_SPLIT_SEED,
@@ -801,6 +802,7 @@ def _run_triage(args, task: T.Task, resolved: Resolved, spec, model, gen_kwargs:
                      **{k: baseline[k] for k in ("api_usage", "usd") if k in baseline}},
         scheduler=args.triage_scheduler, budget_usd=float(args.triage_budget_usd), explainer=explainer,
         explore_share=float(args.triage_explore_share),
+        cost_table=CostTable.load(args.triage_cost_table) if getattr(args, "triage_cost_table", None) else None,
         partition={"confirm_split": float(args.confirm_split), "split_by": args.confirm_split_by,
                    "seed": CONFIRM_SPLIT_SEED,
                    "n_explore": len(explore), "n_confirm": len(confirm) if confirm is not None else 0,
