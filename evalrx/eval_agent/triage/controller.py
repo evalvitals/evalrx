@@ -151,6 +151,7 @@ from evalrx.eval_agent.triage.scoring import (
     choose,
     coverage_gain,
     coverage_units,
+    looked_enough,
     priced,
     public_units,
     step_cost,
@@ -1055,6 +1056,11 @@ def run_triage(
         (the verdicts' 95% interval): the step has found something, and its completion is then an
         incomplete step that T values like any other.
 
+        A begun exploration that has found nothing and has looked enough
+        (``scoring.looked_enough``: measured on enough of the route's FAIL cases, with no reading
+        that could still leave its band on the whole route) is closed: it is no target, and is
+        listed with what the budget filtered out, under its own reason.
+
         Targets: the first open layer's candidate of every route with FAIL cases too few to be
         active (a low-frequency problem the rules do not pursue), and on every active route the
         representative of each other route's layer it does not own (outside its method family),
@@ -1104,6 +1110,13 @@ def run_triage(
             started = (route, step.name) in explored_on
             found = [f"{m.field} {o['observed']}" for m in CARDS.get(step.name, ())
                      if (o := readings(route, step.name, m)).get("observed") in ("up", "down")] if started else []
+            if started and not found:
+                read = [(readings(route, step.name, m), m.band) for m in CARDS.get(step.name, ())]
+                if looked_enough(read, len(fail_ids)):
+                    held_targets.append({"key": step.name, "route": route, "rule_id": layer.rule_id,
+                                         "reason": f"looked enough: measured on {min(o['n'][0] for o, _ in read)} of the route's "
+                                                   f"{len(fail_ids)} FAIL cases, and no reading could leave its band on the rest"})
+                    continue
             if started:
                 why = (f"completing an exploration that found {', '.join(found)}" if found else
                        f"completing an exploration ({why}); no reading outside its band yet")
@@ -1397,6 +1410,9 @@ def run_triage(
                                    if over else f"no candidate reaches the gain floor {min_gain}" if why != "none"
                                    else "no feasible candidate"),
                         "best_gain": max((c.gain for c in pool), default=None), "filtered": filtered,
+                        # what exploration was left with: the targets that did not fit its share, and
+                        # the ones the budget held or that were closed (looked enough)
+                        "explore_targets": [c.row() for c in targets], "explore_filtered": held_targets,
                         "candidates": [c.row() for c in sorted(pool, key=lambda c: (-c.U, c.order))]}
                 break
             if pick.kind != "extend" and n_actions() >= max_actions:
@@ -1414,7 +1430,7 @@ def run_triage(
                      **({"explore_target": pick.note} if why == "explore" and pick.note else {}),
                      "candidates": [c.row() for c in ranked], "filtered": filtered,
                      **({"explore_targets": [c.row() for c in targets], "explore_filtered": held_targets}
-                        if targets else {}),
+                        if targets or held_targets else {}),
                      **({"explanations": {"key": current.key, "revision": current.revision,
                                           "states": {hid: v["state"] for hid, v in verdicts.items()}}}
                         if current is not None else {}),

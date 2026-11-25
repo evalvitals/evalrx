@@ -27,8 +27,10 @@ from evalrx.eval_agent.triage.scoring import (
     availability,
     choose,
     coverage_gain,
+    looked_enough,
     per_case_costs,
     priced,
+    promising,
     step_cost,
 )
 from tests.test_eval_agent.test_triage_expansion import _kw, _pope_like, _Table
@@ -202,6 +204,50 @@ def test_choose_takes_the_best_value_breaks_ties_by_soft_order_explores_within_i
     assert choose([], decision_no=0, explored=0.0, spent=90.0, targets=[target], **kw) == (target, "explore")
     assert choose(low, decision_no=0, explored=0.0, spent=90.0, targets=[target], **kw) == (target, "explore")
     assert choose(pool, decision_no=3, explored=0.0, spent=10.0, targets=[target], **kw)[1] == "best"
+
+
+def test_choose_completes_an_exploration_already_begun_before_it_starts_another():
+    def s(key, kind, cost, order):
+        return Scored(kind=kind, key=key, U=0.0, gain=0.0, order=order, cost=cost)
+
+    new = [s(f"new{i}", "follow_up", 5.0, (0, i)) for i in range(6)]
+    begun = [s("begun_a", "extend", 5.0, (2, 98)), s("begun_b", "extend", 8.0, (2, 99))]
+    kw = dict(seed=0, explore_share=0.1, min_gain=0.01, explored=0.0)
+    # every target fits: the draw is among the two begun, whatever the decision
+    picks = {choose([], decision_no=n, spent=1000.0, targets=new + begun, **kw)[0].key for n in range(40)}
+    assert picks == {"begun_a", "begun_b"}
+    # 6 s of exploration is the most that fits at 54 s spent: begun_b (8 s) does not, begun_a does
+    assert {choose([], decision_no=n, spent=54.0, targets=new + begun, **kw)[0].key for n in range(40)} == {"begun_a"}
+    # no begun exploration fits (both dearer than what is left of the share): a new target starts
+    dear = [s("begun_a", "extend", 50.0, (2, 98)), s("begun_b", "extend", 80.0, (2, 99))]
+    picks = [choose([], decision_no=n, spent=54.0, targets=new + dear, **kw) for n in range(40)]
+    assert {why for _, why in picks} == {"explore"} and {p.key for p, _ in picks} <= {t.key for t in new}
+    assert len({p.key for p, _ in picks}) > 1   # still a draw among the new targets
+
+
+def test_an_exploration_has_looked_enough_when_no_reading_could_leave_its_band_on_the_route():
+    def o(n, diff, half):
+        return {"n": [n, n], "diff": diff, "ci95": [diff - half, diff + half], "observed": "undetermined"}
+
+    # 8 of 40 FAIL cases, difference 0.02 +- 0.30, band 0.1: narrowed to the route the interval is
+    # +- 0.30 * sqrt(8/40) = 0.134 around twice the difference (0.04): its low end -0.094 is not above 0.1
+    flat = o(8, 0.02, 0.30)
+    assert not promising(flat, 0.1, 40) and looked_enough([(flat, 0.1)], 40)
+    # the same sample with a difference of 0.15: 0.30 - 0.134 = 0.166 clears the band, and so does a
+    # negative one below it; as measured (stretch 1) 0.15 - 0.134 does not
+    assert promising(o(8, 0.15, 0.30), 0.1, 40) and promising(o(8, -0.15, 0.30), 0.1, 40)
+    assert not promising(o(8, 0.15, 0.30), 0.1, 40, stretch=1.0)
+    assert not looked_enough([(flat, 0.1), (o(8, 0.15, 0.30), 0.1)], 40)   # one promising reading keeps it open
+    # too few FAIL cases yet, or no interval yet: not looked at
+    assert not looked_enough([(o(4, 0.02, 0.30), 0.1)], 40)
+    assert promising({"n": [1, 1], "observed": "undetermined"}, 0.1, 40)
+    assert not looked_enough([({"n": [9, 9], "observed": "undetermined"}, 0.1)], 40)
+    # a route smaller than the minimum is looked at once it is measured whole; no reading, never closed
+    assert looked_enough([(o(5, 0.0, 0.2), 0.1)], 5) and not looked_enough([(o(4, 0.0, 0.2), 0.1)], 5)
+    assert not looked_enough([], 40)
+    # a larger route narrows the projection: what was closed on 12 FAIL cases is open again on 400
+    edge = o(8, 0.09, 0.40)   # 0.18 - 0.40 * sqrt(8/12) = -0.147 ; 0.18 - 0.40 * sqrt(8/400) = 0.123
+    assert looked_enough([(edge, 0.1)], 12) and not looked_enough([(edge, 0.1)], 400)
 
 
 def test_scored_run_is_traceable_deterministic_on_resume_and_shares_the_sample_with_the_rules(tmp_path):

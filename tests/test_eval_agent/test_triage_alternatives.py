@@ -13,10 +13,12 @@
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
 import evalrx.eval_agent.triage.controller as controller
+import evalrx.eval_agent.triage.scoring as scoring
 from evalrx.eval_agent.triage import LAYERS, run_triage
 from evalrx.eval_agent.triage.actions import PlanStep
 from evalrx.eval_agent.triage.explanations import CARDS, Explainer, Metric
@@ -156,8 +158,44 @@ def test_exploration_takes_its_targets_within_its_share_and_pays_for_completing_
     assert "method family" in on_n[0]["explore_target"]
     assert len(on_n) > 1 and all(d["choice"] == "explore" for d in on_n)
     assert all("no reading outside its band" in d["explore_target"] for d in on_n[1:])
+    # an exploration already begun comes first: a new target starts only when no completion fits,
+    # and a completion no dearer than the target taken would have fitted too
+    for d in explored:
+        if d["kind"] != "extend":
+            mine = next(t for t in d["explore_targets"] if (t["route"], t["key"]) == (d["route"], d["key"]))
+            assert not [t for t in d["explore_targets"] if t["kind"] == "extend" and t["cost"] <= mine["cost"]], d["key"]
+    assert [d for d in explored if d["kind"] == "extend"]
     none = _run(tmp_path / "n", wrappers, explore_share=0.0, chunk=2)
     assert not [d for d in none["decisions"] if d.get("choice") == "explore"] and not none["explored"]
+
+
+def test_an_exploration_that_has_looked_enough_is_closed(tmp_path, monkeypatch, metered):
+    monkeypatch.setitem(CARDS, FIRST.name, (Metric("prompt_sensitivity", "the answer moves with a wrapper", 0.1),))
+    # wrap_a answers an N question; on S (six FAIL cases) it lies outside the route's method family.
+    # The table model ignores wrappers, so the reading shows no difference whatever the cases
+    at = next(i for i, x in enumerate(LAYERS) if x.rule_id == "N3")
+    layers = (*LAYERS[:at], Layer("Z1", "N", "does a wrapper move it", (FIRST,)), *LAYERS[at:])
+
+    def on_s(report):
+        return [d for d in report["decisions"] if (d.get("route"), d.get("key")) == ("S", "wrap_a")]
+
+    def closings(report):
+        return [f["reason"] for d in [*report["decisions"], report["stop"]] for f in d.get("explore_filtered") or []
+                if (f["route"], f["key"]) == ("S", "wrap_a")]
+
+    # a route under the minimum of eight FAIL cases is closed only once its FAIL cases are all measured
+    kept = _run(tmp_path / "k", layers, explore_share=0.3, chunk=1)
+    assert all(re.match(r"looked enough: measured on (\d+) of the route's \1 FAIL", r) for r in closings(kept))
+    assert any("measured on 6 of the route's 6 FAIL" in r for r in closings(kept))   # reopened when S grew from 4
+    # with the minimum at two FAIL cases it stays closed when the route grows: four of six are enough
+    monkeypatch.setattr(scoring, "EXPLORE_MIN_FAIL", 2)
+    report = _run(tmp_path / "c", layers, explore_share=0.3, chunk=1)
+    assert 0 < len(on_s(report)) < len(on_s(kept)) and all(d["choice"] == "explore" for d in on_s(report))
+    assert closings(report)[-1].startswith("looked enough: measured on 4 of the route's 6 FAIL")
+    after = report["decisions"][report["decisions"].index(on_s(report)[-1]) + 1:]
+    assert all(("S", "wrap_a") not in {(t["route"], t["key"]) for t in d.get("explore_targets") or []} for d in after)
+    # the stop says what exploration was left with
+    assert "explore_targets" in report["stop"] and "explore_filtered" in report["stop"]
 
 
 def test_an_exploration_that_finds_something_is_completed_on_value(tmp_path, monkeypatch, metered):

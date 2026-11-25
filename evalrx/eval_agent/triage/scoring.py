@@ -83,7 +83,28 @@ check's), stays within ``explore_share`` of the evidence spent; whenever one
 fits, a seeded draw among them runs instead of the top candidate. Completing a
 target on its route is exploration too, until the cases measured so far show a
 reading outside its band: then the step has found something, and its
-completion is an incomplete step that T values like any other. A gain below
+completion is an incomplete step that T values like any other.
+
+An exploration ends in one of two ways, and until then it comes first: while the
+completion of a begun one fits, the draw is among the completions that fit, and
+a new target starts only when none does (a step needs cases before its reading
+can leave its band; a draw over every target left begun explorations short of
+them when the run stopped). It is handed to the value when it finds something,
+as above. It is *closed* when it has looked enough (:func:`looked_enough`):
+every reading of the step is measured on at least ``EXPLORE_MIN_FAIL`` of the
+route's FAIL cases, and none is *promising* — its interval, narrowed from the
+cases measured to the route's size around ``EXPLORE_STRETCH`` times the
+difference seen, would still not lie outside its band. A closed exploration is
+no target any more (the decision lists it under ``explore_filtered``), and its
+share goes to the next one; it opens again if the route grows enough for the
+projection to change. The projection asks whether measuring the rest of the
+route could change the answer, so it adapts to the route's size and the
+reading's spread where a fixed number of cases cannot: on three scenes' stored
+ledgers, closing at any fixed depth that saved a third of the cases on steps
+with nothing to find also closed 6 of 17 readings that were later validated;
+this rule closed 2. The two constants were chosen on those ledgers.
+
+A gain below
 ``min_gain`` is not worth an action: the run stops once no candidate reaches it
 and no target fits (the minimum exploration is met).
 """
@@ -100,7 +121,7 @@ from typing import Any
 from evalrx.eval_agent.triage.actions import OK, UNSUPPORTED, PlanStep
 from evalrx.eval_agent.triage.evidence import StepEvidence
 
-SCORING_VERSION = "score-6"
+SCORING_VERSION = "score-7"
 
 
 @dataclass(frozen=True)
@@ -348,6 +369,42 @@ def public_units(units: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return {uid: {k: v for k, v in u.items() if not k.startswith("_")} for uid, u in units.items()}
 
 
+# -- exploration: looked enough -----------------------------------------------------------
+
+#: FAIL cases of the route a reading is measured on before its exploration may be closed.
+EXPLORE_MIN_FAIL = 8
+#: How far beyond the difference seen so far an exploration gives a reading the benefit of the doubt.
+EXPLORE_STRETCH = 2.0
+
+
+def promising(outcome: dict[str, Any], band: float, n_route: int, *, stretch: "float | None" = None) -> bool:
+    """Could the reading lie outside its *band* once the step has run on the whole route?
+
+    *outcome* is the reading's FAIL-vs-control difference on the cases measured so far
+    (``explanations.outcome``: ``n``, ``diff``, ``ci95``). Its interval is narrowed from those
+    cases to the route's *n_route* FAIL cases (half-widths times ``sqrt(measured / n_route)``)
+    around *stretch* times the difference: 1 would project the difference as measured, and the
+    default ``EXPLORE_STRETCH`` allows a small sample to have understated it. A reading with no
+    interval yet (too few cases) is promising: it has not been looked at."""
+    if "ci95" not in outcome:
+        return True
+    stretch = EXPLORE_STRETCH if stretch is None else stretch
+    diff, (lo, hi) = float(outcome["diff"]), outcome["ci95"]
+    measured = min(outcome["n"])
+    shrink = (measured / n_route) ** 0.5 if n_route > measured else 1.0
+    return diff * stretch - (diff - lo) * shrink > band or diff * stretch + (hi - diff) * shrink < -band
+
+
+def looked_enough(readings: "list[tuple[dict[str, Any], float]]", n_route: int, *,
+                  min_fail: "int | None" = None, stretch: "float | None" = None) -> bool:
+    """Whether an exploration that has found nothing may be closed: every reading of the step
+    (its outcome so far and its band) is measured on at least *min_fail* FAIL cases and none is
+    :func:`promising` on a route of *n_route* FAIL cases. A step with no reading is never closed."""
+    min_fail = EXPLORE_MIN_FAIL if min_fail is None else min_fail
+    return bool(readings) and all(o["n"][0] >= min(min_fail, n_route) and not promising(o, band, n_route, stretch=stretch)
+                                  for o, band in readings)
+
+
 # -- choosing ------------------------------------------------------------------------------
 
 
@@ -364,13 +421,16 @@ def choose(candidates: list[Scored], *, decision_no: int, seed: int, explore_sha
     *explored* and *spent* are what exploration and the run's evidence have cost so far, on the
     candidates' cost axis. Exploration draws from *targets*, the candidates only it takes: a
     seeded draw among those that keep exploration within *explore_share* of the spending runs
-    instead of the best."""
+    instead of the best. A target of kind ``extend`` completes an exploration already begun on
+    its route; while one of those fits the draw is among them, and a new target starts only
+    when none does."""
     ranked = sorted(candidates, key=lambda s: (-s.U, s.order))
     best = ranked[0] if ranked else None
     others = sorted(targets, key=lambda s: s.order)
     fits = [s for s in others if explored + (s.cost or 0.0) <= explore_share * (spent + (s.cost or 0.0))]
     if explore_share > 0 and fits:
-        return random.Random(f"{seed}:{decision_no}").choice(fits), "explore"
+        begun = [s for s in fits if s.kind == "extend"]
+        return random.Random(f"{seed}:{decision_no}").choice(begun or fits), "explore"
     if best is None:
         return None, "none"
     if best.gain < min_gain:

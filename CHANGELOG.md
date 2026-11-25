@@ -6,6 +6,39 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed — the triage scheduler finishes an exploration: it completes it, or closes it
+
+Exploration drew, at every decision, among all the targets that fitted its share:
+the completion of a step it had already begun on a route and a target it had not
+started were alike, and nothing ended an exploration that found nothing. A begun
+step needs cases before its reading can leave its band and the value takes it
+over, and a run could stop with several explorations begun and none completed: on
+PlotQA a step measured on 16 of a route's 90 cases was left there, and its
+reading is one that runs which happened to complete it found and validated.
+
+Two rules replace the draw over everything. *A begun exploration comes first*:
+while the completion of one fits the share, the draw is among the completions
+that fit, and a new target starts only when none does. *An exploration that has
+looked enough is closed*: every reading of the step is measured on at least 8 of
+the route's FAIL cases (all of them on a smaller route) and none is promising —
+its 95% interval, narrowed from the cases measured to the route's size around
+twice the difference seen, would still not lie outside its band
+(`scoring.looked_enough`, `EXPLORE_MIN_FAIL`, `EXPLORE_STRETCH`). A closed
+exploration is no target any more and its share goes to the next one; it opens
+again if the route grows enough to change the projection. Decisions list it under
+`explore_filtered` with the reason `looked enough: ...`, and the stop record now
+carries `explore_targets` and `explore_filtered` too: what exploration was left
+with.
+
+The first rule alone moved the loss instead of removing it (the share went to the
+first step begun, whatever it showed, and later targets never started). The
+closing rule is a projection and not a fixed number of cases because readings
+that were later validated first left their band anywhere between 4 and 40 FAIL
+cases on three scenes' stored ledgers: a fixed depth that saved a third of the
+cases on steps with nothing to find closed 6 of those 17 readings, and the
+projection closed 2. Its two constants were chosen on those ledgers. The share
+itself, the targets and the stop are unchanged. The scoring version is `score-7`.
+
 ### Added — fixed prices for the triage scheduler (`--triage-cost-table`)
 
 The scored scheduler priced a candidate from the seconds its own run had
