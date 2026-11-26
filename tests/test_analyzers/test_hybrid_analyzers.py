@@ -39,6 +39,8 @@ from evalrx.analyzers._internals.linear_mix import (  # noqa: E402
     delta_rule_relevance,
     linear_media_edit,
     mixing_matrix,
+    prefix_matches,
+    spacing,
 )
 from evalrx.core.capability import Capability  # noqa: E402
 from evalrx.core.case import CaseBatch, FailureCase, Inputs, Label  # noqa: E402
@@ -130,6 +132,37 @@ def test_linear_fidelity_verdict(hybrid):
     verdict = check_linear_fidelity(hybrid, Inputs(prompt="x", image=image(1)), MEDIA)
     assert verdict["linear_faithful"] is True
     assert verdict["linear_layers_engaged"] == verdict["linear_layers_expected"] == 4
+
+
+def test_a_prefix_difference_within_rounding_matches_in_half_precision():
+    """bf16 keeps 8 significant bits: 1% of the largest value is about two spacings there."""
+    assert spacing(3.75, torch.bfloat16) == 2.0 ** -6 and spacing(1.0, torch.float32) == torch.finfo(torch.float32).eps
+    top, diff = 3.75, 0.046875                      # Qwen3.5-9B, bf16: 1.25% of the largest value, 3 spacings
+    assert diff / top > 1e-2
+    assert prefix_matches(diff / top, diff / spacing(top, torch.bfloat16), 1e-2)
+    # the same relative difference in float32 is ~1e5 spacings, and five bf16 spacings are past rounding
+    assert not prefix_matches(diff / top, diff / spacing(top, torch.float32), 1e-2)
+    assert not prefix_matches(5 * 2.0 ** -6 / top, 5.0, 1e-2)
+
+
+@pytest.mark.parametrize(("scale", "faithful"), [(1.005, True), (1.0125, False)])
+def test_linear_fidelity_holds_a_float32_rerun_to_the_tolerance(hybrid, monkeypatch, scale, faithful):
+    """A re-run that is off by more than rounding is refused: in float32 only *rtol* passes it."""
+    inputs = Inputs(prompt="x", image=image(1))
+    seq = _logits(hybrid, inputs).shape[0]
+    mod = next(m for m in decoder_stack(hybrid._loaded[0]).linear if m is not None)
+    real = mod.forward
+
+    def off(*args, **kwargs):
+        hidden = kwargs["hidden_states"] if "hidden_states" in kwargs else args[0]
+        out = real(*args, **kwargs)
+        return out * scale if hidden.shape[1] < seq else out   # the media-absent re-run only
+
+    monkeypatch.setattr(mod, "forward", off)
+    verdict = check_linear_fidelity(hybrid, inputs, MEDIA)
+    assert verdict["linear_faithful"] is faithful
+    assert verdict["linear_prefix_max_spacings"] > verdict["linear_spacings"] == 4.0
+    assert (verdict["linear_prefix_max_rel_diff"] > verdict["linear_rtol"]) is not faithful
 
 
 # ── analyzers on the hybrid stack ─────────────────────────────────────────────

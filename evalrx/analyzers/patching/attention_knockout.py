@@ -65,7 +65,9 @@ class AttentionKnockoutAnalyzer(Analyzer):
                        (Geva's setting); ``"last"`` — only the final position does.
         fidelity_rtol: tolerance of the edit-free tap vs native logits, and of the
                        linear-layer re-run vs the real prefix outputs (relative to
-                       the largest value) before the analyzer refuses.
+                       the largest value) before the analyzer refuses. The linear
+                       check also passes a difference of a few spacings of the
+                       output dtype (rounding in bf16; ``linear_mix.LINEAR_SPACINGS``).
         max_cases:     label-stratified cap; 0 (the default) = every case.
                        Cost: 5 logits-only forwards per case, plus the per-case
                        edit-free self-check (1 tapped forward; +1 media-absent

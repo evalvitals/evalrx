@@ -6,6 +6,30 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed — the linear-layer self-check no longer refuses on bf16 rounding
+
+On a hybrid stack the edit-free self-check re-runs every linear-attention layer on
+the sequence without the media tokens and requires the outputs before the first
+media token to match the real ones within `fidelity_rtol` (1%) of the largest
+value. The re-run is the same computation on a shorter sequence, so it matches to
+rounding, and in bf16 rounding is close to that tolerance: 8 significant bits
+make one spacing 0.39–0.78% of the value, and 1% is 1.3–2.6 spacings. On
+Qwen3.5-9B one POPE case read 1.25% (3 spacings at one layer, a prefix of 4
+tokens), `attention_knockout` reported `unfaithful`, and a triage run dropped the
+step for the whole sample; the same eight cases in float32 read 1e-6 to 6e-6 and
+give the same margins. Qwen3.5-2B stayed under 0.5% in ~2800 checks, so no
+earlier result changes.
+
+A layer now passes when its largest difference is within `fidelity_rtol` of the
+largest prefix output **or** within `LINEAR_SPACINGS` (4) spacings of the output
+dtype at that value (`analyzers/_internals/linear_mix.py`: `spacing`,
+`prefix_matches`). In bf16 that is 1.6–3.1%; in float16 and float32 four spacings
+are below 1% and `fidelity_rtol` decides as before. The tap check on the softmax
+layers is unchanged. The verdict adds `linear_prefix_max_spacings` (per case and
+worst) and `linear_spacings`. Because `analyzers/_internals` is part of every
+tool's version, the action identities of all analyzers change: a run resumed on
+this code measures again instead of reading an older ledger back.
+
 ### Changed — the triage scheduler finishes an exploration: it completes it, or closes it
 
 Exploration drew, at every decision, among all the targets that fitted its share:

@@ -27,7 +27,11 @@ from evalrx.analyzers._internals.attn_tap import (
     knockout,
     reweight,
 )
-from evalrx.analyzers._internals.linear_mix import check_linear_fidelity, linear_media_edit
+from evalrx.analyzers._internals.linear_mix import (
+    LINEAR_SPACINGS,
+    check_linear_fidelity,
+    linear_media_edit,
+)
 
 if TYPE_CHECKING:
     from evalrx.core.model import Model
@@ -77,6 +81,11 @@ class FidelityGate:
     tolerance and varies by input). :meth:`summary` is the analyzer's
     ``tap_fidelity`` finding: the worst case per mechanism plus every check.
 
+    *rtol* is the tolerance of both checks, relative to the largest value. The
+    linear check also passes a difference within ``LINEAR_SPACINGS`` spacings of
+    the output dtype (rounding in half precision, where 1% is about two
+    spacings; :mod:`evalrx.analyzers._internals.linear_mix`).
+
     ``linear=False`` for edits that touch softmax layers only (temperature,
     relevance recording).
     """
@@ -103,7 +112,7 @@ class FidelityGate:
         if self.check_linear:
             lin = check_linear_fidelity(self.model, inputs, media, rtol=self.rtol, analyzer=self.analyzer)
             record.update({k: lin[k] for k in ("linear_faithful", "linear_layers_engaged",
-                                                "linear_prefix_max_rel_diff")})
+                                                "linear_prefix_max_rel_diff", "linear_prefix_max_spacings")})
         record["faithful"] = bool(record.get("tap_faithful", True) and record.get("linear_faithful", True))
         self.checks.append(record)
         if not record["faithful"]:
@@ -114,7 +123,8 @@ class FidelityGate:
                 "transformers attention interface, a logit diff means its attention is not "
                 "eager-equivalent (bf16 sdpa often is not: use attn_impl='eager'); linear: the "
                 "media-absent re-run must engage every linear layer and reproduce the outputs "
-                "before the first media token.",
+                "before the first media token (within rtol, or within linear_spacings spacings "
+                "of the output dtype).",
                 self.summary(),
             )
         return record
@@ -147,8 +157,10 @@ class FidelityGate:
                 "linear_layers_engaged": min((c["linear_layers_engaged"] for c in lins), default=0),
                 "linear_layers_expected": self.n_linear,
                 "linear_prefix_max_rel_diff": worst["linear_prefix_max_rel_diff"] if worst else None,
+                "linear_prefix_max_spacings": max((c["linear_prefix_max_spacings"] for c in lins), default=None),
                 "linear_worst_case": worst["case"] if worst else None,
                 "linear_rtol": self.rtol,
+                "linear_spacings": LINEAR_SPACINGS,
             })
         failed = [c["case"] for c in self.checks if not c["faithful"]]
         if failed:
@@ -177,7 +189,8 @@ def require_edit_fidelity(model: "Model", inputs: Any, media: Iterable[int], *,
             "tap: engaged < expected layers means the architecture bypasses the transformers "
             "attention interface, a logit diff means its attention is not eager-equivalent; "
             "linear: the media-absent re-run must engage every linear layer and reproduce "
-            "the outputs before the first media token.",
+            "the outputs before the first media token (within rtol, or within linear_spacings "
+            "spacings of the output dtype).",
             verdict,
         )
     return verdict

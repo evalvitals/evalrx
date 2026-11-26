@@ -21,7 +21,17 @@ convolution and the recurrence consistent: these layers carry no positional
 encoding, so the shortened sequence is exactly "the media was never there".
 Positions before the first media token are unaffected by causality; the
 re-run's outputs there must match the real ones, which :func:`check_linear_fidelity`
-verifies once per model.
+verifies on every input it is given.
+
+The re-run is the same computation on a shorter sequence, so its floating-point
+operations come in another order and the match is to rounding, not to the bit.
+The check therefore passes a layer whose largest difference is within ``rtol``
+of the largest prefix output OR within :data:`LINEAR_SPACINGS` spacings of the
+output dtype at that value. The second clause is for half precision: bf16 keeps
+8 significant bits, a spacing there is 0.39–0.78% of the value, and a tolerance
+of 1% is 1.3–2.6 spacings — on Qwen3.5-9B one case in ~480 read 3 spacings
+(1.25%) where float32 reads 3e-6 on the same input. In float32 a spacing is
+~1e-7 of the value and ``rtol`` alone decides, as before.
 
 **Relevance** (:func:`delta_rule_relevance`). With q, k, gates and β fixed, the
 delta rule is LINEAR in the values: ``o = A · v`` per head for a data-dependent
@@ -34,6 +44,7 @@ relevance moves at most three tokens through it unaccounted.
 
 from __future__ import annotations
 
+import math
 import sys
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
@@ -46,6 +57,23 @@ from evalrx.analyzers._internals.access import decoder_stack, torch_module
 if TYPE_CHECKING:
     from evalrx.core.model import Model
 
+#: The re-run may differ from the real prefix outputs by this many spacings of the
+#: output dtype at the largest value, whatever ``rtol`` says (see the module text).
+LINEAR_SPACINGS = 4.0
+
+
+def spacing(value: float, dtype: Any) -> float:
+    """The gap between neighbouring *dtype* values at magnitude *value*."""
+    import torch
+
+    info = torch.finfo(dtype)
+    return float(info.eps) * 2.0 ** math.floor(math.log2(max(abs(value), float(info.tiny))))
+
+
+def prefix_matches(rel_diff: float, spacings: float, rtol: float) -> bool:
+    """Does one layer's re-run reproduce the prefix: within *rtol*, or within rounding?"""
+    return rel_diff <= rtol or spacings <= LINEAR_SPACINGS
+
 
 @dataclass
 class LinearEditState:
@@ -53,6 +81,7 @@ class LinearEditState:
 
     calls: "list[int]" = field(default_factory=list)          # layer index per edited call
     prefix_rel_diff: "dict[int, float]" = field(default_factory=dict)  # layer -> max rel diff
+    prefix_spacings: "dict[int, float]" = field(default_factory=dict)  # layer -> the same in dtype spacings
 
 
 def _hidden_arg(args: tuple, kwargs: dict) -> Any:
@@ -107,6 +136,7 @@ def linear_media_edit(
                 ref = output[:, before].float()
                 diff = (absent[:, before].float() - ref).abs().max()
                 state.prefix_rel_diff[layer] = float(diff / ref.abs().max().clamp(min=1e-6))
+                state.prefix_spacings[layer] = float(diff) / spacing(float(ref.abs().max()), output.dtype)
             real, alt = output.index_select(1, tgt).float(), absent.index_select(1, sel).float()
             out = output.clone()
             out[:, tgt] = (alt + weight * (real - alt)).to(output.dtype)
@@ -134,6 +164,9 @@ def check_linear_fidelity(model: "Model", inputs: Any, media: Iterable[int], *,
     The re-run calls ``module.forward`` on a shortened sequence without the
     cache/mask arguments the decoder passed; before the first media token it
     must reproduce the real outputs, or the re-run is not the same computation.
+    A layer reproduces them when its largest difference is within *rtol* of the
+    largest prefix output or within :data:`LINEAR_SPACINGS` spacings of the
+    output dtype there (:func:`prefix_matches`; rounding in half precision).
     Measured on this input and media span every call (one forward), not cached.
     """
     from evalrx.core.capability import Capability
@@ -144,13 +177,16 @@ def check_linear_fidelity(model: "Model", inputs: Any, media: Iterable[int], *,
         model.forward(inputs, capture={Capability.LOGITS})
     engaged = len(set(state.calls))
     worst = max(state.prefix_rel_diff.values(), default=float("nan"))
+    matches = all(prefix_matches(rel, state.prefix_spacings[layer], rtol)
+                  for layer, rel in state.prefix_rel_diff.items())
     return {
-        "linear_faithful": bool(engaged == stack.n_linear and state.prefix_rel_diff
-                                and worst <= rtol),
+        "linear_faithful": bool(engaged == stack.n_linear and state.prefix_rel_diff and matches),
         "linear_layers_engaged": engaged,
         "linear_layers_expected": stack.n_linear,
         "linear_prefix_max_rel_diff": round(worst, 6),
+        "linear_prefix_max_spacings": round(max(state.prefix_spacings.values(), default=float("nan")), 3),
         "linear_rtol": rtol,
+        "linear_spacings": LINEAR_SPACINGS,
     }
 
 
